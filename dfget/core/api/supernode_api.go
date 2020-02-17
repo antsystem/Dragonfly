@@ -38,6 +38,7 @@ const (
 	peerClientErrorPath   = "/peer/piece/error"
 	peerServiceDownPath   = "/peer/service/down"
 	metricsReportPath     = "/task/metrics"
+	fetchP2PNetworkPath   = "/peer/network"
 )
 
 // NewSupernodeAPI creates a new instance of SupernodeAPI with default value.
@@ -57,6 +58,7 @@ type SupernodeAPI interface {
 	ServiceDown(node string, taskID string, cid string) (resp *types.BaseResponse, e error)
 	ReportClientError(node string, req *types.ClientErrorRequest) (resp *types.BaseResponse, e error)
 	ReportMetrics(node string, req *api_types.TaskMetricsRequest) (resp *types.BaseResponse, e error)
+	FetchP2PNetworkInfo(node string, start int, limit int, req *types.FetchP2PNetworkInfoRequest) (resp *types.FetchP2PNetworkInfoResponse, e error)
 }
 
 type supernodeAPI struct {
@@ -190,4 +192,42 @@ func (api *supernodeAPI) get(url string, resp interface{}) error {
 		return fmt.Errorf("%d:%s", code, body)
 	}
 	return json.Unmarshal(body, resp)
+}
+
+// FetchP2PNetworkInfo fetch the p2p network info from supernode.
+// @parameter
+// start: the start index for array of result
+// limit: the limit size of array of result, if -1 means no paging
+func (api *supernodeAPI) FetchP2PNetworkInfo(node string, start int, limit int, req *types.FetchP2PNetworkInfoRequest) (resp *types.FetchP2PNetworkInfoResponse, err error) {
+	var (
+		code int
+		body []byte
+	)
+
+	if start < 0 {
+		start = 0
+	}
+
+	if limit < 0 {
+		limit = -1
+	}
+
+	if limit == 0 {
+		//todo: the page default limit should be configuration item of dfdaemon
+		limit = 500
+	}
+
+	url := fmt.Sprintf("%s://%s%s?start=%d&limt=%d",
+		api.Scheme, node, fetchP2PNetworkPath, start, limit)
+	if code, body, err = api.HTTPClient.PostJSON(url, req, api.Timeout); err != nil {
+		return nil, err
+	}
+	if !httputils.HTTPStatusOk(code) {
+		return nil, fmt.Errorf("%d:%s", code, body)
+	}
+	resp = new(types.FetchP2PNetworkInfoResponse)
+	if err = json.Unmarshal(body, resp); err != nil {
+		return nil, err
+	}
+	return resp, err
 }
