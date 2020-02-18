@@ -17,6 +17,7 @@
 package transport
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"io"
@@ -125,6 +126,14 @@ func WithCondition(c func(r *http.Request) bool) Option {
 // RoundTrip only process first redirect at present
 // fix resource release
 func (roundTripper *DFRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	if req.Header.Get("x-nydus-proxy-healthcheck") != "" {
+		return &http.Response{
+			StatusCode: 200,
+			// add a body with no data
+			Body: ioutil.NopCloser(bytes.NewReader([]byte{})),
+		}, nil
+	}
+
 	if roundTripper.ShouldUseDfget(req) {
 		// delete the Accept-Encoding header to avoid returning the same cached
 		// result for different requests

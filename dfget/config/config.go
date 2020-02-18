@@ -360,7 +360,7 @@ type RuntimeVariable struct {
 	// PeerPort is the TCP port on which the file upload service listens as a peer node.
 	PeerPort int
 
-	// FileLength the length of the file to download.
+	// FileLength the length of the file to download. It may be set if request url with range header
 	FileLength int64
 
 	// DataExpireTime specifies the caching duration for which
@@ -372,6 +372,9 @@ type RuntimeVariable struct {
 	// uploader keeps no accessing by any uploading requests.
 	// After this period, the uploader will automatically exit.
 	ServerAliveTime time.Duration
+
+	// the digest of resource, it could be got from url headers
+	Digest string
 }
 
 func (rv *RuntimeVariable) String() string {

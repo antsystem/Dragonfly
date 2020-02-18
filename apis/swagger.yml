@@ -793,6 +793,18 @@ definitions:
           this field to supernode and supernode can do some checking and filtering via
           black/white list mechanism to guarantee security, or some other purposes like debugging.
         minLength: 1
+      taskId:
+        type: "string"
+        description: |
+          Dfdaemon or dfget could specfic the taskID which will represents the key of this resource
+          in supernode.
+      fileLength:
+        type: "integer"
+        description: |
+          This attribute represents the length of resource, dfdaemon or dfget catches and calculates
+          this parameter from the headers of request URL. If fileLength is vaild, the supernode need
+          not get the length of resource by accessing the rawURL.
+        format: "int64"
 
   PeerCreateRequest:
     type: "object"
@@ -945,6 +957,18 @@ definitions:
           downloads, if there is already a task a.b.com/fileA.
         items:
           type: "string"
+      taskId:
+        type: "string"
+        description: |
+          This attribute represents the digest of resource, dfdaemon or dfget catches this parameter
+          from the headers of request URL. The digest will be considered as the taskID if not null.
+      fileLength:
+        type: "integer"
+        description: |
+          This attribute represents the length of resource, dfdaemon or dfget catches and calculates
+          this parameter from the headers of request URL. If fileLength is vaild, the supernode need
+          not get the length of resource by accessing the rawURL.
+        format: "int64"
       peerID:
         type: "string"
         description: |

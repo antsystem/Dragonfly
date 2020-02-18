@@ -19,9 +19,12 @@ package p2p
 import (
 	"context"
 	"fmt"
+	"github.com/dragonflyoss/Dragonfly/pkg/httputils"
 	"io"
+	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -38,6 +41,11 @@ type DFClient struct {
 	supernodeAPI api.SupernodeAPI
 	register     regist.SupernodeRegister
 	dfClient     core.DFGet
+}
+
+type DigestStruct struct {
+	Digest string
+	httputils.RangeStruct
 }
 
 func (c *DFClient) DownloadContext(ctx context.Context, url string, header map[string][]string, name string) (string, error) {
@@ -104,6 +112,22 @@ func (c *DFClient) doDownload(ctx context.Context, url string, header map[string
 	runtimeConfig.RV.RealTarget = destPath
 	runtimeConfig.RV.TargetDir = filepath.Dir(destPath)
 
+	hr := http.Header(header)
+	if digestHeaderStr := hr.Get(dfgetcfg.StrDigest); digestHeaderStr != "" {
+		ds, err := getDigest(digestHeaderStr)
+		if err != nil {
+			return nil, err
+		}
+
+		// todo: support the merge request
+		if len(ds) != 1 {
+			return nil, fmt.Errorf("no support to merge request")
+		}
+
+		runtimeConfig.RV.Digest = ds[0].Digest
+		runtimeConfig.RV.FileLength = (ds[0].EndIndex - ds[0].StartIndex) + 1
+	}
+
 	return c.dfClient.GetReader(ctx, &runtimeConfig)
 }
 
@@ -131,4 +155,62 @@ func flattenHeader(header map[string][]string) []string {
 		}
 	}
 	return res
+}
+
+func getDigest(digestHeaderStr string) ([]*DigestStruct, error) {
+	var (
+		digest   string
+		rangeStr string
+	)
+
+	// digestHeaderStr looks like "sha256_1:0,1000;sha256_2:1001,2000"
+
+	result := []*DigestStruct{}
+
+	arr := strings.Split(digestHeaderStr, ";")
+	for _, elem := range arr {
+		kv := strings.Split(elem, ":")
+		if len(kv) > 3 || len(kv) < 2 {
+			return nil, fmt.Errorf("%s is not vaild for digestHeader", digestHeaderStr)
+		}
+
+		if len(kv) == 2 {
+			digest = fmt.Sprintf("sha256:%s", kv[0])
+			rangeStr = kv[1]
+		}
+
+		if len(kv) == 3 {
+			digest = fmt.Sprintf("%s:%s", kv[0], kv[1])
+			rangeStr = kv[2]
+		}
+
+		// todo: verify the sha256 string
+
+		rangeIndex := strings.Split(rangeStr, ",")
+		if len(rangeIndex) != 2 {
+			return nil, fmt.Errorf("%s is not vaild for digestHeader", digestHeaderStr)
+		}
+
+		startIndex, err := strconv.ParseInt(rangeIndex[0], 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("%s is not vaild for digestHeader", digestHeaderStr)
+		}
+
+		endIndex, err := strconv.ParseInt(rangeIndex[1], 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("%s is not vaild for digestHeader", digestHeaderStr)
+		}
+
+		ds := &DigestStruct{
+			Digest: digest,
+			RangeStruct: httputils.RangeStruct{
+				StartIndex: startIndex,
+				EndIndex:   endIndex,
+			},
+		}
+
+		result = append(result, ds)
+	}
+
+	return result, nil
 }

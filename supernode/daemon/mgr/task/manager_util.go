@@ -42,7 +42,8 @@ func (tm *Manager) addOrUpdateTask(ctx context.Context, req *types.TaskCreateReq
 	if stringutils.IsEmptyStr(req.TaskURL) {
 		taskURL = netutils.FilterURLParam(req.RawURL, req.Filter)
 	}
-	taskID := generateTaskID(taskURL, req.Md5, req.Identifier, req.Headers)
+	fileLength := req.FileLength
+	taskID := generateTaskID(req.TaskID, taskURL, req.Md5, req.Identifier, req.Headers)
 
 	util.GetLock(taskID, true)
 	defer util.ReleaseLock(taskID, true)
@@ -82,19 +83,24 @@ func (tm *Manager) addOrUpdateTask(ctx context.Context, req *types.TaskCreateReq
 		return task, nil
 	}
 
-	// get fileLength with req.Headers
-	fileLength, err := tm.getHTTPFileLength(taskID, task.RawURL, req.Headers)
-	if err != nil {
-		logrus.Errorf("failed to get file length from http client for taskID(%s): %v", taskID, err)
+	if fileLength == 0 {
+		// get fileLength with req.Headers
+		fl, err := tm.getHTTPFileLength(taskID, task.RawURL, req.Headers)
+		if err != nil {
+			logrus.Errorf("failed to get file length from http client for taskID(%s): %v", taskID, err)
 
-		if errortypes.IsURLNotReachable(err) {
-			tm.taskURLUnReachableStore.Add(taskID, time.Now())
-			return nil, err
+			if errortypes.IsURLNotReachable(err) {
+				tm.taskURLUnReachableStore.Add(taskID, time.Now())
+				return nil, err
+			}
+			if errortypes.IsAuthenticationRequired(err) {
+				return nil, err
+			}
 		}
-		if errortypes.IsAuthenticationRequired(err) {
-			return nil, err
-		}
+
+		fileLength = fl
 	}
+
 	task.HTTPFileLength = fileLength
 	logrus.Infof("get file length %d from http client for taskID(%s)", fileLength, taskID)
 
@@ -104,10 +110,17 @@ func (tm *Manager) addOrUpdateTask(ctx context.Context, req *types.TaskCreateReq
 		task.Headers = req.Headers
 	}
 
-	// calculate piece size and update the PieceSize and PieceTotal
-	pieceSize := computePieceSize(fileLength)
-	task.PieceSize = pieceSize
-	task.PieceTotal = int32((fileLength + (int64(pieceSize) - 1)) / int64(pieceSize))
+	if req.TaskID != "" {
+		// if taskId is set by request, do not divide into pieces.
+		task.PieceTotal = 1
+		task.PieceSize = int32(fileLength)
+
+	} else {
+		// calculate piece size and update the PieceSize and PieceTotal
+		pieceSize := computePieceSize(fileLength)
+		task.PieceSize = pieceSize
+		task.PieceTotal = int32((fileLength + (int64(pieceSize) - 1)) / int64(pieceSize))
+	}
 
 	tm.taskStore.Put(taskID, task)
 	tm.metrics.tasks.WithLabelValues(task.CdnStatus).Inc()
@@ -480,7 +493,11 @@ func validateParams(req *types.TaskCreateRequest) error {
 
 // generateTaskID generates taskID with taskURL,md5 and identifier
 // and returns the SHA-256 checksum of the data.
-func generateTaskID(taskURL, md5, identifier string, header map[string]string) string {
+// if taskId is set by request, set it as taskID.
+func generateTaskID(taskId, taskURL, md5, identifier string, header map[string]string) string {
+	if taskId != "" {
+		return taskId
+	}
 	sign := ""
 	if !stringutils.IsEmptyStr(md5) {
 		sign = md5

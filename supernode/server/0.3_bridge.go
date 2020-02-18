@@ -120,6 +120,8 @@ func (s *Server) registry(ctx context.Context, rw http.ResponseWriter, req *http
 		RawURL:      request.RawURL,
 		TaskURL:     request.TaskURL,
 		SupernodeIP: request.SuperNodeIP,
+		TaskID:      request.TaskID,
+		FileLength:  request.FileLength,
 	}
 	s.originClient.RegisterTLSConfig(taskCreateRequest.RawURL, request.Insecure, request.RootCAs)
 	resp, err := s.TaskMgr.Register(ctx, taskCreateRequest)
