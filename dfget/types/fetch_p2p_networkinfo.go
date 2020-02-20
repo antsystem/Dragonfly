@@ -27,6 +27,10 @@ type FetchP2PNetworkInfoRequest struct {
 // FetchP2PNetworkInfoResponse is send to supernode to fetch p2p network info
 type FetchP2PNetworkInfoResponse struct {
 	*BaseResponse
+	Data *FetchNetworkInfoDataResponse `json:"data,omitempty"`
+}
+
+type FetchNetworkInfoDataResponse struct {
 	Nodes []*Node `json:"nodes"`
 }
 
