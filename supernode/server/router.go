@@ -45,8 +45,10 @@ func initRoute(s *Server) *mux.Router {
 		// v0.3
 		{Method: http.MethodPost, Path: "/peer/registry", HandlerFunc: s.registry},
 		{Method: http.MethodGet, Path: "/peer/task", HandlerFunc: s.pullPieceTask},
+		{Method: http.MethodPost, Path: "/peer/network", HandlerFunc: s.getP2PNetworkInfo},
 		{Method: http.MethodGet, Path: "/peer/piece/suc", HandlerFunc: s.reportPiece},
 		{Method: http.MethodGet, Path: "/peer/service/down", HandlerFunc: s.reportServiceDown},
+		{Method: http.MethodPost, Path: "/peer/heartbeat", HandlerFunc: s.reportPeerHealth},
 		{Method: http.MethodGet, Path: "/peer/piece/error", HandlerFunc: s.reportPieceError},
 
 		// v1
