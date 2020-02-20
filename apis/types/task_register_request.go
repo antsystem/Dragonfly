@@ -41,6 +41,12 @@ type TaskRegisterRequest struct {
 	//
 	Dfdaemon bool `json:"dfdaemon,omitempty"`
 
+	// This attribute represents the length of resource, dfdaemon or dfget catches and calculates
+	// this parameter from the headers of request URL. If fileLength is vaild, the supernode need
+	// not get the length of resource by accessing the rawURL.
+	//
+	FileLength int64 `json:"fileLength,omitempty"`
+
 	// extra HTTP headers sent to the rawURL.
 	// This field is carried with the request to supernode.
 	// Supernode will extract these HTTP headers, and set them in HTTP downloading requests
@@ -96,6 +102,11 @@ type TaskRegisterRequest struct {
 
 	// The address of supernode that the client can connect to
 	SuperNodeIP string `json:"superNodeIp,omitempty"`
+
+	// Dfdaemon or dfget could specfic the taskID which will represents the key of this resource
+	// in supernode.
+	//
+	TaskID string `json:"taskId,omitempty"`
 
 	// taskURL is generated from rawURL. rawURL may contains some queries or parameter, dfget will filter some queries via
 	// --filter parameter of dfget. The usage of it is that different rawURL may generate the same taskID.

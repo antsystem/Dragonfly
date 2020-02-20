@@ -160,6 +160,8 @@ func (s *supernodeRegister) constructRegisterRequest(port int) *types.RegisterRe
 		Headers:    cfg.Header,
 		Dfdaemon:   cfg.DFDaemon,
 		Insecure:   cfg.Insecure,
+		TaskId:     cfg.RV.Digest,
+		FileLength: cfg.RV.FileLength,
 	}
 	if cfg.Md5 != "" {
 		req.Md5 = cfg.Md5

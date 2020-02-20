@@ -28,17 +28,19 @@ type RegisterRequest struct {
 	TaskURL     string   `json:"taskUrl"`
 	Cid         string   `json:"cid"`
 	IP          string   `json:"ip"`
-	HostName    string   `json:"hostName"`
-	Port        int      `json:"port"`
-	Path        string   `json:"path"`
-	Version     string   `json:"version,omitempty"`
-	Md5         string   `json:"md5,omitempty"`
-	Identifier  string   `json:"identifier,omitempty"`
-	CallSystem  string   `json:"callSystem,omitempty"`
-	Headers     []string `json:"headers,omitempty"`
-	Dfdaemon    bool     `json:"dfdaemon,omitempty"`
-	Insecure    bool     `json:"insecure,omitempty"`
-	RootCAs     [][]byte `json:"rootCAs,omitempty"`
+	HostName   string   `json:"hostName"`
+	Port       int      `json:"port"`
+	Path       string   `json:"path"`
+	Version    string   `json:"version,omitempty"`
+	Md5        string   `json:"md5,omitempty"`
+	Identifier string   `json:"identifier,omitempty"`
+	CallSystem string   `json:"callSystem,omitempty"`
+	Headers    []string `json:"headers,omitempty"`
+	Dfdaemon   bool     `json:"dfdaemon,omitempty"`
+	Insecure   bool     `json:"insecure,omitempty"`
+	RootCAs    [][]byte `json:"rootCAs,omitempty"`
+	TaskId     string   `json:"taskId,omitempty"`
+	FileLength int64    `json:"fileLength,omitempty"`
 }
 
 func (r *RegisterRequest) String() string {
