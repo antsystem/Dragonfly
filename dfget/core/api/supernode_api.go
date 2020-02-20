@@ -217,7 +217,7 @@ func (api *supernodeAPI) FetchP2PNetworkInfo(node string, start int, limit int, 
 		limit = 500
 	}
 
-	url := fmt.Sprintf("%s://%s%s?start=%d&limt=%d",
+	url := fmt.Sprintf("%s://%s%s?start=%d&limit=%d",
 		api.Scheme, node, fetchP2PNetworkPath, start, limit)
 	if code, body, err = api.HTTPClient.PostJSON(url, req, api.Timeout); err != nil {
 		return nil, err
