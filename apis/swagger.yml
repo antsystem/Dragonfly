@@ -1379,6 +1379,56 @@ definitions:
         format: "int64"
         description: "The length of the file dfget requests to download in bytes."
 
+  NetworkInfoFetchRequest:
+    type: "object"
+    description: ""
+    properties:
+      urls:
+        type: "array"
+        description: |
+          The urls is to filter the peer node, the url should be match with taskURL in TaskInfo.
+        items:
+          type: "string"
+
+  Extra:
+    type: "object"
+    description: ""
+    properties:
+      site:
+        type: "string"
+      room:
+        type: "string"
+      rack:
+        type: "string"
+      idc:
+        type: "string"
+
+  Node:
+    type: "object"
+    description: ""
+    properties:
+      basic:
+        $ref: "#/definitions/PeerInfo"
+        description: "Basic node info"
+      extra:
+        $ref: "#/definitions/Extra"
+      load:
+        type: "integer"
+        description: "The load of node, which as the schedule weight in peer schedule"
+      tasks:
+        type: "array"
+        items:
+          $ref: "#/definitions/TaskInfo"
+
+  NetworkInfoFetchResponse:
+    type: "object"
+    description: ""
+    properties:
+      nodes:
+        type: "array"
+        items:
+          $ref: "#/definitions/Node"
+
   ErrorResponse:
     type: "object"
     description: |
