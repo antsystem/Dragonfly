@@ -32,6 +32,7 @@ import (
 	"github.com/gorilla/schema"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"strconv"
 )
 
 // RegisterResponseData is the data when registering supernode successfully.
@@ -39,6 +40,7 @@ type RegisterResponseData struct {
 	TaskID     string `json:"taskId"`
 	FileLength int64  `json:"fileLength"`
 	PieceSize  int32  `json:"pieceSize"`
+	AsSeed 	   bool   `json:"asSeed"`
 }
 
 // PullPieceTaskResponseContinueData is the data when successfully pulling piece task
@@ -94,6 +96,36 @@ func (s *Server) registry(ctx context.Context, rw http.ResponseWriter, req *http
 		return errors.Wrap(errortypes.ErrInvalidValue, err.Error())
 	}
 
+	if s.RtTaskMgr.IsRtTask(ctx, request) {
+		responseCode := constants.Success
+		if req.Header.Get("X-report-resource") != "" {
+			resp, err := s.RtTaskMgr.Register(ctx, request)
+			if err != nil {
+				return err
+			}
+			return EncodeResponse(rw, http.StatusOK, &types.ResultInfo{
+				Code: int32(responseCode),
+				Data: &RegisterResponseData{
+					TaskID: resp.TaskID,
+					FileLength: request.FileLength,
+					PieceSize: int32(request.FileLength),
+					AsSeed: resp.AsSeed,
+				},
+			})
+		} else if !s.RtTaskMgr.HasTasks(ctx, request.TaskID) {
+			responseCode = 701
+		}
+		return EncodeResponse(rw, http.StatusOK, &types.ResultInfo{
+			Code: int32(responseCode),
+			Data: &RegisterResponseData{
+				TaskID: request.TaskID,
+				FileLength: request.FileLength,
+				PieceSize: int32(request.FileLength),
+				AsSeed: false,
+			},
+		})
+	}
+
 	peerCreateRequest := &types.PeerCreateRequest{
 		IP:       request.IP,
 		HostName: strfmt.Hostname(request.HostName),
@@ -123,6 +155,7 @@ func (s *Server) registry(ctx context.Context, rw http.ResponseWriter, req *http
 		TaskID:      request.TaskID,
 		FileLength:  request.FileLength,
 	}
+
 	s.originClient.RegisterTLSConfig(taskCreateRequest.RawURL, request.Insecure, request.RootCAs)
 	resp, err := s.TaskMgr.Register(ctx, taskCreateRequest)
 	if err != nil {
@@ -253,6 +286,15 @@ func (s *Server) reportServiceDown(ctx context.Context, rw http.ResponseWriter, 
 	taskID := params.Get("taskId")
 	cID := params.Get("cid")
 
+	if req.Header.Get("X-report-resource") != "" {
+		err := s.RtTaskMgr.DeRegisterTask(ctx, cID, taskID)
+		if err != nil {
+			return err
+		}
+		return EncodeResponse(rw, http.StatusOK, &types.ResultInfo{
+			Code: constants.CodeGetPeerDown,
+		})
+	}
 	// get peerID according to the CID and taskID
 	dfgetTask, err := s.DfgetTaskMgr.Get(ctx, cID, taskID)
 	if err != nil {
@@ -307,4 +349,89 @@ func (s *Server) reportPieceError(ctx context.Context, rw http.ResponseWriter, r
 
 	rw.WriteHeader(http.StatusOK)
 	return nil
+}
+
+func (s *Server) getP2PNetworkInfo(ctx context.Context, rw http.ResponseWriter, req *http.Request) (err error) {
+	request := &types.NetworkInfoFetchRequest{}
+
+	params := req.URL.Query()
+	start, err := strconv.Atoi(params.Get("start"))
+	if err != nil {
+		start = 0
+	}
+	limit, err := strconv.Atoi(params.Get("limit"))
+	if err != nil {
+		limit = 500
+	}
+
+	// parse body, get requested urls
+	if err := json.NewDecoder(req.Body).Decode(request); err != nil {
+		return errors.Wrap(errortypes.ErrInvalidValue, err.Error())
+	}
+	if len(request.Urls) < start {
+		return EncodeResponse(rw, http.StatusOK, types.ResultInfo{
+			Code: 0,
+			Data: &types.NetworkInfoFetchResponse{},
+		})
+	}
+	end := start + limit - 1
+	if end > len(request.Urls) {
+		end = len(request.Urls)
+	}
+	nodes := make(map[string]*types.Node)
+	for _, url := range request.Urls[start:end] {
+		taskIds, err := s.RtTaskMgr.GetTasksByUrl(ctx, url)
+		if err != nil {
+			continue
+		}
+		for _, taskId := range taskIds {
+			tasksInfo, err := s.RtTaskMgr.GetRtTasksInfo(ctx, taskId)
+			if err != nil {
+				continue
+			}
+			for _, taskInfo := range tasksInfo {
+				peer := taskInfo.P2pInfo.PeerInfo
+				node, ok := nodes[peer.ID]
+				if !ok {
+					node = new(types.Node)
+					node.Basic = peer
+					node.Extra = new(types.Extra)
+					node.Load = int64(taskInfo.P2pInfo.Load())
+					nodes[peer.ID] = node
+				}
+				// append tasks
+				node.Tasks = append(node.Tasks, &types.TaskFetchInfo{
+					Task: taskInfo.TaskInfo,
+					Pieces: []*types.PieceInfo{{
+						Path: taskInfo.RequestPath,
+					}},
+				})
+			}
+		}
+
+	}
+	var nodesArray []*types.Node
+
+	for _, node := range nodes {
+		nodesArray = append(nodesArray, node)
+	}
+
+	return EncodeResponse(rw, http.StatusOK, types.ResultInfo{
+		Code: constants.Success,
+		Data: &types.NetworkInfoFetchResponse {
+			Nodes: nodesArray,
+		},
+	})
+}
+
+func (s *Server) reportPeerHealth (ctx context.Context, rw http.ResponseWriter, req *http.Request) error {
+	params := req.URL.Query()
+
+	cid := params.Get("cid")
+	if err := s.RtTaskMgr.ReportPeerHealth(ctx, cid); err != nil {
+		return err
+	}
+	return EncodeResponse(rw, http.StatusOK, types.ResultInfo{
+		Code: constants.Success,
+	})
 }
