@@ -39,6 +39,8 @@ const (
 	peerServiceDownPath   = "/peer/service/down"
 	metricsReportPath     = "/task/metrics"
 	fetchP2PNetworkPath   = "/peer/network"
+	peerReportResource    = "/peer/resource"
+	peerReportResourceDelete = "/peer/resource/delete"
 )
 
 // NewSupernodeAPI creates a new instance of SupernodeAPI with default value.
@@ -59,6 +61,8 @@ type SupernodeAPI interface {
 	ReportClientError(node string, req *types.ClientErrorRequest) (resp *types.BaseResponse, e error)
 	ReportMetrics(node string, req *api_types.TaskMetricsRequest) (resp *types.BaseResponse, e error)
 	FetchP2PNetworkInfo(node string, start int, limit int, req *types.FetchP2PNetworkInfoRequest) (resp *types.FetchP2PNetworkInfoResponse, e error)
+	ReportResource(node string, req *types.RegisterRequest) (resp *types.RegisterResponse, e error)
+	ReportResourceDeleted(node string, taskID string) (resp *types.BaseResponse, e error)
 }
 
 type supernodeAPI struct {
@@ -230,4 +234,39 @@ func (api *supernodeAPI) FetchP2PNetworkInfo(node string, start int, limit int, 
 		return nil, err
 	}
 	return resp, err
+}
+
+func (api *supernodeAPI) ReportResource(node string, req *types.RegisterRequest) (resp *types.RegisterResponse, err error) {
+	var (
+		code int
+		body []byte
+	)
+	url := fmt.Sprintf("%s://%s%s",
+		api.Scheme, node, peerReportResource)
+	if code, body, err = api.HTTPClient.PostJSON(url, req, api.Timeout); err != nil {
+		return nil, err
+	}
+	if !httputils.HTTPStatusOk(code) {
+		return nil, fmt.Errorf("%d:%s", code, body)
+	}
+	resp = new(types.RegisterResponse)
+	if err = json.Unmarshal(body, resp); err != nil {
+		return nil, err
+	}
+	return resp, err
+}
+
+func (api *supernodeAPI) ReportResourceDeleted(node string, taskID string, cid string) (resp *types.BaseResponse, err error) {
+	url := fmt.Sprintf("%s://%s%s?taskId=%s&cid=%s",
+		api.Scheme, node, peerReportResourceDelete, taskID, cid)
+
+	resp = new(types.BaseResponse)
+	if err = api.get(url, resp); err != nil {
+		logrus.Errorf("failed to send resource delete,err: %v", err)
+		return nil, err
+	}
+	if resp.Code != constants.Success {
+		logrus.Errorf("failed to send send resource delete to supernode: api response code is %d not equal to %d", resp.Code, constants.Success)
+	}
+	return
 }

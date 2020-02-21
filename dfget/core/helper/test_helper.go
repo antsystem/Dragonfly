@@ -17,7 +17,9 @@
 package helper
 
 import (
+	"encoding/json"
 	"fmt"
+	"github.com/dragonflyoss/Dragonfly/pkg/httputils"
 	"io"
 	"io/ioutil"
 	"math/rand"
@@ -178,6 +180,14 @@ func (m *MockSupernodeAPI) ReportMetrics(ip string, req *api_types.TaskMetricsRe
 }
 
 func (m *MockSupernodeAPI) FetchP2PNetworkInfo(node string, start int, limit int, req *types.FetchP2PNetworkInfoRequest) (resp *types.FetchP2PNetworkInfoResponse, e error) {
+	return nil, nil
+}
+
+func (api *MockSupernodeAPI) ReportResource(node string, req *types.RegisterRequest) (resp *types.RegisterResponse, err error) {
+	return nil, nil
+}
+
+func (api *MockSupernodeAPI) ReportResourceDeleted(node string, taskID string, cid string) (resp *types.BaseResponse, err error) {
 	return nil, nil
 }
 
