@@ -177,6 +177,10 @@ func (m *MockSupernodeAPI) ReportMetrics(ip string, req *api_types.TaskMetricsRe
 	return nil, nil
 }
 
+func (m *MockSupernodeAPI) FetchP2PNetworkInfo(node string, start int, limit int, req *types.FetchP2PNetworkInfoRequest) (resp *types.FetchP2PNetworkInfoResponse, e error) {
+	return nil, nil
+}
+
 // CreateRegisterFunc creates a mock register function.
 func CreateRegisterFunc() RegisterFuncType {
 	var newResponse = func(code int, msg string) *types.RegisterResponse {
