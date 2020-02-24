@@ -33,6 +33,9 @@ func NewLocalManager() *LocalManager {
 
 //
 func (lm *LocalManager) DownloadStreamContext(ctx context.Context, url string, header map[string][]string, name string) (io.Reader, error) {
+
+	defer lm.rm.addRequest(url)
+
 	// firstly, try to download direct from source url
 	directDownload, err := lm.isDownloadDirectReturnSrc(ctx, url)
 	if err != nil {
@@ -44,6 +47,16 @@ func (lm *LocalManager) DownloadStreamContext(ctx context.Context, url string, h
 	}
 
 	// download from peer by internal schedule
+	taskID := lm.getDigestFromHeader(url, header)
+	if taskID != "" {
+		// local schedule
+		result, err := lm.sm.SchedulerByTaskID(ctx, taskID, lm.dfGetConfig.RV.Cid, "", 0)
+		if err == nil {
+
+		}
+	}
+
+	// try to schedule by super node
 
 
 	return nil, nil
@@ -67,27 +80,42 @@ func (lm *LocalManager) downloadDirectReturnSrc(ctx context.Context, url string,
 
 }
 
-func (lm *LocalManager) schedulePeerNode(ctx context.Context, url string, header map[string][]string) (*types2.PeerInfo, ) {
-
-}
-
 // downloadFromPeer download file from peer node.
 // param:
 // 	taskFileName: target file name
 func (lm *LocalManager) downloadFromPeer(peer *types2.PeerInfo, taskFileName string) (io.Reader, error) {
-
+	lm.downloadAPI.Download(peer.IP, peer.Port, &api.DownloadRequest{Path: taskFileName, })
 }
 
-func (lm *LocalManager)  {
+func (lm *LocalManager) getDigestFromHeader(url string, header map[string][]string) string {
+	hr := http.Header(header)
+	if digestHeaderStr := hr.Get(dfgetcfg.StrDigest); digestHeaderStr != "" {
+		ds, err := p2p.GetDigestFromHeader(digestHeaderStr)
+		if err != nil {
+			return ""
+		}
 
+		// todo: support the merge request
+		if len(ds) != 1 {
+			return ""
+		}
+
+		return ds[0].Digest
+	}
 }
 
-// sync p2p network， this function should called by
+// sync p2p network，this function should called by
 func (lm *LocalManager) syncP2PNetworkInfo(urls []string) {
+	nodes, err := lm.fetchP2PNetworkInfo(urls)
+	if err != nil {
+		logrus.Errorf("failed to fetchP2PNetworkInfo: %v", err)
+		return
+	}
 
+	lm.sm.SyncSchedulerInfo(nodes)
 }
 
-func (lm *LocalManager) fetchP2PNetworkInfo(urls []string) ([]*types.Node, error) {
+func (lm *LocalManager) fetchP2PNetworkInfo(urls []string) ([]*types2.Node, error) {
 	req := &types.FetchP2PNetworkInfoRequest{
 		Urls: urls,
 	}
@@ -104,13 +132,13 @@ func (lm *LocalManager) fetchP2PNetworkInfo(urls []string) ([]*types.Node, error
 	return nil, nil
 }
 
-func (lm *LocalManager) fetchP2PNetworkFromSupernode(node string, req *types.FetchP2PNetworkInfoRequest) ([]*types.Node, error) {
+func (lm *LocalManager) fetchP2PNetworkFromSupernode(node string, req *types.FetchP2PNetworkInfoRequest) ([]*types2.Node, error) {
 	var(
 		start int = 0
 		limit int =100
 	)
 
-	result := []*types.Node{}
+	result := []*types2.Node{}
 	for {
 		resp, err := lm.supernodeAPI.FetchP2PNetworkInfo(node, start, limit, req)
 		if err != nil {

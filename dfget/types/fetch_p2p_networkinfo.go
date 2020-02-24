@@ -31,23 +31,6 @@ type FetchP2PNetworkInfoResponse struct {
 }
 
 type FetchNetworkInfoDataResponse struct {
-	Nodes []*Node `json:"nodes"`
+	Nodes []*types.Node `json:"nodes"`
 }
 
-type Node struct {
-	// basic node info
-	Basic *types.PeerInfo `json:"basic"`
-	// extra node info
-	Extra *Extra `json:"extra"`
-	// the load of node, which as the schedule weight in peer schedule
-	Load int `json:"load"`
-	// the tasks in the peer node
-	Tasks []*types.TaskInfo `json:"tasks"`
-}
-
-type Extra struct {
-	Site string `json:"site"`
-	Rack string `json:"rack"`
-	Room string `json:"room"`
-	Idc  string `json:"idc"`
-}

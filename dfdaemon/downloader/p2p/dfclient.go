@@ -114,7 +114,7 @@ func (c *DFClient) doDownload(ctx context.Context, url string, header map[string
 
 	hr := http.Header(header)
 	if digestHeaderStr := hr.Get(dfgetcfg.StrDigest); digestHeaderStr != "" {
-		ds, err := getDigest(digestHeaderStr)
+		ds, err := GetDigestFromHeader(digestHeaderStr)
 		if err != nil {
 			return nil, err
 		}
@@ -157,7 +157,7 @@ func flattenHeader(header map[string][]string) []string {
 	return res
 }
 
-func getDigest(digestHeaderStr string) ([]*DigestStruct, error) {
+func GetDigestFromHeader(digestHeaderStr string) ([]*DigestStruct, error) {
 	var (
 		digest   string
 		rangeStr string

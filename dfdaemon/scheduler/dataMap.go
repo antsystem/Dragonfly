@@ -1,12 +1,13 @@
 package scheduler
 
 import (
-	"github.com/pkg/errors"
-	"github.com/sirupsen/logrus"
-
+	"github.com/dragonflyoss/Dragonfly/apis/types"
 	"github.com/dragonflyoss/Dragonfly/pkg/errortypes"
 	"github.com/dragonflyoss/Dragonfly/pkg/stringutils"
 	"github.com/dragonflyoss/Dragonfly/pkg/syncmap"
+	"github.com/pkg/errors"
+
+
 )
 
 type dataMap struct {
@@ -34,10 +35,27 @@ func (dm *dataMap) getAsTaskState(key string) (*taskState, error) {
 
 	v, err := dm.Get(key)
 	if err != nil {
-		return nil, errors.Wrapf(err, "key %s", key)
+		return nil, err
 	}
 
 	if ts, ok := v.(*taskState); ok {
+		return ts, nil
+	}
+
+	return nil, errors.Wrapf(errortypes.ErrConvertFailed, "key %s: %v", key, v)
+}
+
+func (dm *dataMap) getAsNode(key string) (*types.Node, error) {
+	if stringutils.IsEmptyStr(key) {
+		return nil, errors.Wrap(errortypes.ErrEmptyValue, "taskID")
+	}
+
+	v, err := dm.Get(key)
+	if err != nil {
+		return nil, err
+	}
+
+	if ts, ok := v.(*types.Node); ok {
 		return ts, nil
 	}
 
