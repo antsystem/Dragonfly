@@ -3,6 +3,7 @@ package localManager
 import (
 	"context"
 	"fmt"
+	types2 "github.com/dragonflyoss/Dragonfly/apis/types"
 	"github.com/dragonflyoss/Dragonfly/dfdaemon/downloader/p2p"
 	"github.com/dragonflyoss/Dragonfly/dfdaemon/scheduler"
 	"github.com/dragonflyoss/Dragonfly/dfget/core/api"
@@ -11,6 +12,8 @@ import (
 	"github.com/dragonflyoss/Dragonfly/pkg/errortypes"
 	"io"
 	"net/http"
+
+	"github.com/sirupsen/logrus"
 )
 
 // LocalManager will handle all the request, it will
@@ -18,14 +21,29 @@ type LocalManager struct {
 	client 	*p2p.DFClient
 	sm 		*scheduler.SchedulerManager
 	supernodeAPI api.SupernodeAPI
+	downloadAPI  api.DownloadAPI
 	dfGetConfig  *dfgetcfg.Config
 
 	rm		 *requestManager
 }
 
+func NewLocalManager() *LocalManager {
+	return &LocalManager{}
+}
 
 //
 func (lm *LocalManager) DownloadStreamContext(ctx context.Context, url string, header map[string][]string, name string) (io.Reader, error) {
+	// firstly, try to download direct from source url
+	directDownload, err := lm.isDownloadDirectReturnSrc(ctx, url)
+	if err != nil {
+		logrus.Error(err)
+	}
+
+	if directDownload {
+		return lm.downloadDirectReturnSrc(ctx, url, header)
+	}
+
+	// download from peer by internal schedule
 
 
 	return nil, nil
@@ -44,7 +62,23 @@ func (lm *LocalManager) isDownloadDirectReturnSrc(ctx context.Context, url strin
 	return rs.needReturnSrc(), nil
 }
 
-func (lm *LocalManager) downloadDirectReturnSrc(url string, header map[string][]string) (io.Reader, error) {
+// downloadDirectReturnSrc download file from source url
+func (lm *LocalManager) downloadDirectReturnSrc(ctx context.Context, url string, header map[string][]string) (io.Reader, error) {
+
+}
+
+func (lm *LocalManager) schedulePeerNode(ctx context.Context, url string, header map[string][]string) (*types2.PeerInfo, ) {
+
+}
+
+// downloadFromPeer download file from peer node.
+// param:
+// 	taskFileName: target file name
+func (lm *LocalManager) downloadFromPeer(peer *types2.PeerInfo, taskFileName string) (io.Reader, error) {
+
+}
+
+func (lm *LocalManager)  {
 
 }
 

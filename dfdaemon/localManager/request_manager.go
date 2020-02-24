@@ -1,7 +1,6 @@
 package localManager
 
 import (
-	"fmt"
 	"github.com/dragonflyoss/Dragonfly/pkg/errortypes"
 	"github.com/pkg/errors"
 )
