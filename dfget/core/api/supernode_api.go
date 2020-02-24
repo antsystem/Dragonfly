@@ -39,8 +39,6 @@ const (
 	peerServiceDownPath   = "/peer/service/down"
 	metricsReportPath     = "/task/metrics"
 	fetchP2PNetworkPath   = "/peer/network"
-	peerReportResource    = "/peer/resource"
-	peerReportResourceDelete = "/peer/resource/delete"
 )
 
 // NewSupernodeAPI creates a new instance of SupernodeAPI with default value.
@@ -62,7 +60,7 @@ type SupernodeAPI interface {
 	ReportMetrics(node string, req *api_types.TaskMetricsRequest) (resp *types.BaseResponse, e error)
 	FetchP2PNetworkInfo(node string, start int, limit int, req *types.FetchP2PNetworkInfoRequest) (resp *types.FetchP2PNetworkInfoResponse, e error)
 	ReportResource(node string, req *types.RegisterRequest) (resp *types.RegisterResponse, e error)
-	ReportResourceDeleted(node string, taskID string) (resp *types.BaseResponse, e error)
+	ReportResourceDeleted(node string, taskID string, cid string) (resp *types.BaseResponse, e error)
 }
 
 type supernodeAPI struct {
@@ -198,6 +196,24 @@ func (api *supernodeAPI) get(url string, resp interface{}) error {
 	return json.Unmarshal(body, resp)
 }
 
+func (api *supernodeAPI) getWithHeaders(url string, headers map[string]string, resp interface{}) error {
+	var (
+		code int
+		body []byte
+		e    error
+	)
+	if url == "" {
+		return fmt.Errorf("invalid url")
+	}
+	if code, body, e = api.HTTPClient.GetWithHeaders(url, headers, api.Timeout); e != nil {
+		return e
+	}
+	if !httputils.HTTPStatusOk(code) {
+		return fmt.Errorf("%d:%s", code, body)
+	}
+	return json.Unmarshal(body, resp)
+}
+
 // FetchP2PNetworkInfo fetch the p2p network info from supernode.
 // @parameter
 // start: the start index for array of result
@@ -242,8 +258,11 @@ func (api *supernodeAPI) ReportResource(node string, req *types.RegisterRequest)
 		body []byte
 	)
 	url := fmt.Sprintf("%s://%s%s",
-		api.Scheme, node, peerReportResource)
-	if code, body, err = api.HTTPClient.PostJSON(url, req, api.Timeout); err != nil {
+		api.Scheme, node, peerPullPieceTaskPath)
+	header := map[string]string{
+		"X-report-resource": "true",
+	}
+	if code, body, err = api.HTTPClient.PostJSONWithHeaders(url, header, req, api.Timeout); err != nil {
 		return nil, err
 	}
 	if !httputils.HTTPStatusOk(code) {
@@ -258,10 +277,14 @@ func (api *supernodeAPI) ReportResource(node string, req *types.RegisterRequest)
 
 func (api *supernodeAPI) ReportResourceDeleted(node string, taskID string, cid string) (resp *types.BaseResponse, err error) {
 	url := fmt.Sprintf("%s://%s%s?taskId=%s&cid=%s",
-		api.Scheme, node, peerReportResourceDelete, taskID, cid)
+		api.Scheme, node, peerServiceDownPath, taskID, cid)
+
+	header := map[string]string{
+		"X-report-resource": "true",
+	}
 
 	resp = new(types.BaseResponse)
-	if err = api.get(url, resp); err != nil {
+	if err = api.getWithHeaders(url, header, resp); err != nil {
 		logrus.Errorf("failed to send resource delete,err: %v", err)
 		return nil, err
 	}

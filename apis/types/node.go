@@ -28,7 +28,7 @@ type Node struct {
 	Load int64 `json:"load,omitempty"`
 
 	// tasks
-	Tasks []*TaskInfo `json:"tasks"`
+	Tasks []*TaskFetchInfo `json:"tasks"`
 }
 
 // Validate validates this node

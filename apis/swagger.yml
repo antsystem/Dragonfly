@@ -1403,6 +1403,18 @@ definitions:
       idc:
         type: "string"
 
+  TaskFetchInfo:
+    type: "object"
+    description: ""
+    properties:
+      task:
+        $ref: "#/definitions/TaskInfo"
+      pieces:
+        type: "array"
+        description: "The pieces which should belong to the peer node"
+        items:
+          $ref: "#/definitions/PieceInfo"
+
   Node:
     type: "object"
     description: ""
@@ -1418,7 +1430,7 @@ definitions:
       tasks:
         type: "array"
         items:
-          $ref: "#/definitions/TaskInfo"
+          $ref: "#/definitions/TaskFetchInfo"
 
   NetworkInfoFetchResponse:
     type: "object"
