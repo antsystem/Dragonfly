@@ -44,6 +44,7 @@ func NewLocalManager(cfg config.DFGetConfig) *LocalManager {
 		cfg: cfg,
 	}
 
+	go lm.fetchLoop(context.Background())
 	return lm
 }
 
@@ -263,6 +264,10 @@ func (lm *LocalManager) getLengthFromHeader(url string, header map[string][]stri
 
 // sync p2p network，this function should called by
 func (lm *LocalManager) syncP2PNetworkInfo(urls []string) {
+	if len(urls) == 0 {
+		logrus.Infof("no urls to syncP2PNetworkInfo")
+		return
+	}
 	nodes, err := lm.fetchP2PNetworkInfo(urls)
 	if err != nil {
 		logrus.Errorf("failed to fetchP2PNetworkInfo: %v", err)
@@ -270,6 +275,7 @@ func (lm *LocalManager) syncP2PNetworkInfo(urls []string) {
 	}
 
 	lm.sm.SyncSchedulerInfo(nodes)
+	logrus.Infof("success to sync schedule info")
 }
 
 func (lm *LocalManager) fetchP2PNetworkInfo(urls []string) ([]*types2.Node, error) {

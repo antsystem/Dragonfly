@@ -242,6 +242,9 @@ func (api *supernodeAPI) FetchP2PNetworkInfo(node string, start int, limit int, 
 	if code, body, err = api.HTTPClient.PostJSON(url, req, api.Timeout); err != nil {
 		return nil, err
 	}
+
+	logrus.Infof("in FetchP2PNetworkInfo, resp code: %d, body: %s", code, string(body))
+
 	if !httputils.HTTPStatusOk(code) {
 		return nil, fmt.Errorf("%d:%s", code, body)
 	}
