@@ -80,8 +80,9 @@ func (s *supernodeRegister) Register(peerPort int) (*RegisterResult, *errortypes
 			logrus.Errorf("register to node:%s error:%v", nodes[i], e)
 			continue
 		}
+
 		if resp.Code == constants.Success || resp.Code == constants.CodeNeedAuth ||
-			resp.Code == constants.CodeURLNotReachable {
+			resp.Code == constants.CodeURLNotReachable || resp.Code == constants.CodeNOURL {
 			break
 		}
 		if resp.Code == constants.CodeWaitAuth && retryTimes < 3 {

@@ -176,6 +176,11 @@ func registerToSuperNode(cfg *config.Config, register regist.SupernodeRegister) 
 		if e.Code == constants.CodeNeedAuth {
 			return nil, e
 		}
+
+		if e.Code == constants.CodeNOURL {
+			return nil, e
+		}
+
 		cfg.BackSourceReason = config.BackSourceReasonRegisterFail
 		panic(e.Error())
 	}

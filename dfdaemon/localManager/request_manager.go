@@ -3,6 +3,7 @@ package localManager
 import (
 	"github.com/dragonflyoss/Dragonfly/pkg/errortypes"
 	"github.com/pkg/errors"
+	"time"
 )
 
 // requestManager manage the recent the requests, it provides the
@@ -16,7 +17,7 @@ func newRequestManager() *requestManager {
 	}
 }
 
-func (rm *requestManager) addRequest(url string) error {
+func (rm *requestManager) addRequest(url string, directReturnSrc bool) error {
 	data, err := rm.q.getItemByKey(url)
 	if err != nil && err != errortypes.ErrDataNotFound {
 		return err
@@ -24,7 +25,7 @@ func (rm *requestManager) addRequest(url string) error {
 
 	var rs *requestState = nil
 	if err == errortypes.ErrDataNotFound {
-		rs = newRequestState(url)
+		rs = newRequestState(url, directReturnSrc)
 	}else {
 		ors, ok := data.(*requestState)
 		if !ok {
@@ -32,6 +33,12 @@ func (rm *requestManager) addRequest(url string) error {
 		}
 
 		rs = ors.copy()
+		rs.updateRecentTime()
+		// if directReturnSrc == true, update first time to extend the returnSrc time interval
+		if directReturnSrc {
+			rs.directReturnSrc = directReturnSrc
+			rs.firstTime = time.Now()
+		}
 	}
 
 	rs.updateRecentTime()

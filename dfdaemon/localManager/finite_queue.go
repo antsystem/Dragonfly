@@ -62,7 +62,29 @@ func (q *finiteQueue) putFront(key string, data interface{}) {
 
 // getFront will get several item from front and not poll out them.
 func (q *finiteQueue) getFront(count int) []interface{} {
+	q.Lock()
+	defer q.Unlock()
 
+	if q.head == nil {
+		return nil
+	}
+
+	result := make([]interface{}, count)
+	item := q.head
+	index := 0
+	for{
+		item := item.next
+		result[index] = item.data
+		index ++
+		if index >= count {
+			break
+		}
+		if item == q.tail {
+			break
+		}
+	}
+
+	return result[:index]
 }
 
 func (q *finiteQueue) getItemByKey(key string) (interface{}, error) {

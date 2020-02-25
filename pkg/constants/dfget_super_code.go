@@ -74,6 +74,8 @@ const (
 	CodeSourceError     = 610
 	CodeGetPieceReport  = 611
 	CodeGetPeerDown     = 612
+
+	CodeNOURL			= 700
 )
 
 /* the code of task result that dfget will report to supernode */

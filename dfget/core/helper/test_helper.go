@@ -17,9 +17,7 @@
 package helper
 
 import (
-	"encoding/json"
 	"fmt"
-	"github.com/dragonflyoss/Dragonfly/pkg/httputils"
 	"io"
 	"io/ioutil"
 	"math/rand"

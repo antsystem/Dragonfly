@@ -22,12 +22,12 @@ type requestState struct {
 	returnSrcInterval	time.Duration
 }
 
-func newRequestState(url string) *requestState {
+func newRequestState(url string, directReturnSrc bool) *requestState {
 	return &requestState{
 		url: url,
 		firstTime: time.Now(),
 		recentTime: time.Now(),
-		directReturnSrc: false,
+		directReturnSrc: directReturnSrc,
 		returnSrcInterval: defaultReturnSrcInterval,
 	}
 }
@@ -44,6 +44,9 @@ func (rs *requestState) copy() *requestState {
 
 func (rs *requestState) updateRecentTime() {
 	rs.recentTime = time.Now()
+	if rs.directReturnSrc && rs.firstTime.Add(rs.returnSrcInterval).Before(time.Now()) {
+		rs.directReturnSrc = false
+	}
 }
 
 func (rs *requestState) needReturnSrc() bool {

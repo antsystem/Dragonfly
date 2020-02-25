@@ -10,6 +10,7 @@ import (
 	"github.com/dragonflyoss/Dragonfly/dfget/core/api"
 	dfgetcfg "github.com/dragonflyoss/Dragonfly/dfget/config"
 	"github.com/dragonflyoss/Dragonfly/dfget/types"
+	"github.com/dragonflyoss/Dragonfly/pkg/constants"
 	"github.com/dragonflyoss/Dragonfly/pkg/errortypes"
 	"github.com/dragonflyoss/Dragonfly/pkg/httputils"
 	"io"
@@ -83,7 +84,7 @@ func (lm *LocalManager) DownloadStreamContext(ctx context.Context, url string, h
 		localDownloader  *LocalDownloader
 	)
 
-	defer lm.rm.addRequest(url)
+	defer lm.rm.addRequest(url, false)
 
 	taskID := lm.getDigestFromHeader(url, header)
 	length := lm.getLengthFromHeader(url, header)
@@ -144,7 +145,23 @@ localDownload:
 	// try to schedule by super node
 superNodeSchedule:
 
-	return lm.scheduleBySuperNode(ctx, url, header, name)
+	rd, err = lm.scheduleBySuperNode(ctx, url, header, name)
+	if err  == nil {
+		return rd, nil
+	}
+
+	dferr, ok := err.(*errortypes.DfError)
+	if !ok {
+		return nil, err
+	}
+
+	// super node tells the dfdameon directly to call source url
+	if dferr.Code == constants.CodeNOURL {
+		lm.rm.addRequest(url, true)
+		return lm.DownloadStreamContext(ctx, url, header, name)
+	}
+
+	return rd, err
 }
 
 func (lm *LocalManager) scheduleBySuperNode(ctx context.Context, url string, header map[string][]string, name string) (io.Reader, error) {

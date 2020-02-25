@@ -65,6 +65,10 @@ func (df *dfGet) GetReader(ctx context.Context, cfg *config.Config) (io.Reader, 
 	}
 
 	if result, err = registerToSuperNode(cfg, register); err != nil {
+		if _,ok := err.(*errortypes.DfError); ok {
+			return nil, err
+		}
+
 		return nil, errortypes.New(config.CodeRegisterError, err.Error())
 	}
 
