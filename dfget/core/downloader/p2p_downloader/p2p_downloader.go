@@ -166,7 +166,7 @@ func (p2p *P2PDownloader) RunStream(ctx context.Context) (io.Reader, error) {
 	if !p2p.streamMode {
 		return nil, fmt.Errorf("streamMode disable, should be enabled")
 	}
-	clientStreamWriter := NewClientStreamWriter(p2p.clientQueue, p2p.API, p2p.cfg)
+	clientStreamWriter := NewClientStreamWriter(p2p.clientQueue, p2p.API, p2p.cfg, false)
 	go func() {
 		err := p2p.run(ctx, clientStreamWriter)
 		if err != nil {

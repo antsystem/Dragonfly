@@ -90,6 +90,10 @@ type PullPieceTaskResponseContinueData struct {
 	PeerPort  int    `json:"peerPort"`
 	Path      string `json:"path"`
 	DownLink  int    `json:"downLink"`
+
+	Url		  string  `json:"url"`
+	Header    map[string][]string `json:"header"`
+	DirectSource bool
 }
 
 func (data *PullPieceTaskResponseContinueData) String() string {

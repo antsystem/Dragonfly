@@ -62,10 +62,12 @@ type ClientStreamWriter struct {
 	// api holds an instance of SupernodeAPI to interact with supernode.
 	api api.SupernodeAPI
 	cfg *config.Config
+
+	noReport   bool
 }
 
 // NewClientStreamWriter creates and initialize a ClientStreamWriter instance.
-func NewClientStreamWriter(clientQueue queue.Queue, api api.SupernodeAPI, cfg *config.Config) *ClientStreamWriter {
+func NewClientStreamWriter(clientQueue queue.Queue, api api.SupernodeAPI, cfg *config.Config, noReport bool) *ClientStreamWriter {
 	pr, pw := io.Pipe()
 	limitReader := limitreader.NewLimitReader(pr, int64(cfg.LocalLimit), cfg.Md5 != "")
 	clientWriter := &ClientStreamWriter{
@@ -76,6 +78,7 @@ func NewClientStreamWriter(clientQueue queue.Queue, api api.SupernodeAPI, cfg *c
 		api:         api,
 		cfg:         cfg,
 		cache:       make(map[int]*Piece),
+		noReport:    noReport,
 	}
 	return clientWriter
 }
@@ -136,7 +139,7 @@ func (csw *ClientStreamWriter) write(piece *Piece) error {
 	// TODO csw.p2pPattern
 
 	err := csw.writePieceToPipe(piece)
-	if err == nil {
+	if err == nil && !csw.noReport {
 		go sendSuccessPiece(csw.api, csw.cfg.RV.Cid, piece, time.Since(startTime))
 	}
 	return err

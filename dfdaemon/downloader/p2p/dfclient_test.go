@@ -63,7 +63,7 @@ func (tc *testcase) WithValue(key string, value ...string) *testcase {
 func (tc *testcase) Test(t *testing.T) {
 	a := assert.New(t)
 
-	actualResult := flattenHeader(tc.header)
+	actualResult := FlattenHeader(tc.header)
 
 	for _, r := range actualResult {
 		if _, ok := tc.result[r]; !ok {

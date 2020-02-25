@@ -76,6 +76,43 @@ type PowerClient struct {
 	clientError *types.ClientErrorRequest
 }
 
+type PowerClientConfig struct {
+	// taskID is a string which represents a unique task.
+	TaskID string
+	// node indicates the IP address of the currently registered supernode.
+	Node string
+	// pieceTask is the data when successfully pulling piece task
+	// and the task is continuing.
+	PieceTask *types.PullPieceTaskResponseContinueData
+
+	Cfg *config.Config
+	// queue maintains a queue of tasks that to be downloaded.
+	// When the download fails, the piece is requeued.
+	Queue queue.Queue
+	// clientQueue maintains a queue of tasks that need to be written to disk.
+	// A piece will be putted into this queue after it be downloaded successfully.
+	ClientQueue queue.Queue
+
+	// rateLimiter limits the download speed.
+	RateLimiter *ratelimiter.RateLimiter
+
+	// downloadAPI holds an instance of DownloadAPI.
+	DownloadAPI api.DownloadAPI
+}
+
+func NewPowerClient(config *PowerClientConfig) *PowerClient {
+	return &PowerClient{
+		taskID:  config.TaskID,
+		node: config.Node,
+		pieceTask: config.PieceTask,
+		cfg: config.Cfg,
+		queue: config.Queue,
+		clientQueue: config.ClientQueue,
+		rateLimiter: config.RateLimiter,
+		downloadAPI: config.DownloadAPI,
+	}
+}
+
 // Run starts run the task.
 func (pc *PowerClient) Run() error {
 	startTime := time.Now()
@@ -108,6 +145,11 @@ func (pc *PowerClient) ClientError() *types.ClientErrorRequest {
 }
 
 func (pc *PowerClient) downloadPiece() (content *bytes.Buffer, e error) {
+	var(
+		resp *http.Response
+		err error
+	)
+
 	pieceMetaArr := strings.Split(pc.pieceTask.PieceMd5, ":")
 	pieceMD5 := pieceMetaArr[0]
 	dstIP := pc.pieceTask.PeerIP
@@ -123,7 +165,16 @@ func (pc *PowerClient) downloadPiece() (content *bytes.Buffer, e error) {
 	// send download request
 	startTime := time.Now()
 	timeout := netutils.CalculateTimeout(int64(pc.pieceTask.PieceSize), pc.cfg.MinRate, config.DefaultMinRate, 10*time.Second)
-	resp, err := pc.downloadAPI.Download(dstIP, peerPort, pc.createDownloadRequest(), timeout)
+	if pc.pieceTask.DirectSource {
+		header := map[string]string{}
+		h := http.Header(pc.pieceTask.Header)
+		for k, _ := range pc.pieceTask.Header {
+			header[k] = h.Get(k)
+		}
+		resp, err = httputils.HTTPGetTimeout(pc.pieceTask.Url, header, timeout)
+	}
+
+	resp, err = pc.downloadAPI.Download(dstIP, peerPort, pc.createDownloadRequest(), timeout)
 	if err != nil {
 		return nil, err
 	}

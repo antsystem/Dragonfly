@@ -19,6 +19,7 @@ package proxy
 import (
 	"crypto/tls"
 	"fmt"
+	"github.com/dragonflyoss/Dragonfly/dfdaemon/localManager"
 	"io"
 	"net"
 	"net/http"
@@ -29,7 +30,6 @@ import (
 
 	"github.com/dragonflyoss/Dragonfly/dfdaemon/config"
 	"github.com/dragonflyoss/Dragonfly/dfdaemon/downloader"
-	"github.com/dragonflyoss/Dragonfly/dfdaemon/downloader/p2p"
 	"github.com/dragonflyoss/Dragonfly/dfdaemon/transport"
 
 	"github.com/pkg/errors"
@@ -130,7 +130,8 @@ func NewFromConfig(c config.Properties) (*Proxy, error) {
 		WithRegistryMirror(c.RegistryMirror),
 		WithStreamDownloaderFactory(func() downloader.Stream {
 			// dfget.NewGetter(c.DFGetConfig())
-			return p2p.NewClient(c.DFGetConfig())
+			//return p2p.NewClient(c.DFGetConfig())
+			return localManager.NewLocalManager(c.DFGetConfig())
 		}),
 	}
 

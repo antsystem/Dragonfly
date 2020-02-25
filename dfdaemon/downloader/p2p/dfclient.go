@@ -107,7 +107,7 @@ func (c *DFClient) doDownload(ctx context.Context, url string, header map[string
 	runtimeConfig.URL = url
 	runtimeConfig.RV.TaskURL = url
 	runtimeConfig.RV.TaskFileName = getTaskFileName(destPath, c.dfGetConfig.Sign)
-	runtimeConfig.Header = flattenHeader(header)
+	runtimeConfig.Header = FlattenHeader(header)
 	runtimeConfig.Output = destPath
 	runtimeConfig.RV.RealTarget = destPath
 	runtimeConfig.RV.TargetDir = filepath.Dir(destPath)
@@ -139,7 +139,7 @@ func getCid(localIP string, sign string) string {
 	return localIP + "-" + sign
 }
 
-func flattenHeader(header map[string][]string) []string {
+func FlattenHeader(header map[string][]string) []string {
 	var res []string
 	for key, value := range header {
 		// discard HTTP host header for backing to source successfully
