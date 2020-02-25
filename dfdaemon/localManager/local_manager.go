@@ -17,9 +17,15 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/sirupsen/logrus"
+)
+
+var(
+	once sync.Once
+	localManager *LocalManager
 )
 
 // LocalManager will handle all the request, it will
@@ -35,17 +41,20 @@ type LocalManager struct {
 }
 
 func NewLocalManager(cfg config.DFGetConfig) *LocalManager {
-	lm := &LocalManager{
-		sm: scheduler.NewScheduler(),
-		supernodeAPI: api.NewSupernodeAPI(),
-		downloadAPI: api.NewDownloadAPI(),
-		rm: newRequestManager(),
-		dfGetConfig: convertToDFGetConfig(cfg),
-		cfg: cfg,
-	}
+	once.Do(func() {
+		localManager = &LocalManager{
+			sm: scheduler.NewScheduler(),
+			supernodeAPI: api.NewSupernodeAPI(),
+			downloadAPI: api.NewDownloadAPI(),
+			rm: newRequestManager(),
+			dfGetConfig: convertToDFGetConfig(cfg),
+			cfg: cfg,
+		}
 
-	go lm.fetchLoop(context.Background())
-	return lm
+		go localManager.fetchLoop(context.Background())
+	})
+
+	return localManager
 }
 
 func (lm *LocalManager) fetchLoop(ctx context.Context) {
