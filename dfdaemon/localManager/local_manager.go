@@ -7,8 +7,9 @@ import (
 	"github.com/dragonflyoss/Dragonfly/dfdaemon/config"
 	"github.com/dragonflyoss/Dragonfly/dfdaemon/downloader/p2p"
 	"github.com/dragonflyoss/Dragonfly/dfdaemon/scheduler"
-	"github.com/dragonflyoss/Dragonfly/dfget/core/api"
 	dfgetcfg "github.com/dragonflyoss/Dragonfly/dfget/config"
+	"github.com/dragonflyoss/Dragonfly/dfget/core/api"
+	"github.com/dragonflyoss/Dragonfly/dfget/core/regist"
 	"github.com/dragonflyoss/Dragonfly/dfget/types"
 	"github.com/dragonflyoss/Dragonfly/pkg/constants"
 	"github.com/dragonflyoss/Dragonfly/pkg/errortypes"
@@ -38,6 +39,11 @@ type LocalManager struct {
 	cfg config.DFGetConfig
 
 	rm		 *requestManager
+
+	syncP2PNetworkCh	chan struct{}
+
+	syncTimeLock		sync.Mutex
+	syncTime			time.Time
 }
 
 func NewLocalManager(cfg config.DFGetConfig) *LocalManager {
@@ -49,6 +55,7 @@ func NewLocalManager(cfg config.DFGetConfig) *LocalManager {
 			rm: newRequestManager(),
 			dfGetConfig: convertToDFGetConfig(cfg),
 			cfg: cfg,
+			syncTime: time.Now(),
 		}
 
 		go localManager.fetchLoop(context.Background())
@@ -58,6 +65,9 @@ func NewLocalManager(cfg config.DFGetConfig) *LocalManager {
 }
 
 func (lm *LocalManager) fetchLoop(ctx context.Context) {
+	var(
+		lastTime time.Time
+	)
 	defaultInterval := 30 * time.Second
 	ticker := time.NewTicker(defaultInterval)
 	defer ticker.Stop()
@@ -67,6 +77,16 @@ func (lm *LocalManager) fetchLoop(ctx context.Context) {
 			case <- ctx.Done():
 				return
 			case <- ticker.C:
+				lm.syncTimeLock.Lock()
+				lastTime = lm.syncTime
+				lm.syncTimeLock.Unlock()
+
+				if lastTime.Add(defaultInterval).After(time.Now()) {
+					continue
+				}
+
+				lm.syncP2PNetworkInfo(lm.rm.getRecentRequest())
+			case <- lm.syncP2PNetworkCh:
 				lm.syncP2PNetworkInfo(lm.rm.getRecentRequest())
 		}
 	}
@@ -94,6 +114,13 @@ func (lm *LocalManager) DownloadStreamContext(ctx context.Context, url string, h
 		localDownloader  *LocalDownloader
 	)
 
+	info := &downloadNodeInfo{
+		directSource: true,
+		url: url,
+		header: header,
+	}
+	infos = append(infos, info)
+
 	defer lm.rm.addRequest(url, false)
 
 	taskID := lm.getDigestFromHeader(url, header)
@@ -106,12 +133,6 @@ func (lm *LocalManager) DownloadStreamContext(ctx context.Context, url string, h
 	}
 
 	if directDownload {
-		info := &downloadNodeInfo{
-			directSource: true,
-			url: url,
-			header: header,
-		}
-		infos = append(infos, info)
 		goto localDownload
 	}
 
@@ -120,18 +141,21 @@ func (lm *LocalManager) DownloadStreamContext(ctx context.Context, url string, h
 		// local schedule
 		result, err := lm.sm.SchedulerByTaskID(ctx, taskID, lm.dfGetConfig.RV.Cid, "", 0)
 		if err != nil {
-			goto superNodeSchedule
+			go lm.scheduleBySuperNode(ctx, url, header, name, taskID, length)
+			goto localDownload
 		}
 
-		infos = make([]*downloadNodeInfo, len(result))
+		tmpInfos := make([]*downloadNodeInfo, len(result))
 		for i, r := range result {
-			infos[i] = &downloadNodeInfo{
+			tmpInfos[i] = &downloadNodeInfo{
 				ip: r.PeerInfo.IP.String(),
 				port: int(r.PeerInfo.Port),
 				path: r.Pieces[0].Path,
 				peerID: r.PeerInfo.ID,
 			}
 		}
+
+		infos = append(tmpInfos, infos...)
 	}
 
 localDownload:
@@ -143,41 +167,60 @@ localDownload:
 	localDownloader.downloadAPI = lm.downloadAPI
 	localDownloader.superAPI = lm.supernodeAPI
 	localDownloader.systemDataDir = lm.dfGetConfig.RV.SystemDataDir
-
+	localDownloader.config = lm.dfGetConfig
+	localDownloader.header = header
 
 	rd, err = localDownloader.RunStream(ctx)
-	if err != nil {
-		logrus.Errorf("RunStream failed: %v", err)
-	}else {
-		return rd, nil
-	}
+	return rd, err
 
 	// try to schedule by super node
-superNodeSchedule:
+//superNodeSchedule:
+//
+//	err = lm.scheduleBySuperNode(ctx, url, header, name, taskID, length)
+//	if err == nil {
+//		return rd, nil
+//	}
+//
+//	dferr, ok := err.(*errortypes.DfError)
+//	if !ok {
+//		return nil, err
+//	}
+//
+//	// super node tells the dfdameon directly to call source url
+//	if dferr.Code == constants.CodeNOURL || dferr.Code == constants.CodeReturnSrc {
+//		lm.rm.addRequest(url, true)
+//		return lm.DownloadStreamContext(ctx, url, header, name)
+//	}
+//
+//	return rd, err
+}
 
-	rd, err = lm.scheduleBySuperNode(ctx, url, header, name)
-	if err  == nil {
-		return rd, nil
+func (lm *LocalManager) scheduleBySuperNode(ctx context.Context, url string, header map[string][]string, name string, taskID string, length int64)  {
+	conf := convertToDFGetConfig(lm.cfg)
+	conf.URL = url
+	conf.RV.TaskURL = url
+	conf.RV.TaskFileName = name
+	conf.Header = p2p.FlattenHeader(header)
+	conf.RV.Digest = taskID
+	conf.RV.FileLength = length
+
+	superNodeRegister := regist.NewSupernodeRegister(conf, lm.supernodeAPI)
+	_, err := superNodeRegister.Register(conf.RV.PeerPort)
+	if err == nil {
+		lm.rm.addRequest(url, false)
+		lm.notifyFetchP2PNetwork()
+		return
 	}
 
-	dferr, ok := err.(*errortypes.DfError)
-	if !ok {
-		return nil, err
-	}
-
-	// super node tells the dfdameon directly to call source url
-	if dferr.Code == constants.CodeNOURL {
+	if err.Code == constants.CodeNOURL || err.Code == constants.CodeReturnSrc {
 		lm.rm.addRequest(url, true)
-		return lm.DownloadStreamContext(ctx, url, header, name)
 	}
-
-	return rd, err
 }
 
-func (lm *LocalManager) scheduleBySuperNode(ctx context.Context, url string, header map[string][]string, name string) (io.Reader, error) {
-	dfClient := p2p.NewClient(lm.cfg)
-	return dfClient.DownloadStreamContext(ctx, url, header, name)
+func (lm *LocalManager) notifyFetchP2PNetwork() {
+	lm.syncP2PNetworkCh <- struct{}{}
 }
+
 
 func (lm *LocalManager) isDownloadDirectReturnSrc(ctx context.Context, url string) (bool, error) {
 	rs, err := lm.rm.getRequestState(url)
@@ -191,28 +234,6 @@ func (lm *LocalManager) isDownloadDirectReturnSrc(ctx context.Context, url strin
 
 	return rs.needReturnSrc(), nil
 }
-
-//func (lm *LocalManager) tryToDownloadFromPeer(result []*scheduler.Result) (io.Reader, error) {
-//	var (
-//		lastErr error
-//	)
-//
-//	for _, r := range result {
-//		r.StartDownload(r.DstCid, r.Generation)
-//		// todo:
-//
-//		reader, err := lm.downloadFromPeer(r.PeerInfo, r.Pieces[0].Path, r.Task)
-//		lastErr = err
-//		if err != nil {
-//			go r.FinishDownload(r.DstCid, r.Generation)
-//			continue
-//		}
-//
-//		return reader, nil
-//	}
-//
-//	return nil, lastErr
-//}
 
 // downloadFromPeer download file from peer node.
 // param:
@@ -285,6 +306,9 @@ func (lm *LocalManager) syncP2PNetworkInfo(urls []string) {
 
 	lm.sm.SyncSchedulerInfo(nodes)
 	logrus.Infof("success to sync schedule info")
+	lm.syncTimeLock.Lock()
+	defer lm.syncTimeLock.Unlock()
+	lm.syncTime = time.Now()
 }
 
 func (lm *LocalManager) fetchP2PNetworkInfo(urls []string) ([]*types2.Node, error) {

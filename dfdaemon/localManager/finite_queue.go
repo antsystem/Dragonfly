@@ -92,7 +92,7 @@ func (q *finiteQueue) getItemByKey(key string) (interface{}, error) {
 	defer q.Unlock()
 
 	if data, exist := q.itemMap[key]; exist {
-		return data, nil
+		return data.data, nil
 	}
 
 	return nil, errortypes.ErrDataNotFound

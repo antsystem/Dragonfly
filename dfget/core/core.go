@@ -177,7 +177,7 @@ func registerToSuperNode(cfg *config.Config, register regist.SupernodeRegister) 
 			return nil, e
 		}
 
-		if e.Code == constants.CodeNOURL {
+		if e.Code == constants.CodeNOURL || e.Code == constants.CodeReturnSrc {
 			return nil, e
 		}
 

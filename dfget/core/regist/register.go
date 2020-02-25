@@ -82,7 +82,8 @@ func (s *supernodeRegister) Register(peerPort int) (*RegisterResult, *errortypes
 		}
 
 		if resp.Code == constants.Success || resp.Code == constants.CodeNeedAuth ||
-			resp.Code == constants.CodeURLNotReachable || resp.Code == constants.CodeNOURL {
+			resp.Code == constants.CodeURLNotReachable || resp.Code == constants.CodeNOURL ||
+			resp.Code == constants.CodeReturnSrc {
 			break
 		}
 		if resp.Code == constants.CodeWaitAuth && retryTimes < 3 {
