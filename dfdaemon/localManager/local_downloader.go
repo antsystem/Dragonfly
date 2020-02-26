@@ -10,6 +10,7 @@ import (
 	"github.com/dragonflyoss/Dragonfly/dfget/types"
 	"github.com/dragonflyoss/Dragonfly/pkg/constants"
 	"github.com/dragonflyoss/Dragonfly/pkg/queue"
+	"github.com/dragonflyoss/Dragonfly/pkg/ratelimiter"
 	"io"
 	"os"
 	"path/filepath"
@@ -199,7 +200,7 @@ func (ld *LocalDownloader) startTask(data *types.PullPieceTaskResponseContinueDa
 		Cfg: ld.config,
 		Queue: ld.queue,
 		ClientQueue: ld.clientQueue,
-		RateLimiter: nil,
+		RateLimiter: ratelimiter.NewRateLimiter(int64(ld.config.LocalLimit), 2),
 		DownloadAPI: ld.downloadAPI,
 	}
 
