@@ -135,11 +135,14 @@ func (ld *LocalDownloader) finishTask(piece *downloader.Piece) {
 		return
 	}
 
-	_, err = f.Write(piece.Content.Bytes())
+	_, err = io.Copy(f, piece.RawContent())
 	if err != nil {
+		f.Close()
 		logrus.Warnf("failed to write tmp path: %v", err)
 		return
 	}
+
+	f.Close()
 
 	err = os.Rename(tmpPath, ld.outPath)
 	if err != nil {
@@ -182,7 +185,7 @@ func (ld *LocalDownloader) processPiece(info* downloadNodeInfo) {
 	logrus.Debugf("pieces to be processed:%v", info)
 	pieceTask := &types.PullPieceTaskResponseContinueData{
 		Range: fmt.Sprintf("0-%d", ld.length - 1),
-		PieceNum: 1,
+		PieceNum: 0,
 		PieceSize: int32(ld.length),
 		Cid: info.peerID,
 		PeerIP: info.ip,

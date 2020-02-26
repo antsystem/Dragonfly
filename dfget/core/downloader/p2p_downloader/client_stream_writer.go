@@ -64,11 +64,16 @@ type ClientStreamWriter struct {
 	cfg *config.Config
 
 	noReport   bool
+	writeSizeCh  chan int64
+	readSizeCh   chan int64
+	lastCh		 chan struct{}
+	closeCh		 chan struct{}
 }
 
 // NewClientStreamWriter creates and initialize a ClientStreamWriter instance.
 func NewClientStreamWriter(clientQueue queue.Queue, api api.SupernodeAPI, cfg *config.Config, noReport bool) *ClientStreamWriter {
 	pr, pw := io.Pipe()
+	logrus.Infof("rate limit: %v", cfg.LocalLimit)
 	limitReader := limitreader.NewLimitReader(pr, int64(cfg.LocalLimit), cfg.Md5 != "")
 	clientWriter := &ClientStreamWriter{
 		clientQueue: clientQueue,
@@ -79,6 +84,10 @@ func NewClientStreamWriter(clientQueue queue.Queue, api api.SupernodeAPI, cfg *c
 		cfg:         cfg,
 		cache:       make(map[int]*Piece),
 		noReport:    noReport,
+		writeSizeCh:  make(chan int64),
+		readSizeCh:  make(chan int64, 10),
+		lastCh:  make(chan struct{}),
+		closeCh:  make(chan struct{}),
 	}
 	return clientWriter
 }
@@ -87,6 +96,7 @@ func (csw *ClientStreamWriter) PreRun(ctx context.Context) (err error) {
 	csw.p2pPattern = helper.IsP2P(csw.cfg.Pattern)
 	csw.result = true
 	csw.finish = make(chan struct{})
+	go csw.notifyFinish()
 	return
 }
 
@@ -98,8 +108,10 @@ func (csw *ClientStreamWriter) PostRun(ctx context.Context) (err error) {
 func (csw *ClientStreamWriter) Run(ctx context.Context) {
 	for {
 		item := csw.clientQueue.Poll()
+		logrus.Infof("in ClientStreamWriter Run, poll item: %v", item)
 		state, ok := item.(string)
 		if ok && state == last {
+			csw.lastCh <- struct{}{}
 			break
 		}
 		if ok && state == reset {
@@ -122,6 +134,11 @@ func (csw *ClientStreamWriter) Run(ctx context.Context) {
 			csw.result = false
 		}
 	}
+
+	<- csw.closeCh
+	close(csw.writeSizeCh)
+	close(csw.readSizeCh)
+	close(csw.lastCh)
 
 	csw.pipeWriter.Close()
 	close(csw.finish)
@@ -159,7 +176,9 @@ func (csw *ClientStreamWriter) writePieceToPipe(p *Piece) error {
 			break
 		}
 
-		_, err := io.Copy(csw.pipeWriter, p.RawContent())
+		bufReader := p.RawContent()
+		csw.writeSizeCh <- int64(bufReader.Len())
+		_, err := io.Copy(csw.pipeWriter, bufReader)
 		if err != nil {
 			return err
 		}
@@ -179,7 +198,12 @@ func (csw *ClientStreamWriter) writePieceToPipe(p *Piece) error {
 }
 
 func (csw *ClientStreamWriter) Read(p []byte) (n int, err error) {
+	logrus.Infof("try to read bytes, buffer len is %d", len(p))
 	n, err = csw.limitReader.Read(p)
+	if n > 0 {
+		csw.readSizeCh <- int64(n)
+	}
+	logrus.Infof("read bytes: %d, err: %v", n, err)
 	// all data received, calculate md5
 	if err == io.EOF && csw.cfg.Md5 != "" {
 		realMd5 := csw.limitReader.Md5()
@@ -188,4 +212,34 @@ func (csw *ClientStreamWriter) Read(p []byte) (n int, err error) {
 		}
 	}
 	return n, err
+}
+
+func (csw *ClientStreamWriter) notifyFinish() {
+	var writeSize int64 = 0
+	var readSize int64 = 0
+	var allowBreak bool = false
+
+	defer close(csw.closeCh)
+
+	for{
+		select {
+			case wsize := <- csw.writeSizeCh:
+				writeSize += wsize
+				logrus.Infof("in notifyFinish of writeSizeCh, writeSize: %d, readSize: %d, allowBreak: %v", writeSize, readSize, allowBreak)
+				if allowBreak && writeSize == readSize {
+					return
+				}
+
+			case rsize := <- csw.readSizeCh:
+				readSize += rsize
+				logrus.Infof("in notifyFinish of readSizeCh, writeSize: %d, readSize: %d, allowBreak: %v", writeSize, readSize, allowBreak)
+				if allowBreak && readSize == writeSize {
+					return
+				}
+
+			case <- csw.lastCh:
+				logrus.Infof("in notifyFinish of lastCh, writeSize: %d, readSize: %d, allowBreak: %v", writeSize, readSize, allowBreak)
+				allowBreak = true
+		}
+	}
 }

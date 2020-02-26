@@ -19,6 +19,7 @@ package transport
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"crypto/tls"
 	"io"
 	"io/ioutil"
@@ -158,21 +159,24 @@ func (roundTripper *DFRoundTripper) download(req *http.Request, urlString string
 		return nil, err
 	}
 
-	// fileReq, err := http.NewRequest("GET", "file:///"+dstPath, nil)
-	// if err != nil {
-	// 	return nil, err
-	// }
-	//
-	// response, err := roundTripper.Round2.RoundTrip(fileReq)
-	// if err == nil {
-	// 	response.Header.Set("Content-Disposition", "attachment; filename="+dstPath)
-	// } else {
-	// 	logrus.Errorf("read response from file:%s error:%v", dstPath, err)
-	// }
+	// for test
+	logrus.Infof("in download, return reader: %v", reader)
+	buf := &bytes.Buffer{}
+	_, err = io.Copy(buf, reader)
+	if err != nil {
+		logrus.Errorf("download to copy fail: %v", err)
+		return nil, err
+	}
+
+	content := buf.Bytes()
+	logrus.Infof("in download, size is %d", len(content))
+	logrus.Infof("in download, sha256:%x", sha256.Sum256(content))
+	// end for test
+
 	resp := &http.Response{
 		StatusCode: 200,
-		ContentLength: 1048576,
-		Body:       ioutil.NopCloser(reader),
+		//ContentLength: 1048576,
+		Body:       ioutil.NopCloser(bytes.NewReader(content)),
 	}
 	return resp, nil
 	// return response, err

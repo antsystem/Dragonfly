@@ -172,6 +172,7 @@ localDownload:
 	localDownloader.url = url
 
 	rd, err = localDownloader.RunStream(ctx)
+	logrus.Infof("return io.read: %v", rd)
 	return rd, err
 
 	// try to schedule by super node
