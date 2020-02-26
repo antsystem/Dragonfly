@@ -156,7 +156,7 @@ func (pc *PowerClient) downloadPiece() (content *bytes.Buffer, e error) {
 	peerPort := pc.pieceTask.PeerPort
 
 	// check that the target download peer is available
-	if dstIP != pc.node {
+	if !pc.pieceTask.DirectSource && dstIP != pc.node {
 		if _, e = httputils.CheckConnect(dstIP, peerPort, -1); e != nil {
 			return nil, e
 		}
