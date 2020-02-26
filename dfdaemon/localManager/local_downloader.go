@@ -94,11 +94,16 @@ func (ld *LocalDownloader) run(ctx context.Context, pieceWriter downloader.Piece
 		}
 
 		if success {
+			ld.notifyClientFinish()
 			return nil
 		}
 	}
 
 	return lastErr
+}
+
+func (ld *LocalDownloader) notifyClientFinish() {
+	ld.clientQueue.Put("last")
 }
 
 //
