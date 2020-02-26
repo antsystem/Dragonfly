@@ -171,6 +171,7 @@ func (roundTripper *DFRoundTripper) download(req *http.Request, urlString string
 	// }
 	resp := &http.Response{
 		StatusCode: 200,
+		ContentLength: 1048576,
 		Body:       ioutil.NopCloser(reader),
 	}
 	return resp, nil
