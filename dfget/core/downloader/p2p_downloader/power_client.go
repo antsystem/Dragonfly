@@ -172,9 +172,10 @@ func (pc *PowerClient) downloadPiece() (content *bytes.Buffer, e error) {
 			header[k] = h.Get(k)
 		}
 		resp, err = httputils.HTTPGetTimeout(pc.pieceTask.Url, header, timeout)
+	}else{
+		resp, err = pc.downloadAPI.Download(dstIP, peerPort, pc.createDownloadRequest(), timeout)
 	}
 
-	resp, err = pc.downloadAPI.Download(dstIP, peerPort, pc.createDownloadRequest(), timeout)
 	if err != nil {
 		return nil, err
 	}

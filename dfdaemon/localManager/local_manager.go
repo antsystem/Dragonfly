@@ -169,6 +169,7 @@ localDownload:
 	localDownloader.systemDataDir = lm.dfGetConfig.RV.SystemDataDir
 	localDownloader.config = lm.dfGetConfig
 	localDownloader.header = header
+	localDownloader.url = url
 
 	rd, err = localDownloader.RunStream(ctx)
 	return rd, err
