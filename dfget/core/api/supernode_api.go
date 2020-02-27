@@ -132,18 +132,24 @@ func (api *supernodeAPI) ReportPiece(node string, req *types.ReportPieceRequest)
 func (api *supernodeAPI) ServiceDown(node string, taskID string, cid string) (
 	resp *types.BaseResponse, e error) {
 
-	url := fmt.Sprintf("%s://%s%s?taskId=%s&cid=%s",
-		api.Scheme, node, peerServiceDownPath, taskID, cid)
+	//url := fmt.Sprintf("%s://%s%s?taskId=%s&cid=%s",
+	//	api.Scheme, node, peerServiceDownPath, taskID, cid)
+
+	logrus.Infof("Call ServiceDown, node: %s, taskID: %s, cid: %s", node, taskID, cid)
 
 	resp = new(types.BaseResponse)
-	if e = api.get(url, resp); e != nil {
-		logrus.Errorf("failed to send service down,err: %v", e)
-		return nil, e
-	}
-	if resp.Code != constants.CodeGetPeerDown {
-		logrus.Errorf("failed to send service down to supernode: api response code is %d not equal to %d", resp.Code, constants.CodeGetPeerDown)
-	}
+	resp.Code = constants.CodeGetPeerDown
 	return
+
+	// note them
+	//if e = api.get(url, resp); e != nil {
+	//	logrus.Errorf("failed to send service down,err: %v", e)
+	//	return nil, e
+	//}
+	//if resp.Code != constants.CodeGetPeerDown {
+	//	logrus.Errorf("failed to send service down to supernode: api response code is %d not equal to %d", resp.Code, constants.CodeGetPeerDown)
+	//}
+	//return
 }
 
 // ReportClientError reports the client error when downloading piece to supernode.
@@ -290,13 +296,20 @@ func (api *supernodeAPI) ReportResourceDeleted(node string, taskID string, cid s
 		"X-report-resource": "true",
 	}
 
+	logrus.Infof("Call ReportResourceDeleted, node: %s, taskID: %s, cid: %s, " +
+		"url: %s, header: %v", node, taskID, cid, url, header)
+
 	resp = new(types.BaseResponse)
-	if err = api.getWithHeaders(url, header, resp); err != nil {
-		logrus.Errorf("failed to send resource delete,err: %v", err)
-		return nil, err
-	}
-	if resp.Code != constants.Success {
-		logrus.Errorf("failed to send send resource delete to supernode: api response code is %d not equal to %d", resp.Code, constants.Success)
-	}
+
+	resp.Code = constants.Success
 	return
+
+	//if err = api.getWithHeaders(url, header, resp); err != nil {
+	//	logrus.Errorf("failed to send resource delete,err: %v", err)
+	//	return nil, err
+	//}
+	//if resp.Code != constants.Success {
+	//	logrus.Errorf("failed to send send resource delete to supernode: api response code is %d not equal to %d", resp.Code, constants.Success)
+	//}
+	//return
 }
