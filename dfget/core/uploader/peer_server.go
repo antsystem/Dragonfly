@@ -483,6 +483,7 @@ func (ps *peerServer) shutdown() {
 func (ps *peerServer) deleteExpiredFile(path string, info os.FileInfo,
 	expireTime time.Duration) bool {
 	taskName := helper.GetTaskName(info.Name())
+	logrus.Infof("fileName: %s, taskName: %s", info.Name(), taskName)
 	if v, ok := ps.syncTaskMap.Load(taskName); ok {
 		task, ok := v.(*taskConfig)
 		if ok && !task.finished {
@@ -497,15 +498,16 @@ func (ps *peerServer) deleteExpiredFile(path string, info os.FileInfo,
 		}
 		// if the last access time is expireTime ago
 		if time.Since(lastAccessTime) > expireTime {
-			if ok {
-				ps.api.ServiceDown(task.superNode, task.taskID, task.cid)
-			}
-			os.Remove(path)
-			ps.syncTaskMap.Delete(taskName)
-			return true
+			// ignore the gc
+			//if ok {
+			//	ps.api.ServiceDown(task.superNode, task.taskID, task.cid)
+			//}
+			//os.Remove(path)
+			//ps.syncTaskMap.Delete(taskName)
+			//return true
 		}
 	} else {
-		os.Remove(path)
+		//os.Remove(path)
 		return true
 	}
 	return false

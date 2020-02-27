@@ -261,7 +261,7 @@ func (api *supernodeAPI) ReportResource(node string, req *types.RegisterRequest)
 		body []byte
 	)
 	url := fmt.Sprintf("%s://%s%s",
-		api.Scheme, node, peerPullPieceTaskPath)
+		api.Scheme, node, peerRegisterPath)
 	header := map[string]string{
 		"X-report-resource": "true",
 	}

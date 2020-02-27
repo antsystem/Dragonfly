@@ -55,7 +55,7 @@ func NewLocalManager(cfg config.DFGetConfig) *LocalManager {
 			downloadAPI: api.NewDownloadAPI(),
 			uploaderAPI: api.NewUploaderAPI(30 * time.Second),
 			rm: newRequestManager(),
-			dfGetConfig: convertToDFGetConfig(cfg),
+			dfGetConfig: convertToDFGetConfig(cfg, nil),
 			cfg: cfg,
 			syncTime: time.Now(),
 		}
@@ -94,20 +94,30 @@ func (lm *LocalManager) fetchLoop(ctx context.Context) {
 	}
 }
 
-func convertToDFGetConfig(cfg config.DFGetConfig) *dfgetcfg.Config {
-	return &dfgetcfg.Config{
+func convertToDFGetConfig(cfg config.DFGetConfig, oldCfg *dfgetcfg.Config) *dfgetcfg.Config {
+	sign := fmt.Sprintf("%d-%.3f",
+		os.Getpid(), float64(time.Now().UnixNano())/float64(time.Second))
+
+	newCfg:= &dfgetcfg.Config{
 		Nodes:    cfg.SuperNodes,
 		DFDaemon: true,
 		Pattern:  dfgetcfg.PatternCDN,
-		Sign: fmt.Sprintf("%d-%.3f",
-			os.Getpid(), float64(time.Now().UnixNano())/float64(time.Second)),
+		Sign: sign,
 		RV: dfgetcfg.RuntimeVariable{
 			LocalIP:  cfg.LocalIP,
 			PeerPort: cfg.PeerPort,
 			SystemDataDir: cfg.DFRepo,
 			DataDir: cfg.DFRepo,
+			Cid: fmt.Sprintf("%s-%s", cfg.LocalIP, sign),
 		},
 	}
+
+	if oldCfg != nil {
+		newCfg.RV.Cid = oldCfg.RV.Cid
+		newCfg.Sign = oldCfg.Sign
+	}
+
+	return newCfg
 }
 
 //
@@ -131,16 +141,16 @@ func (lm *LocalManager) DownloadStreamContext(ctx context.Context, url string, h
 	length := lm.getLengthFromHeader(url, header)
 
 	// firstly, try to download direct from source url
-	directDownload, err := lm.isDownloadDirectReturnSrc(ctx, url)
-	if err != nil {
-		logrus.Error(err)
-	}
+	//directDownload, err := lm.isDownloadDirectReturnSrc(ctx, url)
+	//if err != nil {
+	//	logrus.Error(err)
+	//}
+	//
+	//if directDownload {
+	//	goto localDownload
+	//}
 
-	if directDownload {
-		goto localDownload
-	}
-
-	// download from peer by internal schedule
+	// try to download from peer by internal schedule
 	if taskID != "" {
 		// local schedule
 		result, err := lm.sm.SchedulerByTaskID(ctx, taskID, lm.dfGetConfig.RV.Cid, "", 0)
@@ -177,7 +187,7 @@ localDownload:
 	localDownloader.url = url
 	localDownloader.taskFileName = name
 
-	rd, err = localDownloader.RunStream(ctx)
+	rd, err := localDownloader.RunStream(ctx)
 	logrus.Infof("return io.read: %v", rd)
 	return rd, err
 
@@ -204,7 +214,7 @@ localDownload:
 }
 
 func (lm *LocalManager) scheduleBySuperNode(ctx context.Context, url string, header map[string][]string, name string, taskID string, length int64)  {
-	conf := convertToDFGetConfig(lm.cfg)
+	conf := convertToDFGetConfig(lm.cfg, lm.dfGetConfig)
 	conf.URL = url
 	conf.RV.TaskURL = url
 	conf.RV.TaskFileName = name

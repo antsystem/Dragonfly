@@ -198,12 +198,10 @@ func (csw *ClientStreamWriter) writePieceToPipe(p *Piece) error {
 }
 
 func (csw *ClientStreamWriter) Read(p []byte) (n int, err error) {
-	logrus.Infof("try to read bytes, buffer len is %d", len(p))
 	n, err = csw.limitReader.Read(p)
 	if n > 0 {
 		csw.readSizeCh <- int64(n)
 	}
-	logrus.Infof("read bytes: %d, err: %v", n, err)
 	// all data received, calculate md5
 	if err == io.EOF && csw.cfg.Md5 != "" {
 		realMd5 := csw.limitReader.Md5()
@@ -225,20 +223,17 @@ func (csw *ClientStreamWriter) notifyFinish() {
 		select {
 			case wsize := <- csw.writeSizeCh:
 				writeSize += wsize
-				logrus.Infof("in notifyFinish of writeSizeCh, writeSize: %d, readSize: %d, allowBreak: %v", writeSize, readSize, allowBreak)
 				if allowBreak && writeSize == readSize {
 					return
 				}
 
 			case rsize := <- csw.readSizeCh:
 				readSize += rsize
-				logrus.Infof("in notifyFinish of readSizeCh, writeSize: %d, readSize: %d, allowBreak: %v", writeSize, readSize, allowBreak)
 				if allowBreak && readSize == writeSize {
 					return
 				}
 
 			case <- csw.lastCh:
-				logrus.Infof("in notifyFinish of lastCh, writeSize: %d, readSize: %d, allowBreak: %v", writeSize, readSize, allowBreak)
 				allowBreak = true
 		}
 	}
