@@ -152,10 +152,10 @@ func (ld *LocalDownloader) finishTask(piece *downloader.Piece) {
 		return
 	}
 
-	ld.reportResource(piece.DstCid)
+	ld.reportResource()
 }
 
-func (ld *LocalDownloader) reportResource(dstCid string) {
+func (ld *LocalDownloader) reportResource() {
 	// report to supernode
 	registerReq := &types.RegisterRequest{
 		RawURL: ld.url,
@@ -182,7 +182,7 @@ func (ld *LocalDownloader) reportResource(dstCid string) {
 			logrus.Error(err)
 		}
 
-		if err == nil && resp.IsSuccess() {
+		if err == nil && resp.Code == constants.Success {
 			logrus.Infof("success to report resource %v to supernode", registerReq)
 			reportSuperNode = node
 			break
@@ -198,7 +198,7 @@ func (ld *LocalDownloader) reportResource(dstCid string) {
 		TaskFileName: ld.taskFileName,
 		TaskID: ld.taskID,
 		Node: reportSuperNode,
-		ClientID: dstCid,
+		ClientID: ld.config.RV.Cid,
 	}
 	err := ld.uploaderAPI.FinishTask(ld.config.RV.LocalIP, ld.config.RV.PeerPort, finishTaskReq)
 	if err != nil {

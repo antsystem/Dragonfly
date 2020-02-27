@@ -143,6 +143,10 @@ func (sm *SchedulerManager) syncTaskContainerPerNode(node *types.Node, taskConta
 
 		if ts == nil {
 			ts = newTaskState()
+			if err := taskContainer.add(task.Task.ID, ts); err != nil {
+				logrus.Errorf("syncTaskContainerPerNode add taskstate %v to taskContainer error: %v", ts, err)
+				continue
+			}
 		}
 
 		err = ts.add(node.Basic.ID, &node.Load, task.Pieces, task.Task)

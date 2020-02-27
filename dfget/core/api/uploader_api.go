@@ -24,6 +24,8 @@ import (
 
 	"github.com/dragonflyoss/Dragonfly/dfget/config"
 	"github.com/dragonflyoss/Dragonfly/pkg/httputils"
+
+	"github.com/sirupsen/logrus"
 )
 
 // UploaderAPI defines the communication methods between dfget and uploader.
@@ -94,6 +96,7 @@ func (u *uploaderAPI) FinishTask(ip string, port int, req *FinishTaskRequest) er
 
 func (u *uploaderAPI) PingServer(ip string, port int) bool {
 	url := fmt.Sprintf("http://%s:%d%s", ip, port, config.LocalHTTPPing)
+	logrus.Infof("ping server url: %s", url)
 	code, _, _ := httputils.Get(url, u.timeout)
 	return code == http.StatusOK
 }
