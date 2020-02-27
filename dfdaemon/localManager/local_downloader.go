@@ -16,8 +16,8 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/sirupsen/logrus"
 	"github.com/pborman/uuid"
+	"github.com/sirupsen/logrus"
 )
 
 type downloadNodeInfo struct {
@@ -49,9 +49,11 @@ type LocalDownloader struct {
 
 	outPath			string
 	systemDataDir   string
+	taskFileName    string
 
 	superAPI		api.SupernodeAPI
 	downloadAPI		api.DownloadAPI
+	uploaderAPI		api.UploaderAPI
 }
 
 func NewLocalDownloader() *LocalDownloader {
@@ -150,16 +152,19 @@ func (ld *LocalDownloader) finishTask(piece *downloader.Piece) {
 		return
 	}
 
-	// report to supernode
+	ld.reportResource(piece.DstCid)
+}
 
-	req := &types.RegisterRequest{
+func (ld *LocalDownloader) reportResource(dstCid string) {
+	// report to supernode
+	registerReq := &types.RegisterRequest{
 		RawURL: ld.url,
 		TaskURL: ld.url,
 		TaskId:  ld.taskID,
 		FileLength: ld.length,
 		Insecure: ld.config.Insecure,
 		Dfdaemon: ld.config.DFDaemon,
-		Path: ld.outPath,
+		Path: ld.taskFileName,
 		IP: ld.config.RV.LocalIP,
 		Port: ld.config.RV.PeerPort,
 		Cid: ld.config.RV.Cid,
@@ -168,16 +173,38 @@ func (ld *LocalDownloader) finishTask(piece *downloader.Piece) {
 		Identifier: ld.config.Identifier,
 	}
 
+	reportSuperNode := ""
+
 	for _, node := range ld.config.Nodes {
-		resp, err := ld.superAPI.ReportResource(node, req)
+		registerReq.SupernodeIP = node
+		resp, err := ld.superAPI.ReportResource(node, registerReq)
 		if err != nil {
 			logrus.Error(err)
 		}
 
 		if err == nil && resp.IsSuccess() {
-			logrus.Infof("success to report resource %v to supernode", req)
-			return
+			logrus.Infof("success to report resource %v to supernode", registerReq)
+			reportSuperNode = node
+			break
 		}
+	}
+
+	if reportSuperNode == "" {
+		return
+	}
+
+	// notify local uploader
+	finishTaskReq := &api.FinishTaskRequest{
+		TaskFileName: ld.taskFileName,
+		TaskID: ld.taskID,
+		Node: reportSuperNode,
+		ClientID: dstCid,
+	}
+	err := ld.uploaderAPI.FinishTask(ld.config.RV.LocalIP, ld.config.RV.PeerPort, finishTaskReq)
+	if err != nil {
+		logrus.Errorf("failed to finish task for uploader: %v", err)
+	}else{
+		logrus.Infof("success to finish task %v for uploader", finishTaskReq)
 	}
 }
 

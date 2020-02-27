@@ -9,6 +9,7 @@ import (
 	"github.com/dragonflyoss/Dragonfly/dfdaemon/scheduler"
 	dfgetcfg "github.com/dragonflyoss/Dragonfly/dfget/config"
 	"github.com/dragonflyoss/Dragonfly/dfget/core/api"
+	"github.com/dragonflyoss/Dragonfly/dfget/core/helper"
 	"github.com/dragonflyoss/Dragonfly/dfget/core/regist"
 	"github.com/dragonflyoss/Dragonfly/dfget/types"
 	"github.com/dragonflyoss/Dragonfly/pkg/constants"
@@ -17,7 +18,6 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"path/filepath"
 	"sync"
 	"time"
 
@@ -34,6 +34,7 @@ type LocalManager struct {
 	sm 		*scheduler.SchedulerManager
 	supernodeAPI api.SupernodeAPI
 	downloadAPI  api.DownloadAPI
+	uploaderAPI  api.UploaderAPI
 
 	dfGetConfig  *dfgetcfg.Config
 	cfg config.DFGetConfig
@@ -52,6 +53,7 @@ func NewLocalManager(cfg config.DFGetConfig) *LocalManager {
 			sm: scheduler.NewScheduler(),
 			supernodeAPI: api.NewSupernodeAPI(),
 			downloadAPI: api.NewDownloadAPI(),
+			uploaderAPI: api.NewUploaderAPI(30 * time.Second),
 			rm: newRequestManager(),
 			dfGetConfig: convertToDFGetConfig(cfg),
 			cfg: cfg,
@@ -102,6 +104,8 @@ func convertToDFGetConfig(cfg config.DFGetConfig) *dfgetcfg.Config {
 		RV: dfgetcfg.RuntimeVariable{
 			LocalIP:  cfg.LocalIP,
 			PeerPort: cfg.PeerPort,
+			SystemDataDir: cfg.DFRepo,
+			DataDir: cfg.DFRepo,
 		},
 	}
 }
@@ -163,13 +167,15 @@ localDownload:
 	localDownloader.selectNodes = infos
 	localDownloader.length = length
 	localDownloader.taskID = taskID
-	localDownloader.outPath = filepath.Join(lm.dfGetConfig.RV.TargetDir, name)
+	localDownloader.systemDataDir = lm.dfGetConfig.RV.SystemDataDir
+	localDownloader.outPath = helper.GetServiceFile(name, lm.dfGetConfig.RV.SystemDataDir)
 	localDownloader.downloadAPI = lm.downloadAPI
 	localDownloader.superAPI = lm.supernodeAPI
-	localDownloader.systemDataDir = lm.dfGetConfig.RV.SystemDataDir
+	localDownloader.uploaderAPI = lm.uploaderAPI
 	localDownloader.config = lm.dfGetConfig
 	localDownloader.header = header
 	localDownloader.url = url
+	localDownloader.taskFileName = name
 
 	rd, err = localDownloader.RunStream(ctx)
 	logrus.Infof("return io.read: %v", rd)

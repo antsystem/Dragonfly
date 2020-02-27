@@ -18,6 +18,7 @@ package downloader
 
 import (
 	"bytes"
+	"encoding/binary"
 	"fmt"
 	"io"
 	"net/http"
@@ -195,6 +196,17 @@ func (pc *PowerClient) downloadPiece() (content *bytes.Buffer, e error) {
 	// use limitReader to limit the download speed
 	limitReader := limitreader.NewLimitReaderWithLimiter(pc.rateLimiter, resp.Body, pieceMD5 != "")
 	content = &bytes.Buffer{}
+
+	if pc.pieceTask.DirectSource {
+		// add pad if download from src url
+		//padSize := config.PieceMetaSize
+		pieceSize := pc.pieceTask.PieceSize
+		buf := make([]byte, 128)
+		binary.BigEndian.PutUint32(buf, uint32((pieceSize)|(pieceSize)<<4))
+		content.Write(buf[:config.PieceHeadSize])
+		defer content.Write([]byte{config.PieceTailChar})
+	}
+
 	if pc.total, e = content.ReadFrom(limitReader); e != nil {
 		return nil, e
 	}

@@ -268,6 +268,10 @@ func (api *supernodeAPI) ReportResource(node string, req *types.RegisterRequest)
 	if code, body, err = api.HTTPClient.PostJSONWithHeaders(url, header, req, api.Timeout); err != nil {
 		return nil, err
 	}
+
+	logrus.Infof("ReportResource, url: %s, header: %v, req: %v, " +
+		"code: %d, body: %s", url, header, req, code, string(body))
+
 	if !httputils.HTTPStatusOk(code) {
 		return nil, fmt.Errorf("%d:%s", code, body)
 	}

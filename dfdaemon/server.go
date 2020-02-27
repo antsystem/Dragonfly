@@ -122,6 +122,8 @@ func LaunchPeerServer(cfg config.Properties) error {
 	peerServerConfig.RV.LocalIP = cfg.LocalIP
 	peerServerConfig.RV.PeerPort = cfg.PeerPort
 	peerServerConfig.RV.ServerAliveTime = 0
+	peerServerConfig.RV.SystemDataDir = cfg.DFRepo
+	peerServerConfig.RV.DataDir = cfg.DFRepo
 	port, err := uploader.LaunchPeerServer(peerServerConfig)
 	if err != nil {
 		return err
