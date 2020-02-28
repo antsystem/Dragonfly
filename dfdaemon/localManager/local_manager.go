@@ -140,6 +140,9 @@ func (lm *LocalManager) DownloadStreamContext(ctx context.Context, url string, h
 	taskID := lm.getDigestFromHeader(url, header)
 	length := lm.getLengthFromHeader(url, header)
 
+	logrus.Infof("start to download, url: %s, header: %v, taskID: %s, length: %d", url,
+		header, taskID, length)
+
 	// firstly, try to download direct from source url
 	//directDownload, err := lm.isDownloadDirectReturnSrc(ctx, url)
 	//if err != nil {

@@ -176,6 +176,7 @@ func (pc *PowerClient) downloadPiece() (content *bytes.Buffer, e error) {
 		logrus.Infof("in downloadPiece by returnSrc, url: %s, header: %v, err: %d", pc.pieceTask.Url, header, err)
 	}else{
 		downloadRequest := pc.createDownloadRequest()
+		downloadRequest.PieceRange = fmt.Sprintf("0-%d", downloadRequest.PieceSize + config.PieceMetaSize)
 		downloadRequest.Path = fmt.Sprintf("%s%s", config.PeerHTTPPathPrefix, downloadRequest.Path)
 		resp, err = pc.downloadAPI.Download(dstIP, peerPort, downloadRequest, timeout)
 		logrus.Infof("in downloadPiece by p2p, dstIP: %s, peerPort: %d, req: %v, err: %v", dstIP, peerPort, downloadRequest, err)
