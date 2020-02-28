@@ -18,6 +18,7 @@ package app
 
 import (
 	"encoding/json"
+	"github.com/dragonflyoss/Dragonfly/dfdaemon/localManager"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -67,6 +68,9 @@ var rootCmd = &cobra.Command{
 
 		cfgJSON, _ := json.Marshal(cfg)
 		logrus.Infof("using config: %s", cfgJSON)
+
+
+		_ = localManager.NewLocalManager(cfg.DFGetConfig())
 
 		s, err := dfdaemon.NewFromConfig(*cfg)
 		if err != nil {
