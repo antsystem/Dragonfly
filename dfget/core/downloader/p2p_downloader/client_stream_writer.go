@@ -140,6 +140,7 @@ func (csw *ClientStreamWriter) Run(ctx context.Context) {
 	close(csw.readSizeCh)
 	close(csw.lastCh)
 
+	logrus.Infof("success to return data to request")
 	csw.pipeWriter.Close()
 	close(csw.finish)
 }

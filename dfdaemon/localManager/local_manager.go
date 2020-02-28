@@ -16,6 +16,7 @@ import (
 	"github.com/dragonflyoss/Dragonfly/pkg/errortypes"
 	"github.com/dragonflyoss/Dragonfly/pkg/httputils"
 	"io"
+	"math"
 	"net/http"
 	"os"
 	"sync"
@@ -297,7 +298,7 @@ func (lm *LocalManager) getDigestFromHeader(url string, header map[string][]stri
 func (lm *LocalManager) getLengthFromHeader(url string, header map[string][]string) int64 {
 	hr := http.Header(header)
 	if headerStr := hr.Get(dfgetcfg.StrRange); headerStr != "" {
-		ds, err := httputils.GetRangeSE(headerStr, 1024 * 1024 * 16)
+		ds, err := httputils.GetRangeSE(headerStr, math.MaxInt64)
 		if err != nil {
 			return 0
 		}
