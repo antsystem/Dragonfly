@@ -64,7 +64,7 @@ func NewLocalDownloader() *LocalDownloader {
 }
 
 func (ld *LocalDownloader) RunStream(ctx context.Context) (io.Reader, error) {
-	csw := downloader.NewClientStreamWriter(ld.clientQueue, ld.superAPI, ld.config, true)
+	csw := downloader.NewClientStreamWriter(ld.clientQueue, ld.superAPI, ld.config, true, ld.length)
 	go func() {
 		err := ld.run(ctx, csw)
 		if err != nil {
@@ -96,16 +96,11 @@ func (ld *LocalDownloader) run(ctx context.Context, pieceWriter downloader.Piece
 		}
 
 		if success {
-			ld.notifyClientFinish()
 			return nil
 		}
 	}
 
 	return lastErr
-}
-
-func (ld *LocalDownloader) notifyClientFinish() {
-	ld.clientQueue.Put("last")
 }
 
 //
