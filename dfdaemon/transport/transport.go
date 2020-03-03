@@ -156,6 +156,7 @@ func (roundTripper *DFRoundTripper) RoundTrip(req *http.Request) (*http.Response
 		rs := roundTripper.nWare.OutputWithBaseLine(baseLine)
 		rs.Err = msgErr
 		rsData,_ := json.Marshal(rs)
+		roundTripper.nWare.Reset()
 
 		return &http.Response{
 			StatusCode: 200,

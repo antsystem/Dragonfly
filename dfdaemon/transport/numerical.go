@@ -34,11 +34,13 @@ type numericalWare struct {
 	data  []int64
 	sum   int64
 	count int64
+	cap   int64
 }
 
 func NewNumericalWare() NumericalWare {
 	return &numericalWare{
 		data: make([]int64, 10000),
+		cap: 10000,
 	}
 }
 
@@ -50,9 +52,16 @@ func (n *numericalWare) add(data int64) {
 	n.Lock()
 	defer n.Unlock()
 
-	n.data = append(n.data, data)
+	n.data[n.count] = data
+	n.count ++
+	if n.count >= n.cap {
+		newData := make([]int64, 2 * n.cap)
+		copy(newData, n.data)
+		n.data = newData
+		n.cap = 2 * n.cap
+	}
+
 	n.sum += data
-	n.count = n.count + 1
 }
 
 func (n *numericalWare)  Reset() {
@@ -119,7 +128,6 @@ func (r *numericalReader) Close() error {
 	logrus.Infof("close the reader")
 	cost := time.Now().Sub(r.start).Nanoseconds()
 	r.n.Add(cost)
-	logrus.Infof("NumericalWare: %v", r.n)
 	return nil
 }
 
