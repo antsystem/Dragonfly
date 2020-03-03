@@ -21,11 +21,13 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
+	"fmt"
 	"io"
 	"io/ioutil"
 	"net"
 	"net/http"
 	"regexp"
+	"strconv"
 	"time"
 
 	"github.com/pborman/uuid"
@@ -139,17 +141,20 @@ func (roundTripper *DFRoundTripper) RoundTrip(req *http.Request) (*http.Response
 	}
 
 	if req.Header.Get("x-numerical-ware") != "" {
-		sum := roundTripper.nWare.Sum()
-		ava := roundTripper.nWare.Average()
-		data := roundTripper.nWare.OutPut()
-		roundTripper.nWare.Reset()
+		var  baseLine int64 = 0
+		var msgErr error
+		baseLineStr := req.Header.Get("x-numerical-ware-baseline")
+		if baseLineStr != "" {
+			bl, err := strconv.ParseInt(baseLineStr, 10, 64)
+			if err != nil {
+				msgErr = fmt.Errorf("base line parse failed: %v", err)
+			}
 
-		rs := &NumericalResult{
-			Sum: sum,
-			Average: ava,
-			Data: data,
+			baseLine = bl
 		}
 
+		rs := roundTripper.nWare.OutputWithBaseLine(baseLine)
+		rs.Err = msgErr
 		rsData,_ := json.Marshal(rs)
 
 		return &http.Response{
