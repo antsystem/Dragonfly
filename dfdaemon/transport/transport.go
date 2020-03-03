@@ -28,6 +28,7 @@ import (
 	"net/http"
 	"regexp"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/pborman/uuid"
@@ -153,10 +154,14 @@ func (roundTripper *DFRoundTripper) RoundTrip(req *http.Request) (*http.Response
 			baseLine = bl
 		}
 
+		reset := req.Header.Get("x-numerical-ware-reset")
+		if strings.TrimSpace(reset) == "true" {
+			defer roundTripper.nWare.Reset()
+		}
+
 		rs := roundTripper.nWare.OutputWithBaseLine(baseLine)
 		rs.Err = msgErr
 		rsData,_ := json.Marshal(rs)
-		roundTripper.nWare.Reset()
 
 		return &http.Response{
 			StatusCode: 200,
