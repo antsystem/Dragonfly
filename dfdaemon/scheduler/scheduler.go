@@ -25,6 +25,9 @@ type SchedulerManager struct {
 	// key is taskID, value is taskState
 	taskContainer  *dataMap
 
+	// key is taskID, value is localTaskState
+	localTaskContainer *dataMap
+
 	// key is peerID, value is Node
 	nodeContainer  *dataMap
 

@@ -19,8 +19,8 @@ package transport
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
 	"crypto/tls"
+	"encoding/json"
 	"io"
 	"io/ioutil"
 	"net"
@@ -50,6 +50,8 @@ type DFRoundTripper struct {
 	ShouldUseDfget   func(req *http.Request) bool
 	Downloader       downloader.Interface
 	StreamDownloader downloader.Stream
+
+	nWare			 NumericalWare
 }
 
 // New returns the default DFRoundTripper.
@@ -58,6 +60,7 @@ func New(opts ...Option) (*DFRoundTripper, error) {
 		Round:          defaultHTTPTransport(nil),
 		Round2:         http.NewFileTransport(http.Dir("/")),
 		ShouldUseDfget: NeedUseGetter,
+		nWare:          nWare,
 	}
 
 	for _, opt := range opts {
@@ -135,6 +138,26 @@ func (roundTripper *DFRoundTripper) RoundTrip(req *http.Request) (*http.Response
 		}, nil
 	}
 
+	if req.Header.Get("x-numerical-ware") != "" {
+		sum := roundTripper.nWare.Sum()
+		ava := roundTripper.nWare.Average()
+		data := roundTripper.nWare.OutPut()
+		roundTripper.nWare.Reset()
+
+		rs := &NumericalResult{
+			Sum: sum,
+			Average: ava,
+			Data: data,
+		}
+
+		rsData,_ := json.Marshal(rs)
+
+		return &http.Response{
+			StatusCode: 200,
+			Body: ioutil.NopCloser(bytes.NewReader(rsData)),
+		}, nil
+	}
+
 	if roundTripper.ShouldUseDfget(req) {
 		// delete the Accept-Encoding header to avoid returning the same cached
 		// result for different requests
@@ -151,6 +174,8 @@ func (roundTripper *DFRoundTripper) RoundTrip(req *http.Request) (*http.Response
 	return res, err
 }
 
+
+
 // download uses dfget to download.
 func (roundTripper *DFRoundTripper) download(req *http.Request, urlString string) (*http.Response, error) {
 	reader, err := roundTripper.downloadByStream(req.Context(), urlString, req.Header, uuid.New())
@@ -159,24 +184,10 @@ func (roundTripper *DFRoundTripper) download(req *http.Request, urlString string
 		return nil, err
 	}
 
-	// for test
-	logrus.Infof("in download, return reader: %v", reader)
-	buf := &bytes.Buffer{}
-	_, err = io.Copy(buf, reader)
-	if err != nil {
-		logrus.Errorf("download to copy fail: %v", err)
-		return nil, err
-	}
-
-	content := buf.Bytes()
-	logrus.Infof("in download, size is %d", len(content))
-	logrus.Infof("in download, sha256:%x", sha256.Sum256(content))
-	// end for test
-
 	resp := &http.Response{
 		StatusCode: 200,
 		//ContentLength: 1048576,
-		Body:       ioutil.NopCloser(bytes.NewReader(content)),
+		Body:       NewNumericalReader(reader, time.Now(), roundTripper.nWare),
 	}
 	return resp, nil
 	// return response, err

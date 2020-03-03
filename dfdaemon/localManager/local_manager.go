@@ -144,15 +144,6 @@ func (lm *LocalManager) DownloadStreamContext(ctx context.Context, url string, h
 	logrus.Infof("start to download, url: %s, header: %v, taskID: %s, length: %d", url,
 		header, taskID, length)
 
-	// firstly, try to download direct from source url
-	//directDownload, err := lm.isDownloadDirectReturnSrc(ctx, url)
-	//if err != nil {
-	//	logrus.Error(err)
-	//}
-	//
-	//if directDownload {
-	//	goto localDownload
-	//}
 
 	// try to download from peer by internal schedule
 	if taskID != "" {
