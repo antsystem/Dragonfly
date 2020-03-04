@@ -17,6 +17,7 @@
 package uploader
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
 	"encoding/json"
@@ -95,6 +96,8 @@ type taskConfig struct {
 	superNode  string
 	finished   bool
 	accessTime time.Time
+
+	cache		*cacheBuffer
 }
 
 // uploadParam refers to all params needed in the handler of upload.
@@ -148,6 +151,31 @@ func (ps *peerServer) uploadHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// get task config
+	v, ok := ps.syncTaskMap.Load(taskFileName)
+	if !ok {
+		rangeErrorResponse(w, fmt.Errorf("failed to get taskPath: %s", taskFileName))
+		logrus.Errorf("failed to open file:%s, %v", taskFileName, err)
+		return
+	}
+
+	task := v.(*taskConfig)
+	if task.cache.valid {
+		// try to upload from cache
+		size = task.cache.size
+		if err = amendRange(size, true, up); err != nil {
+			rangeErrorResponse(w, err)
+			logrus.Errorf("failed to amend range of file %s: %v", taskFileName, err)
+			return
+		}
+
+		if err := ps.uploadPieceFromCache(task.cache, w, up); err != nil {
+			logrus.Errorf("failed to send range(%s) of file(%s): %v", rangeStr, taskFileName, err)
+		}
+
+		return
+	}
+
 	// Step2: get task file
 	if f, size, err = ps.getTaskFile(taskFileName); err != nil {
 		rangeErrorResponse(w, err)
@@ -167,6 +195,32 @@ func (ps *peerServer) uploadHandler(w http.ResponseWriter, r *http.Request) {
 	if err := ps.uploadPiece(f, w, up); err != nil {
 		logrus.Errorf("failed to send range(%s) of file(%s): %v", rangeStr, taskFileName, err)
 	}
+}
+
+func (ps *peerServer) uploadPieceFromCache(c *cacheBuffer, w http.ResponseWriter, up *uploadParam) (e error) {
+	w.Header().Set(config.StrContentLength, strconv.FormatInt(up.length, 10))
+	sendHeader(w, http.StatusPartialContent)
+
+	readLen := up.length - up.padSize
+	buf := make([]byte, 256*1024)
+
+	if up.padSize > 0 {
+		binary.BigEndian.PutUint32(buf, uint32((readLen)|(up.pieceSize)<<4))
+		w.Write(buf[:config.PieceHeadSize])
+		defer w.Write([]byte{config.PieceTailChar})
+	}
+
+	brd := bytes.NewReader(c.buf.Bytes())
+	brd.Seek(up.start, 0)
+	r := io.LimitReader(brd, readLen)
+	if ps.rateLimiter != nil {
+		lr := limitreader.NewLimitReaderWithLimiter(ps.rateLimiter, r, false)
+		_, e = io.CopyBuffer(w, lr, buf)
+	} else {
+		_, e = io.CopyBuffer(w, r, buf)
+	}
+
+	return
 }
 
 func (ps *peerServer) parseRateHandler(w http.ResponseWriter, r *http.Request) {
@@ -256,6 +310,7 @@ func (ps *peerServer) oneFinishHandler(w http.ResponseWriter, r *http.Request) {
 		task.superNode = superNode
 		task.finished = true
 		task.accessTime = time.Now()
+		task.cache = newCacheBuffer()
 	} else {
 		ps.syncTaskMap.Store(taskFileName, &taskConfig{
 			taskID:     taskID,
@@ -264,10 +319,41 @@ func (ps *peerServer) oneFinishHandler(w http.ResponseWriter, r *http.Request) {
 			superNode:  superNode,
 			finished:   true,
 			accessTime: time.Now(),
+			cache: newCacheBuffer(),
 		})
 	}
+	go ps.syncCache(taskFileName)
 	sendSuccess(w)
 	fmt.Fprintf(w, "success")
+}
+
+func (ps *peerServer) syncCache(taskFileName string) {
+	v, ok := ps.syncTaskMap.Load(taskFileName)
+	if !ok {
+		return
+	}
+
+	task := v.(*taskConfig)
+	f,size, err := ps.getTaskFile(taskFileName)
+	if err != nil {
+		logrus.Errorf("in syncCache %s, failed to getTaskFile: %v", taskFileName, err)
+		return
+	}
+
+	defer f.Close()
+
+	buf := &bytes.Buffer{}
+	copySize, _ := io.CopyN(buf, f, size)
+	if copySize != size {
+		logrus.Errorf("failed to syncCache %s from file %s, expected size %d, but got %d",
+			taskFileName, f.Name(), size, copySize)
+		return
+	}
+	task.cache.buf = buf
+	task.cache.size = size
+	task.cache.valid = true
+
+	logrus.Infof("success to sync cache %s", taskFileName)
 }
 
 func (ps *peerServer) pingHandler(w http.ResponseWriter, r *http.Request) {
@@ -483,7 +569,7 @@ func (ps *peerServer) shutdown() {
 func (ps *peerServer) deleteExpiredFile(path string, info os.FileInfo,
 	expireTime time.Duration) bool {
 	taskName := helper.GetTaskName(info.Name())
-	logrus.Infof("fileName: %s, taskName: %s", info.Name(), taskName)
+	//logrus.Infof("fileName: %s, taskName: %s", info.Name(), taskName)
 	if v, ok := ps.syncTaskMap.Load(taskName); ok {
 		task, ok := v.(*taskConfig)
 		if ok && !task.finished {

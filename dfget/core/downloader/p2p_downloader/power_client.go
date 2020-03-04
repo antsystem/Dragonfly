@@ -286,3 +286,7 @@ func (pc *PowerClient) readBody(body io.ReadCloser) string {
 	}
 	return strings.TrimSpace(buf.String())
 }
+
+func (pc *PowerClient) CostReadTime() time.Duration {
+	return pc.readCost
+}

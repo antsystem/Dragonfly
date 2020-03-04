@@ -88,9 +88,9 @@ func (lm *LocalManager) fetchLoop(ctx context.Context) {
 					continue
 				}
 
-				lm.syncP2PNetworkInfo(lm.rm.getRecentRequest())
+				lm.syncP2PNetworkInfo(lm.rm.getRecentRequest(0))
 			case <- lm.syncP2PNetworkCh:
-				lm.syncP2PNetworkInfo(lm.rm.getRecentRequest())
+				lm.syncP2PNetworkInfo(lm.rm.getRecentRequest(0))
 		}
 	}
 }

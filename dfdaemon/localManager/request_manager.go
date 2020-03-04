@@ -47,9 +47,12 @@ func (rm *requestManager) addRequest(url string, directReturnSrc bool) error {
 	return nil
 }
 
-// getRecentRequest will return 2 of the recent request url
-func (rm *requestManager) getRecentRequest() []string {
-	arr := rm.q.getFront(2)
+// getRecentRequest will return 5 of the recent request url
+func (rm *requestManager) getRecentRequest(count int) []string {
+	if count == 0 {
+		count = 5
+	}
+	arr := rm.q.getFront(count)
 	result := []string{}
 
 	for _, d := range arr {

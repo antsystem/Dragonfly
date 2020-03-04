@@ -88,8 +88,8 @@ func (ld *LocalDownloader) run(ctx context.Context, pieceWriter downloader.Piece
 	}()
 
 	for _, info := range ld.selectNodes {
-		ld.processPiece(info)
-		success, err := ld.processItem()
+		ld.processPiece(ctx, info)
+		success, err := ld.processItem(ctx)
 		if !success {
 			lastErr = err
 			continue
@@ -104,7 +104,7 @@ func (ld *LocalDownloader) run(ctx context.Context, pieceWriter downloader.Piece
 }
 
 //
-func (ld *LocalDownloader) processItem() (success bool, err error) {
+func (ld *LocalDownloader) processItem(ctx context.Context) (success bool, err error) {
 	for {
 		v, ok := ld.queue.PollTimeout(2 * time.Second)
 		if ! ok {
@@ -203,7 +203,7 @@ func (ld *LocalDownloader) reportResource() {
 	}
 }
 
-func (ld *LocalDownloader) processPiece(info* downloadNodeInfo) {
+func (ld *LocalDownloader) processPiece(ctx context.Context, info* downloadNodeInfo) {
 	logrus.Debugf("pieces to be processed:%v", info)
 	pieceTask := &types.PullPieceTaskResponseContinueData{
 		Range: fmt.Sprintf("0-%d", ld.length - 1),
@@ -238,6 +238,8 @@ func (ld *LocalDownloader) startTask(data *types.PullPieceTaskResponseContinueDa
 	if err := powerClient.Run(); err != nil && powerClient.ClientError() != nil {
 		//p2p.API.ReportClientError(p2p.node, powerClient.ClientError())
 		logrus.Errorf("report client error: %v", powerClient.ClientError())
+	}else{
+		_ := powerClient.CostReadTime()
 	}
 }
 
