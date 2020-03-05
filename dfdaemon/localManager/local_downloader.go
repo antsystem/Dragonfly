@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/dragonflyoss/Dragonfly/dfdaemon/downloader/p2p"
+	"github.com/dragonflyoss/Dragonfly/dfdaemon/transport"
 	"github.com/dragonflyoss/Dragonfly/dfget/config"
 	"github.com/dragonflyoss/Dragonfly/dfget/core/api"
 	"github.com/dragonflyoss/Dragonfly/dfget/core/downloader/p2p_downloader"
@@ -64,7 +65,7 @@ func NewLocalDownloader() *LocalDownloader {
 }
 
 func (ld *LocalDownloader) RunStream(ctx context.Context) (io.Reader, error) {
-	csw := downloader.NewClientStreamWriter(ld.clientQueue, ld.superAPI, ld.config, true, ld.length)
+	csw := downloader.NewClientStreamWriter(ctx, ld.clientQueue, ld.superAPI, ld.config, true, ld.length)
 	go func() {
 		err := ld.run(ctx, csw)
 		if err != nil {
@@ -218,11 +219,28 @@ func (ld *LocalDownloader) processPiece(ctx context.Context, info* downloadNodeI
 		DirectSource: info.directSource,
 	}
 
-	go ld.startTask(pieceTask)
+	go ld.startTask(ctx, pieceTask)
 }
 
 // PowerClient will download file content and push content to queue and clientQueue
-func (ld *LocalDownloader) startTask(data *types.PullPieceTaskResponseContinueData) {
+func (ld *LocalDownloader) startTask(ctx context.Context, data *types.PullPieceTaskResponseContinueData) {
+	var(
+		nWare transport.NumericalWare
+		key   string
+	)
+
+	nWareOb := ctx.Value("numericalWare")
+	ware, ok := nWareOb.(transport.NumericalWare)
+	if ok {
+		nWare = ware
+	}
+
+	keyOb := ctx.Value("key")
+	k, ok := keyOb.(string)
+	if ok {
+		key = k
+	}
+
 	powerClientConfig := &downloader.PowerClientConfig{
 		TaskID:  ld.taskID,
 		Node: ld.node,
@@ -239,7 +257,10 @@ func (ld *LocalDownloader) startTask(data *types.PullPieceTaskResponseContinueDa
 		//p2p.API.ReportClientError(p2p.node, powerClient.ClientError())
 		logrus.Errorf("report client error: %v", powerClient.ClientError())
 	}else{
-		_ := powerClient.CostReadTime()
+		cost := powerClient.CostReadTime()
+		if nWare != nil {
+			nWare.Add(key, transport.RemoteIOName, cost.Nanoseconds())
+		}
 	}
 }
 

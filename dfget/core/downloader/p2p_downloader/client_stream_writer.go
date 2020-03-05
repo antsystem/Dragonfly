@@ -19,6 +19,7 @@ package downloader
 import (
 	"context"
 	"fmt"
+	"github.com/dragonflyoss/Dragonfly/dfdaemon/transport"
 	"io"
 	"time"
 
@@ -66,10 +67,15 @@ type ClientStreamWriter struct {
 	noReport   bool
 	expectReadSize int64
 	alreadyReadSize int64
+	ctx		context.Context
+	nWare	transport.NumericalWare
+	nKey	string
+
+	startTime time.Time
 }
 
 // NewClientStreamWriter creates and initialize a ClientStreamWriter instance.
-func NewClientStreamWriter(clientQueue queue.Queue, api api.SupernodeAPI, cfg *config.Config, noReport bool, expectReadSize int64) *ClientStreamWriter {
+func NewClientStreamWriter(ctx context.Context, clientQueue queue.Queue, api api.SupernodeAPI, cfg *config.Config, noReport bool, expectReadSize int64) *ClientStreamWriter {
 	pr, pw := io.Pipe()
 	logrus.Infof("rate limit: %v, expect read size: %d", cfg.LocalLimit, expectReadSize)
 	limitReader := limitreader.NewLimitReader(pr, int64(cfg.LocalLimit), cfg.Md5 != "")
@@ -83,7 +89,19 @@ func NewClientStreamWriter(clientQueue queue.Queue, api api.SupernodeAPI, cfg *c
 		cache:       make(map[int]*Piece),
 		noReport:    noReport,
 		expectReadSize: expectReadSize,
+		ctx: ctx,
 	}
+
+	nWareObj, ok := ctx.Value("numericalWare").(transport.NumericalWare)
+	if ok {
+		clientWriter.nWare = nWareObj
+	}
+
+	nKey, ok := ctx.Value("key").(string)
+	if ok {
+		clientWriter.nKey = nKey
+	}
+
 	return clientWriter
 }
 
@@ -152,6 +170,9 @@ func (csw *ClientStreamWriter) write(piece *Piece) error {
 }
 
 func (csw *ClientStreamWriter) writePieceToPipe(p *Piece) error {
+	var(
+		startTime time.Time = time.Now()
+	)
 	for {
 		// must write piece by order
 		// when received PieceNum is greater then pieceIndex, cache it
@@ -166,6 +187,10 @@ func (csw *ClientStreamWriter) writePieceToPipe(p *Piece) error {
 		}
 
 		bufReader := p.RawContent()
+		if csw.nWare != nil {
+			csw.nWare.Add(csw.nKey, transport.CSWWriteName, time.Since(startTime).Nanoseconds())
+		}
+		csw.startTime = time.Now()
 		_, err := io.Copy(csw.pipeWriter, bufReader)
 		if err != nil {
 			return err
@@ -190,6 +215,9 @@ func (csw *ClientStreamWriter) Read(p []byte) (n int, err error) {
 	csw.alreadyReadSize += int64(n)
 	if csw.alreadyReadSize == csw.expectReadSize {
 		go csw.notifyCloseStream()
+		if csw.nWare != nil {
+			csw.nWare.Add(csw.nKey, transport.RequestReadName, time.Since(csw.startTime).Nanoseconds())
+		}
 	}
 
 	// all data received, calculate md5

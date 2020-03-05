@@ -174,7 +174,10 @@ func (roundTripper *DFRoundTripper) RoundTrip(req *http.Request) (*http.Response
 		// result for different requests
 		req.Header.Del("Accept-Encoding")
 		logrus.Debugf("round trip with dfget: %s", req.URL.String())
-		if res, err := roundTripper.download(req, req.URL.String()); err == nil || !exception.IsNotAuth(err) {
+
+		ctx := context.WithValue(req.Context(), "numericalWare", roundTripper.nWare)
+		ctx = context.WithValue(ctx, "key", uuid.New())
+		if res, err := roundTripper.download(req.WithContext(ctx), req.URL.String()); err == nil || !exception.IsNotAuth(err) {
 			return res, err
 		}
 	}
@@ -198,7 +201,7 @@ func (roundTripper *DFRoundTripper) download(req *http.Request, urlString string
 	resp := &http.Response{
 		StatusCode: 200,
 		//ContentLength: 1048576,
-		Body:       NewNumericalReader(reader, time.Now(), roundTripper.nWare),
+		Body:       NewNumericalReader(reader, time.Now(), req.Context().Value("key").(string), roundTripper.nWare),
 	}
 	return resp, nil
 	// return response, err

@@ -17,21 +17,33 @@ func init()  {
 	nWare = NewNumericalWare()
 }
 
+const(
+	TotalName = "total"
+	ScheduleName = "schedule"
+	RemoteIOName  = "remote-io"
+	CSWWriteName = "csw-write"
+	RequestReadName = "request-read"
+)
+
 type NumericalWare interface {
-	Add(data int64)
+	Add(key string, name string, data int64)
 	// reset num
 	Reset()
 
 	Average() int64
 	Sum() int64
-	OutPut() []int64
+	OutPut() []*MultiLevelSt
 
 	OutputWithBaseLine(baseLine int64) *NumericalResult
 }
 
+type MultiLevelSt struct {
+	ma map[string]int64
+}
+
 type numericalWare struct {
 	sync.Mutex
-	data  []int64
+	dataMap map[string]*MultiLevelSt
 	sum   int64
 	count int64
 	cap   int64
@@ -39,29 +51,35 @@ type numericalWare struct {
 
 func NewNumericalWare() NumericalWare {
 	return &numericalWare{
-		data: make([]int64, 10000),
+		dataMap: make(map[string]*MultiLevelSt, 10000),
 		cap: 10000,
 	}
 }
 
-func (n *numericalWare)  Add(data int64) {
-	go n.add(data)
+func (n *numericalWare) Add(key string, name string, data int64) {
+	go n.add(key, name, data)
 }
 
-func (n *numericalWare) add(data int64) {
+func (n *numericalWare) add(key string, name string, data int64) {
 	n.Lock()
 	defer n.Unlock()
 
-	n.data[n.count] = data
-	n.count ++
-	if n.count >= n.cap {
-		newData := make([]int64, 2 * n.cap)
-		copy(newData, n.data)
-		n.data = newData
-		n.cap = 2 * n.cap
+	var d *MultiLevelSt
+
+	d, exist := n.dataMap[key]
+	if !exist {
+		d = &MultiLevelSt{
+			ma: make(map[string]int64),
+		}
+		n.dataMap[key] = d
+		n.count ++
 	}
 
-	n.sum += data
+	d.ma[name] = data
+
+	if name == TotalName {
+		n.sum += data
+	}
 }
 
 func (n *numericalWare)  Reset() {
@@ -69,7 +87,7 @@ func (n *numericalWare)  Reset() {
 	defer n.Unlock()
 
 	n.sum = 0
-	n.data = make([]int64, 10000)
+	n.dataMap = make(map[string]*MultiLevelSt, 10000)
 	n.count = 0
 }
 
@@ -90,19 +108,97 @@ func (n *numericalWare)  Sum() int64 {
 	return n.sum
 }
 
-func (n *numericalWare) OutPut() []int64 {
+func (n *numericalWare) OutPut() []*MultiLevelSt {
 	n.Lock()
 	defer n.Unlock()
 
-	copyData := make([]int64, n.count)
-	copy(copyData, n.data[:n.count])
+	copyData := make([]*MultiLevelSt, n.count)
+	i := 0
+	for _, v := range n.dataMap {
+		copyData[i] = v
+		i ++
+	}
+
 	return copyData
 }
 
 func (n *numericalWare) OutputWithBaseLine(baseLine int64) *NumericalResult {
+	var(
+		totalCount = 0
+		ioCount = 0
+		scheduleCount = 0
+		cswWriteCount = 0
+		requestReadCount = 0
+
+		totalSum int64 = 0
+		ioSum int64 = 0
+		scheduleSum int64 = 0
+		cswWriteSum int64 = 0
+		requestReadSum int64 = 0
+	)
+
 	data := n.OutPut()
+	if len(data) == 0 {
+		return &NumericalResult{}
+	}
+
+	resultData := make([][]int64, len(data))
+
+	for i, d := range data {
+		singleD := make([]int64, 5)
+		total := mapValue(d.ma, TotalName)
+		if total > 0 {
+			totalCount ++
+			singleD[0] = total
+			totalSum += total
+		}
+
+		rio := mapValue(d.ma, RemoteIOName)
+		if rio > 0 {
+			ioCount ++
+			singleD[1] = rio
+			ioSum += rio
+		}
+
+		sh := mapValue(d.ma, ScheduleName)
+		if sh > 0 {
+			scheduleCount ++
+			singleD[2] = sh
+			scheduleSum += sh
+		}
+
+		cw := mapValue(d.ma, CSWWriteName)
+		if cw > 0 {
+			cswWriteCount ++
+			singleD[3] = cw
+			cswWriteSum += cw
+		}
+
+		rr := mapValue(d.ma, RequestReadName)
+		if rr > 0 {
+			requestReadCount ++
+			singleD[4] = rr
+			requestReadSum += rr
+		}
+
+		resultData[i] = singleD
+	}
+
+	ioAve := ioSum / int64(ioCount)
+	scheduleAve := scheduleSum / int64(scheduleCount)
+	cswWriteAve := cswWriteSum / int64(cswWriteCount)
+	requestReadAve := requestReadSum / int64(requestReadCount)
+
 	rs := &NumericalResult{
-		Data: data,
+		SumIO: ioSum,
+		AverageIO: ioAve,
+		SumSchedule: scheduleSum,
+		AverageSchedule: scheduleAve,
+		SumCwsWrite: cswWriteSum,
+		AverageCwsWrite: cswWriteAve,
+		SumRequestRead: requestReadSum,
+		AverageRequestRead: requestReadAve,
+		Data: resultData,
 		BaseLine: baseLine,
 	}
 
@@ -114,27 +210,38 @@ type  numericalReader struct {
 	io.Reader
 	start time.Time
 	n NumericalWare
+	key  string
 }
 
-func NewNumericalReader(rd io.Reader, startTime time.Time, n NumericalWare) *numericalReader {
+func NewNumericalReader(rd io.Reader, startTime time.Time, key string, n NumericalWare) *numericalReader {
 	return &numericalReader{
 		Reader: rd,
 		start: startTime,
 		n: n,
+		key: key,
 	}
 }
 
 func (r *numericalReader) Close() error {
 	logrus.Infof("close the reader")
 	cost := time.Now().Sub(r.start).Nanoseconds()
-	r.n.Add(cost)
+	r.n.Add(r.key, TotalName, cost)
 	return nil
 }
 
 type NumericalResult struct {
 	Sum 	int64
 	Average int64
-	Data	[]int64
+	SumIO   int64
+	AverageIO int64
+	SumSchedule int64
+	AverageSchedule int64
+	SumCwsWrite int64
+	AverageCwsWrite int64
+	SumRequestRead int64
+	AverageRequestRead int64
+
+	Data	[][]int64
 
 	BaseLine	int64
 	// the sum sub the base data
@@ -158,8 +265,8 @@ func (r *NumericalResult) autoCompute() {
 	var sum int64 = 0
 	count := len(r.Data)
 	for _, d := range r.Data {
-		r.filter(d)
-		sum += d
+		r.filter(d[0])
+		sum += d[0]
 	}
 
 	if r.Sum == 0 {
@@ -211,5 +318,13 @@ func (r *NumericalResult) filter(data int64) {
 	}
 
 	r.RangeOut1s ++
+}
 
+func mapValue(m map[string]int64, key string) int64 {
+	v, ok := m[key]
+	if ok {
+		return v
+	}
+
+	return -1
 }

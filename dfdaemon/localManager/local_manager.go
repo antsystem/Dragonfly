@@ -7,6 +7,7 @@ import (
 	"github.com/dragonflyoss/Dragonfly/dfdaemon/config"
 	"github.com/dragonflyoss/Dragonfly/dfdaemon/downloader/p2p"
 	"github.com/dragonflyoss/Dragonfly/dfdaemon/scheduler"
+	"github.com/dragonflyoss/Dragonfly/dfdaemon/transport"
 	dfgetcfg "github.com/dragonflyoss/Dragonfly/dfget/config"
 	"github.com/dragonflyoss/Dragonfly/dfget/core/api"
 	"github.com/dragonflyoss/Dragonfly/dfget/core/helper"
@@ -127,7 +128,23 @@ func (lm *LocalManager) DownloadStreamContext(ctx context.Context, url string, h
 		infos = []*downloadNodeInfo{}
 		rd io.Reader
 		localDownloader  *LocalDownloader
+		nWare		transport.NumericalWare
+		key			string
 	)
+
+	nWareOb := ctx.Value("numericalWare")
+	ware, ok := nWareOb.(transport.NumericalWare)
+	if ok {
+		nWare = ware
+	}
+
+	keyOb := ctx.Value("key")
+	k, ok := keyOb.(string)
+	if ok {
+		key = k
+	}
+
+	startTime := time.Now()
 
 	info := &downloadNodeInfo{
 		directSource: true,
@@ -149,6 +166,10 @@ func (lm *LocalManager) DownloadStreamContext(ctx context.Context, url string, h
 	if taskID != "" {
 		// local schedule
 		result, err := lm.sm.SchedulerByTaskID(ctx, taskID, lm.dfGetConfig.RV.Cid, "", 0)
+		if nWare != nil {
+			nWare.Add(key, transport.ScheduleName, time.Since(startTime).Nanoseconds())
+			startTime = time.Now()
+		}
 		if err != nil {
 			go lm.scheduleBySuperNode(ctx, url, header, name, taskID, length)
 			goto localDownload
