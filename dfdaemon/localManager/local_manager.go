@@ -11,9 +11,7 @@ import (
 	dfgetcfg "github.com/dragonflyoss/Dragonfly/dfget/config"
 	"github.com/dragonflyoss/Dragonfly/dfget/core/api"
 	"github.com/dragonflyoss/Dragonfly/dfget/core/helper"
-	"github.com/dragonflyoss/Dragonfly/dfget/core/regist"
 	"github.com/dragonflyoss/Dragonfly/dfget/types"
-	"github.com/dragonflyoss/Dragonfly/pkg/constants"
 	"github.com/dragonflyoss/Dragonfly/pkg/errortypes"
 	"github.com/dragonflyoss/Dragonfly/pkg/httputils"
 	"io"
@@ -43,10 +41,13 @@ type LocalManager struct {
 
 	rm		 *requestManager
 
-	syncP2PNetworkCh	chan struct{}
+	syncP2PNetworkCh	chan string
 
 	syncTimeLock		sync.Mutex
 	syncTime			time.Time
+
+	// recentFetchUrls is the urls which as the parameters to fetch the p2p network recently
+	recentFetchUrls     []string
 }
 
 func NewLocalManager(cfg config.DFGetConfig) *LocalManager {
@@ -60,6 +61,7 @@ func NewLocalManager(cfg config.DFGetConfig) *LocalManager {
 			dfGetConfig: convertToDFGetConfig(cfg, nil),
 			cfg: cfg,
 			syncTime: time.Now(),
+			syncP2PNetworkCh: make(chan string, 2),
 		}
 
 		go localManager.fetchLoop(context.Background())
@@ -90,10 +92,27 @@ func (lm *LocalManager) fetchLoop(ctx context.Context) {
 				}
 
 				lm.syncP2PNetworkInfo(lm.rm.getRecentRequest(0))
-			case <- lm.syncP2PNetworkCh:
+			case url := <- lm.syncP2PNetworkCh:
+				if lm.isRecentFetch(url) {
+					// the url is fetch recently, directly ignore it
+					continue
+				}
 				lm.syncP2PNetworkInfo(lm.rm.getRecentRequest(0))
 		}
 	}
+}
+
+func (lm *LocalManager) isRecentFetch(url string) bool {
+	lm.syncTimeLock.Lock()
+	defer lm.syncTimeLock.Unlock()
+
+	for _, u := range lm.recentFetchUrls {
+		if u == url {
+			return true
+		}
+	}
+
+	return false
 }
 
 func convertToDFGetConfig(cfg config.DFGetConfig, oldCfg *dfgetcfg.Config) *dfgetcfg.Config {
@@ -206,53 +225,33 @@ localDownload:
 	rd, err := localDownloader.RunStream(ctx)
 	logrus.Infof("return io.read: %v", rd)
 	return rd, err
-
-	// try to schedule by super node
-//superNodeSchedule:
-//
-//	err = lm.scheduleBySuperNode(ctx, url, header, name, taskID, length)
-//	if err == nil {
-//		return rd, nil
-//	}
-//
-//	dferr, ok := err.(*errortypes.DfError)
-//	if !ok {
-//		return nil, err
-//	}
-//
-//	// super node tells the dfdameon directly to call source url
-//	if dferr.Code == constants.CodeNOURL || dferr.Code == constants.CodeReturnSrc {
-//		lm.rm.addRequest(url, true)
-//		return lm.DownloadStreamContext(ctx, url, header, name)
-//	}
-//
-//	return rd, err
 }
 
 func (lm *LocalManager) scheduleBySuperNode(ctx context.Context, url string, header map[string][]string, name string, taskID string, length int64)  {
-	conf := convertToDFGetConfig(lm.cfg, lm.dfGetConfig)
-	conf.URL = url
-	conf.RV.TaskURL = url
-	conf.RV.TaskFileName = name
-	conf.Header = p2p.FlattenHeader(header)
-	conf.RV.Digest = taskID
-	conf.RV.FileLength = length
+	//conf := convertToDFGetConfig(lm.cfg, lm.dfGetConfig)
+	//conf.URL = url
+	//conf.RV.TaskURL = url
+	//conf.RV.TaskFileName = name
+	//conf.Header = p2p.FlattenHeader(header)
+	//conf.RV.Digest = taskID
+	//conf.RV.FileLength = length
+	//
+	//superNodeRegister := regist.NewSupernodeRegister(conf, lm.supernodeAPI)
+	//_, err := superNodeRegister.Register(conf.RV.PeerPort)
+	//if err == nil {
+	//
+	//}
+	//
+	//if err.Code == constants.CodeNOURL || err.Code == constants.CodeReturnSrc {
+	//	lm.rm.addRequest(url, true)
+	//}
 
-	superNodeRegister := regist.NewSupernodeRegister(conf, lm.supernodeAPI)
-	_, err := superNodeRegister.Register(conf.RV.PeerPort)
-	if err == nil {
-		lm.rm.addRequest(url, false)
-		lm.notifyFetchP2PNetwork()
-		return
-	}
-
-	if err.Code == constants.CodeNOURL || err.Code == constants.CodeReturnSrc {
-		lm.rm.addRequest(url, true)
-	}
+	lm.rm.addRequest(url, false)
+	lm.notifyFetchP2PNetwork(url)
 }
 
-func (lm *LocalManager) notifyFetchP2PNetwork() {
-	lm.syncP2PNetworkCh <- struct{}{}
+func (lm *LocalManager) notifyFetchP2PNetwork(url string) {
+	lm.syncP2PNetworkCh <- url
 }
 
 
@@ -343,6 +342,7 @@ func (lm *LocalManager) syncP2PNetworkInfo(urls []string) {
 	lm.syncTimeLock.Lock()
 	defer lm.syncTimeLock.Unlock()
 	lm.syncTime = time.Now()
+	lm.recentFetchUrls = urls
 }
 
 func (lm *LocalManager) fetchP2PNetworkInfo(urls []string) ([]*types2.Node, error) {

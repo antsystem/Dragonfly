@@ -1,9 +1,9 @@
 package localManager
 
 import (
-	"testing"
 	"github.com/go-check/check"
-	)
+	"testing"
+)
 
 type RequestManagerSuite struct{}
 
@@ -74,7 +74,30 @@ func (suite *RequestManagerSuite) TestRequestManager(c *check.C)  {
 			},
 			recentCount: 5,
 		},
+		{
+			name: "MoreUrlWithMoreExpect",
+			urls: []string{
+				"a.com",
+				"b.com",
+				"a.com",
+				"c.com",
+				"d.com",
+				"e.com",
+				"f.com",
+				"f.com",
+				"d.com",
+			},
+			expectUrls: []string{
+				"a.com",
+				"c.com",
+				"e.com",
+				"f.com",
+				"d.com",
+			},
+			recentCount: 5,
+		},
 	}{
+		c.Logf("testcase %s", i.name)
 		rm := newRequestManager()
 		for _, url := range i.urls {
 			err := rm.addRequest(url, false)

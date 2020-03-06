@@ -73,7 +73,6 @@ func (q *finiteQueue) getFront(count int) []interface{} {
 	item := q.head
 	index := 0
 	for{
-		item := item.next
 		result[index] = item.data
 		index ++
 		if index >= count {
@@ -82,6 +81,7 @@ func (q *finiteQueue) getFront(count int) []interface{} {
 		if item == q.tail {
 			break
 		}
+		item = item.next
 	}
 
 	return result[:index]

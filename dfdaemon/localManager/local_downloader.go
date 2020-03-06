@@ -198,7 +198,7 @@ func (ld *LocalDownloader) reportResource() {
 	}
 	err := ld.uploaderAPI.FinishTask(ld.config.RV.LocalIP, ld.config.RV.PeerPort, finishTaskReq)
 	if err != nil {
-		logrus.Errorf("failed to finish task for uploader: %v", err)
+		logrus.Errorf("failed to finish task %v for uploader: %v", finishTaskReq, err)
 	}else{
 		logrus.Infof("success to finish task %v for uploader", finishTaskReq)
 	}
