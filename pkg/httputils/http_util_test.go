@@ -17,10 +17,12 @@
 package httputils
 
 import (
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"math/rand"
 	"net"
+	"net/http"
 	"testing"
 	"time"
 
@@ -213,6 +215,39 @@ func (s *HTTPUtilTestSuite) TestGetRangeSE(c *check.C) {
 		fmt.Println(v.rangeHTTPHeader)
 		c.Check(result, check.DeepEquals, v.expected)
 	}
+}
+
+type testTransport struct {
+}
+
+func (t *testTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	return &http.Response{
+		Proto:         "HTTP/1.1",
+		ProtoMajor:    1,
+		ProtoMinor:    1,
+		Body:          http.NoBody,
+		Status:        http.StatusText(http.StatusOK),
+		StatusCode:    http.StatusOK,
+		ContentLength: -1,
+	}, nil
+}
+
+func (s *HTTPUtilTestSuite) TestRegisterProtocol(c *check.C) {
+	protocol := "test"
+	RegisterProtocol(protocol, &testTransport{})
+	resp, err := HTTPWithHeaders(http.MethodGet,
+		protocol+"://test/test",
+		map[string]string{
+			"test": "test",
+		},
+		time.Second,
+		&tls.Config{},
+	)
+	c.Assert(err, check.IsNil)
+	defer resp.Body.Close()
+
+	c.Assert(resp, check.NotNil)
+	c.Assert(resp.ContentLength, check.Equals, int64(-1))
 }
 
 // ----------------------------------------------------------------------------
