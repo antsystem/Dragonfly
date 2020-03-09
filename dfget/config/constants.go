@@ -72,6 +72,8 @@ const (
 	StrPieceSize    = "pieceSize"
 	StrDataDir      = "dataDir"
 	StrTotalLimit   = "totalLimit"
+	StrOther    = "other"
+
 
 	StrBytes = "bytes"
 

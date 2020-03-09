@@ -306,11 +306,11 @@ func (s *PeerServerTestSuite) TestShutdown(c *check.C) {
 	ioutil.WriteFile(tmpFile, []byte("hello"), os.ModePerm)
 
 	ps := newPeerServer(cfg, 0)
-	ps.syncTaskMap.Store(taskName, &taskConfig{
-		cid:       "x",
-		superNode: "localhost",
-		taskID:    "b",
-		dataDir:   cfg.RV.SystemDataDir,
+	ps.syncTaskContainer.Store(taskName, &taskConfig{
+		Cid:       "x",
+		SuperNode: "localhost",
+		TaskID:    "b",
+		DataDir:   cfg.RV.SystemDataDir,
 	})
 	ps.api = &helper.MockSupernodeAPI{
 		ServiceDownFunc: func(ip string, taskID string, cid string) (*types.BaseResponse, error) {
@@ -339,10 +339,10 @@ func (s *PeerServerTestSuite) TestDeleteExpiredFile(c *check.C) {
 	}
 	var t = func(f bool) *taskConfig {
 		return &taskConfig{
-			taskID:     fmt.Sprintf("%d", rand.Int63()),
-			finished:   f,
-			dataDir:    cfg.RV.SystemDataDir,
-			accessTime: time.Now(),
+			TaskID:     fmt.Sprintf("%d", rand.Int63()),
+			Finished:   f,
+			DataDir:    cfg.RV.SystemDataDir,
+			AccessTime: time.Now(),
 		}
 	}
 
@@ -352,9 +352,9 @@ func (s *PeerServerTestSuite) TestDeleteExpiredFile(c *check.C) {
 		expire  time.Duration
 		deleted bool
 	}{
-		// delete finished and expired task file
+		// delete Finished and expired task file
 		{name: f(), task: t(true), expire: 0, deleted: true},
-		// don't delete finished but not expired task file
+		// don't delete Finished but not expired task file
 		{name: f(), task: t(true), expire: time.Minute, deleted: false},
 		// don't delete unfinished task file
 		{name: f(), task: t(false), expire: 0, deleted: false},
@@ -373,8 +373,8 @@ func (s *PeerServerTestSuite) TestDeleteExpiredFile(c *check.C) {
 		filePath := helper.GetServiceFile(v.name, cfg.RV.SystemDataDir)
 		finished := "<nil>"
 		if v.task != nil {
-			ps.syncTaskMap.Store(v.name, v.task)
-			finished = fmt.Sprintf("%v", v.task.finished)
+			ps.syncTaskContainer.Store(v.name, v.task)
+			finished = fmt.Sprintf("%v", v.task.Finished)
 		}
 		info, _ := os.Stat(filePath)
 		deleted := ps.deleteExpiredFile(filePath, info, v.expire)
@@ -384,8 +384,8 @@ func (s *PeerServerTestSuite) TestDeleteExpiredFile(c *check.C) {
 		c.Assert(deleted, check.Equals, v.deleted, cmt)
 		c.Assert(fileutils.PathExist(filePath), check.Equals, !v.deleted, cmt)
 		if v.task != nil {
-			c.Assert(mark[v.task.taskID], check.Equals, v.deleted, cmt)
-			_, ok := ps.syncTaskMap.Load(v.name)
+			c.Assert(mark[v.task.TaskID], check.Equals, v.deleted, cmt)
+			_, ok := ps.syncTaskContainer.Load(v.name)
 			c.Assert(ok, check.Equals, !v.deleted, cmt)
 		}
 	}
@@ -448,7 +448,7 @@ func (s *PeerServerTestSuite) TestParseRateHandler(c *check.C) {
 
 	// normal test
 	testRateLimit := 1000
-	headers["rateLimit"] = strconv.Itoa(testRateLimit)
+	headers["RateLimit"] = strconv.Itoa(testRateLimit)
 	if rr, err := testHandlerHelper(s.srv, &HandlerHelper{
 		method:  http.MethodGet,
 		url:     config.LocalHTTPPathRate + file2000,
@@ -471,8 +471,8 @@ func (s *PeerServerTestSuite) TestParseRateHandler(c *check.C) {
 	}
 	s.srv.totalLimitRate = 1000
 
-	// wrong rateLimit test
-	headers["rateLimit"] = "foo"
+	// wrong RateLimit test
+	headers["RateLimit"] = "foo"
 	if rr, err := testHandlerHelper(s.srv, &HandlerHelper{
 		method:  http.MethodGet,
 		url:     config.LocalHTTPPathRate + file2000,
@@ -511,8 +511,8 @@ func (s *PeerServerTestSuite) TestOneFinishHandler(c *check.C) {
 	}
 	exist := r()
 	srv := newTestPeerServer(s.workHome)
-	srv.syncTaskMap.Store(exist.TaskFileName, &taskConfig{
-		taskID: exist.TaskID,
+	srv.syncTaskContainer.Store(exist.TaskFileName, &taskConfig{
+		TaskID: exist.TaskID,
 	})
 
 	var cases = []struct {
@@ -536,13 +536,13 @@ func (s *PeerServerTestSuite) TestOneFinishHandler(c *check.C) {
 			continue
 		}
 
-		t, ok := srv.syncTaskMap.Load(v.req.TaskFileName)
+		t, ok := srv.syncTaskContainer.Load(v.req.TaskFileName)
 		c.Assert(ok, check.Equals, v.code == http.StatusOK)
 		if ok {
 			tt, ok := t.(*taskConfig)
 			c.Assert(ok, check.Equals, true)
-			c.Assert(tt.rateLimit, check.Equals, 0)
-			c.Assert(tt.finished, check.Equals, true)
+			c.Assert(tt.RateLimit, check.Equals, 0)
+			c.Assert(tt.Finished, check.Equals, true)
 		}
 	}
 }

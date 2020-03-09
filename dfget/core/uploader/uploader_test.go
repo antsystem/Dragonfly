@@ -137,10 +137,10 @@ func (s *UploaderTestSuite) TestWaitForShutdown(c *check.C) {
 		// immediately shutdown when p2p is nil
 		{nil, 50, false},
 
-		// immediately shutdown when p2p.finished is nil
+		// immediately shutdown when p2p.Finished is nil
 		{&peerServer{}, 50, false},
 
-		// shutdown when p2p.finished is closed  after 50ms
+		// shutdown when p2p.Finished is closed  after 50ms
 		{&peerServer{finished: make(chan struct{})}, 50, true},
 	}
 
@@ -275,9 +275,9 @@ func createTestFile(srv *peerServer, store bool, finished bool, expire time.Dura
 	os.Chtimes(taskFile, expireTime, expireTime)
 
 	if store {
-		srv.syncTaskMap.Store(name, &taskConfig{
-			finished:   finished,
-			accessTime: expireTime,
+		srv.syncTaskContainer.Store(name, &taskConfig{
+			Finished:   finished,
+			AccessTime: expireTime,
 		})
 	}
 	return name

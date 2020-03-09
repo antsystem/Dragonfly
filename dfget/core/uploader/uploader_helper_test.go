@@ -61,13 +61,13 @@ func newTestPeerServer(workHome string) (srv *peerServer) {
 	return srv
 }
 
-// initHelper creates a temporary file and store it in the syncTaskMap.
+// initHelper creates a temporary file and store it in the syncTaskContainer.
 func initHelper(srv *peerServer, fileName, dataDir, content string) {
 	helper.CreateTestFile(helper.GetServiceFile(fileName, dataDir), content)
 	if srv != nil {
-		srv.syncTaskMap.Store(fileName, &taskConfig{
-			dataDir:   dataDir,
-			rateLimit: defaultRateLimit,
+		srv.syncTaskContainer.Store(fileName, &taskConfig{
+			DataDir:   dataDir,
+			RateLimit: defaultRateLimit,
 		})
 	}
 }

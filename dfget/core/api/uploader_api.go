@@ -17,6 +17,8 @@
 package api
 
 import (
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -76,13 +78,19 @@ func (u *uploaderAPI) CheckServer(ip string, port int, req *CheckServerRequest) 
 }
 
 func (u *uploaderAPI) FinishTask(ip string, port int, req *FinishTaskRequest) error {
+	otherData, err := json.Marshal(req.Other)
+	if err != nil {
+		return err
+	}
+
 	url := fmt.Sprintf("http://%s:%d%sfinish?"+
 		config.StrTaskFileName+"=%s&"+
 		config.StrTaskID+"=%s&"+
 		config.StrClientID+"=%s&"+
-		config.StrSuperNode+"=%s",
+		config.StrSuperNode+"=%s&"+
+		config.StrOther+"=%s",
 		ip, port, config.LocalHTTPPathClient,
-		req.TaskFileName, req.TaskID, req.ClientID, req.Node)
+		req.TaskFileName, req.TaskID, req.ClientID, req.Node, 	base64.StdEncoding.EncodeToString(otherData))
 
 	code, body, err := httputils.Get(url, u.timeout)
 	if code == http.StatusOK {

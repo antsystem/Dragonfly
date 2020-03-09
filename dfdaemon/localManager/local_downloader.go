@@ -195,6 +195,12 @@ func (ld *LocalDownloader) reportResource() {
 		TaskID: ld.taskID,
 		Node: reportSuperNode,
 		ClientID: ld.config.RV.Cid,
+		Other: api.FinishTaskOther{
+			RawURL: registerReq.RawURL,
+			TaskURL: registerReq.TaskURL,
+			FileLength: registerReq.FileLength,
+			Headers: registerReq.Headers,
+		},
 	}
 	err := ld.uploaderAPI.FinishTask(ld.config.RV.LocalIP, ld.config.RV.PeerPort, finishTaskReq)
 	if err != nil {

@@ -19,13 +19,18 @@ package uploader
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	"github.com/dragonflyoss/Dragonfly/dfget/types"
+	"github.com/dragonflyoss/Dragonfly/pkg/constants"
 	"io"
+	"io/ioutil"
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -53,6 +58,7 @@ func newPeerServer(cfg *config.Config, port int) *peerServer {
 		api:      api.NewSupernodeAPI(),
 	}
 
+	s.init()
 	r := s.initRouter()
 	s.Server = &http.Server{
 		Addr:    net.JoinHostPort(s.host, strconv.Itoa(port)),
@@ -69,7 +75,7 @@ func newPeerServer(cfg *config.Config, port int) *peerServer {
 type peerServer struct {
 	cfg *config.Config
 
-	// finished indicates whether the peer server is shutdown
+	// Finished indicates whether the peer server is shutdown
 	finished chan struct{}
 
 	// server related fields
@@ -83,21 +89,70 @@ type peerServer struct {
 	// totalLimitRate is the total network bandwidth shared by tasks on the same host
 	totalLimitRate int
 
-	// syncTaskMap stores the meta name of tasks on the host
+	// syncTaskContainer stores the meta name of tasks on the host
+	syncTaskContainer *taskContainer
+}
+
+type taskContainer struct {
 	syncTaskMap sync.Map
+	ps		*peerServer
+}
+
+func (t *taskContainer) Store(taskFileName string, tc *taskConfig) {
+	t.syncTaskMap.Store(taskFileName, tc)
+	t.syncToLocalFs(taskFileName, tc)
+}
+
+func (t *taskContainer) Load(taskFileName string) (interface{}, bool) {
+	return t.syncTaskMap.Load(taskFileName)
+}
+
+func (t *taskContainer) Range(f func(key, value interface{}) bool) {
+	t.syncTaskMap.Range(f)
+}
+
+func (t *taskContainer) Delete(taskFileName string) {
+	t.syncTaskMap.Delete(taskFileName)
+	fp := t.ps.taskMetaFilePath(taskFileName)
+	fpBak := t.ps.taskMetaFileBakPath(taskFileName)
+
+	os.Remove(fp)
+	os.Remove(fpBak)
+}
+
+func (t *taskContainer) syncToLocalFs(key string, tc *taskConfig) {
+	fpBak := t.ps.taskMetaFileBakPath(key)
+	data, err := json.Marshal(tc)
+	if err != nil {
+		logrus.Warnf("failed to sync task %s to local fs: %v", key, err)
+		return
+	}
+
+	err = ioutil.WriteFile(fpBak, data, 0664)
+	if err != nil {
+		logrus.Warnf("failed to sync task %s to local fs: %v", key, err)
+		return
+	}
+
+	fp := t.ps.taskMetaFilePath(key)
+	err = os.Rename(fpBak, fp)
+	if err != nil {
+		logrus.Warnf("failed to sync task %s to local fs: %v", key, err)
+	}
 }
 
 // taskConfig refers to some name about peer task.
 type taskConfig struct {
-	taskID     string
-	rateLimit  int
-	cid        string
-	dataDir    string
-	superNode  string
-	finished   bool
-	accessTime time.Time
+	TaskID     string		`json:"taskID"`
+	RateLimit  int			`json:"rateLimit"`
+	Cid        string		`json:"cid"`
+	DataDir    string		`json:"dataDir"`
+	SuperNode  string		`json:"superNode"`
+	Finished   bool			`json:"finished"`
+	AccessTime time.Time	`json:"accessTime"`
+	Other      *api.FinishTaskOther `json:"other"`
 
-	cache		*cacheBuffer
+	cache		*cacheBuffer	`json:"-"`
 }
 
 // uploadParam refers to all params needed in the handler of upload.
@@ -108,6 +163,139 @@ type uploadParam struct {
 
 	pieceSize int64
 	pieceNum  int64
+}
+
+const(
+	taskMetaDir = "task-meta"
+)
+
+// init the resource which read from local file system
+func (ps *peerServer) init() {
+	var(
+		localTaskConfig = map[string]*taskConfig{}
+		err error
+	)
+
+	localTaskConfig, err = ps.readTaskInfoFromDir(filepath.Join(ps.cfg.RV.MetaPath, taskMetaDir))
+	if err != nil {
+		logrus.Warnf("failed to read task from local: %v", err)
+		return
+	}
+
+	logrus.Infof("try to init task file")
+	ps.initLocalTask(localTaskConfig)
+	ps.registerTaskToSuperNode()
+}
+
+func (ps *peerServer) registerTaskToSuperNode() {
+	supernodeAPI := api.NewSupernodeAPI()
+	ps.syncTaskContainer.Range(func(key, value interface{}) bool {
+		taskFileName := key.(string)
+		tc := value.(*taskConfig)
+		ps.reportResource(supernodeAPI, taskFileName, tc)
+		return true
+	})
+}
+
+func (ps *peerServer) reportResource(supernodeAPI api.SupernodeAPI, taskFileName string, tc *taskConfig) {
+	req := &types.RegisterRequest{
+		RawURL: tc.Other.RawURL,
+		TaskURL: tc.Other.TaskURL,
+		Cid: ps.cfg.RV.Cid,
+		IP: ps.cfg.RV.LocalIP,
+		Port: ps.cfg.RV.PeerPort,
+		Path: taskFileName,
+		Md5: ps.cfg.Md5,
+		Identifier: ps.cfg.Identifier,
+		Headers: tc.Other.Headers,
+		Dfdaemon: ps.cfg.DFDaemon,
+		Insecure: ps.cfg.Insecure,
+		TaskId: tc.TaskID,
+		FileLength: tc.Other.FileLength,
+	}
+
+	for _,node := range ps.cfg.Nodes {
+		resp, err := supernodeAPI.ReportResource(node, req)
+		if err == nil && resp.Code == constants.Success {
+			logrus.Infof("success to report resource %v to supernode", req)
+			break
+		}
+	}
+}
+
+func (ps *peerServer) readTaskInfoFromDir(dir string) (map[string]*taskConfig, error) {
+	result := map[string]*taskConfig{}
+
+	fin, err := ioutil.ReadDir(dir)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, fi := range fin {
+		taskFileName := ""
+		isBak := false
+
+		if strings.HasSuffix(fi.Name(), ".meta") {
+			taskFileName = strings.TrimSuffix(fi.Name(), ".meta")
+		}else if strings.HasSuffix(fi.Name(), ".meta.bak") {
+			taskFileName = strings.TrimSuffix(fi.Name(), ".meta.bak")
+			isBak = true
+		}else{
+			continue
+		}
+
+		fp  := filepath.Join(dir, fi.Name())
+		meta, err := ioutil.ReadFile(fp)
+		if err != nil {
+			logrus.Errorf("failed to read meta data of task %s: %v", fi.Name(), err)
+			continue
+		}
+
+		tc := &taskConfig{}
+
+		err = json.Unmarshal(meta, tc)
+		if err != nil {
+			logrus.Errorf("failed to read meta data of task %s: %v", fi.Name(), err)
+			continue
+		}
+
+		if !isBak {
+			result[taskFileName] = tc
+		}else{
+			if _, exist := result[taskFileName]; !exist {
+				result[taskFileName] = tc
+			}
+		}
+	}
+
+	return result, nil
+}
+
+func (ps *peerServer) initLocalTask(m map[string]*taskConfig) {
+	for taskFileName, tc := range m {
+		tc.AccessTime = time.Now()
+
+		taskPath := helper.GetServiceFile(taskFileName, tc.DataDir)
+
+		_, err := os.Stat(taskPath)
+		if err != nil {
+			logrus.Warnf("failed to stat taskFile %s for task %s: %v", taskPath, tc.TaskID, err)
+			continue
+		}
+
+		tc.cache = newCacheBuffer()
+		ps.syncTaskContainer.Store(taskFileName, tc)
+		ps.syncCache(taskFileName)
+		// todo: notify the supernode to register task
+	}
+}
+
+func (ps *peerServer) taskMetaFilePath(taskFileName string) string {
+	return filepath.Join(ps.cfg.RV.MetaPath, taskMetaDir, fmt.Sprintf("%s.meta", taskFileName))
+}
+
+func (ps *peerServer) taskMetaFileBakPath(taskFileName string) string {
+	return filepath.Join(ps.cfg.RV.MetaPath, taskMetaDir, fmt.Sprintf("%s.meta.bak", taskFileName))
 }
 
 // ----------------------------------------------------------------------------
@@ -152,7 +340,7 @@ func (ps *peerServer) uploadHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// get task config
-	v, ok := ps.syncTaskMap.Load(taskFileName)
+	v, ok := ps.syncTaskContainer.Load(taskFileName)
 	if !ok {
 		rangeErrorResponse(w, fmt.Errorf("failed to get taskPath: %s", taskFileName))
 		logrus.Errorf("failed to open file:%s, %v", taskFileName, err)
@@ -233,15 +421,15 @@ func (ps *peerServer) parseRateHandler(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		fmt.Fprint(w, err.Error())
-		logrus.Errorf("failed to convert rateLimit %v, %v", rateLimit, err)
+		logrus.Errorf("failed to convert RateLimit %v, %v", rateLimit, err)
 		return
 	}
 	sendSuccess(w)
 
-	// update the rateLimit of commonFile
-	if v, ok := ps.syncTaskMap.Load(taskFileName); ok {
+	// update the RateLimit of commonFile
+	if v, ok := ps.syncTaskContainer.Load(taskFileName); ok {
 		param := v.(*taskConfig)
-		param.rateLimit = clientRate
+		param.RateLimit = clientRate
 	}
 
 	// no need to calculate rate when totalLimitRate less than or equals zero.
@@ -278,9 +466,9 @@ func (ps *peerServer) checkHandler(w http.ResponseWriter, r *http.Request) {
 	dataDir := r.Header.Get(config.StrDataDir)
 
 	param := &taskConfig{
-		dataDir: dataDir,
+		DataDir: dataDir,
 	}
-	ps.syncTaskMap.Store(taskFileName, param)
+	ps.syncTaskContainer.Store(taskFileName, param)
 	fmt.Fprintf(w, "%s@%s", taskFileName, version.DFGetVersion)
 }
 
@@ -296,30 +484,48 @@ func (ps *peerServer) oneFinishHandler(w http.ResponseWriter, r *http.Request) {
 	taskID := r.FormValue(config.StrTaskID)
 	cid := r.FormValue(config.StrClientID)
 	superNode := r.FormValue(config.StrSuperNode)
+	other := r.FormValue(config.StrOther)
+	otherData, err := base64.StdEncoding.DecodeString(other)
+	if err != nil {
+		sendHeader(w, http.StatusBadRequest)
+		fmt.Fprintf(w, "invalid params, failed to decode other data: %v", err)
+		return
+	}
+
+	otherSt := api.FinishTaskOther{}
+	err = json.Unmarshal(otherData, &otherSt)
+	if err != nil {
+		sendHeader(w, http.StatusBadRequest)
+		fmt.Fprintf(w, "invalid params, failed to decode other data: %v", err)
+		return
+	}
+
 	if taskFileName == "" || taskID == "" || cid == "" {
 		sendHeader(w, http.StatusBadRequest)
 		fmt.Fprintf(w, "invalid params")
 		return
 	}
 
-	if v, ok := ps.syncTaskMap.Load(taskFileName); ok {
+	if v, ok := ps.syncTaskContainer.Load(taskFileName); ok {
 		task := v.(*taskConfig)
-		task.taskID = taskID
-		task.rateLimit = 0
-		task.cid = cid
-		task.superNode = superNode
-		task.finished = true
-		task.accessTime = time.Now()
+		task.TaskID = taskID
+		task.RateLimit = 0
+		task.Cid = cid
+		task.SuperNode = superNode
+		task.Finished = true
+		task.AccessTime = time.Now()
 		task.cache = newCacheBuffer()
+		task.Other = &otherSt
 	} else {
-		ps.syncTaskMap.Store(taskFileName, &taskConfig{
-			taskID:     taskID,
-			cid:        cid,
-			dataDir:    ps.cfg.RV.SystemDataDir,
-			superNode:  superNode,
-			finished:   true,
-			accessTime: time.Now(),
-			cache: newCacheBuffer(),
+		ps.syncTaskContainer.Store(taskFileName, &taskConfig{
+			TaskID:     taskID,
+			Cid:        cid,
+			DataDir:    ps.cfg.RV.SystemDataDir,
+			SuperNode:  superNode,
+			Finished:   true,
+			AccessTime: time.Now(),
+			cache:      newCacheBuffer(),
+			Other:      &otherSt,
 		})
 	}
 	go ps.syncCache(taskFileName)
@@ -328,7 +534,7 @@ func (ps *peerServer) oneFinishHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (ps *peerServer) syncCache(taskFileName string) {
-	v, ok := ps.syncTaskMap.Load(taskFileName)
+	v, ok := ps.syncTaskContainer.Load(taskFileName)
 	if !ok {
 		return
 	}
@@ -368,7 +574,7 @@ func (ps *peerServer) pingHandler(w http.ResponseWriter, r *http.Request) {
 func (ps *peerServer) getTaskFile(taskFileName string) (*os.File, int64, error) {
 	errSize := int64(-1)
 
-	v, ok := ps.syncTaskMap.Load(taskFileName)
+	v, ok := ps.syncTaskContainer.Load(taskFileName)
 	if !ok {
 		return nil, errSize, fmt.Errorf("failed to get taskPath: %s", taskFileName)
 	}
@@ -377,10 +583,10 @@ func (ps *peerServer) getTaskFile(taskFileName string) (*os.File, int64, error) 
 		return nil, errSize, fmt.Errorf("failed to assert: %s", taskFileName)
 	}
 
-	// update the accessTime of taskFileName
-	tc.accessTime = time.Now()
+	// update the AccessTime of taskFileName
+	tc.AccessTime = time.Now()
 
-	taskPath := helper.GetServiceFile(taskFileName, tc.dataDir)
+	taskPath := helper.GetServiceFile(taskFileName, tc.DataDir)
 
 	fileInfo, err := os.Stat(taskPath)
 	if err != nil {
@@ -493,13 +699,13 @@ func (ps *peerServer) calculateRateLimit(clientRate int) int {
 	// for each key and value present in the map
 	f := func(key, value interface{}) bool {
 		if task, ok := value.(*taskConfig); ok {
-			if !task.finished {
-				total += task.rateLimit
+			if !task.Finished {
+				total += task.RateLimit
 			}
 		}
 		return true
 	}
-	ps.syncTaskMap.Range(f)
+	ps.syncTaskContainer.Range(f)
 
 	// calculate the rate limit again according to totalLimit
 	if total > ps.totalLimitRate {
@@ -546,14 +752,14 @@ func (ps *peerServer) waitForShutdown() {
 
 func (ps *peerServer) shutdown() {
 	// tell supernode this peer node is down and delete related files.
-	ps.syncTaskMap.Range(func(key, value interface{}) bool {
+	ps.syncTaskContainer.Range(func(key, value interface{}) bool {
 		task, ok := value.(*taskConfig)
 		if ok {
-			ps.api.ServiceDown(task.superNode, task.taskID, task.cid)
-			serviceFile := helper.GetServiceFile(key.(string), task.dataDir)
+			ps.api.ServiceDown(task.SuperNode, task.TaskID, task.Cid)
+			serviceFile := helper.GetServiceFile(key.(string), task.DataDir)
 			os.Remove(serviceFile)
 			logrus.Infof("shutdown, remove task id:%s file:%s",
-				task.taskID, serviceFile)
+				task.TaskID, serviceFile)
 		}
 		return true
 	})
@@ -570,26 +776,26 @@ func (ps *peerServer) deleteExpiredFile(path string, info os.FileInfo,
 	expireTime time.Duration) bool {
 	taskName := helper.GetTaskName(info.Name())
 	//logrus.Infof("fileName: %s, taskName: %s", info.Name(), taskName)
-	if v, ok := ps.syncTaskMap.Load(taskName); ok {
+	if v, ok := ps.syncTaskContainer.Load(taskName); ok {
 		task, ok := v.(*taskConfig)
-		if ok && !task.finished {
+		if ok && !task.Finished {
 			return false
 		}
 
-		var lastAccessTime = task.accessTime
+		var lastAccessTime = task.AccessTime
 		// use the bigger of access time and modify time to
 		// check whether the task is expired
-		if task.accessTime.Sub(info.ModTime()) < 0 {
+		if task.AccessTime.Sub(info.ModTime()) < 0 {
 			lastAccessTime = info.ModTime()
 		}
 		// if the last access time is expireTime ago
 		if time.Since(lastAccessTime) > expireTime {
 			// ignore the gc
 			//if ok {
-			//	ps.api.ServiceDown(task.superNode, task.taskID, task.cid)
+			//	ps.api.ServiceDown(task.SuperNode, task.TaskID, task.Cid)
 			//}
 			//os.Remove(path)
-			//ps.syncTaskMap.Delete(taskName)
+			//ps.syncTaskContainer.Delete(taskName)
 			//return true
 		}
 	} else {
