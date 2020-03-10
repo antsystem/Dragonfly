@@ -58,7 +58,14 @@ func newPeerServer(cfg *config.Config, port int) *peerServer {
 		api:      api.NewSupernodeAPI(),
 	}
 
-	s.init()
+	s.syncTaskContainer = &taskContainer{
+		syncTaskMap: sync.Map{},
+		ps: 	s,
+	}
+
+	logrus.Infof("peer server config: %v, supernodes: %v", cfg, cfg.Nodes)
+
+	s.reload()
 	r := s.initRouter()
 	s.Server = &http.Server{
 		Addr:    net.JoinHostPort(s.host, strconv.Itoa(port)),
@@ -169,12 +176,18 @@ const(
 	taskMetaDir = "task-meta"
 )
 
-// init the resource which read from local file system
-func (ps *peerServer) init() {
+// reload the resource which read from local file system
+func (ps *peerServer) reload() {
 	var(
 		localTaskConfig = map[string]*taskConfig{}
 		err error
 	)
+
+	taskMetaPath := filepath.Join(ps.cfg.RV.MetaPath, taskMetaDir)
+	err = os.MkdirAll(taskMetaPath, 0744)
+	if err != nil {
+		panic(fmt.Sprintf("failed to init dir %s", taskMetaPath))
+	}
 
 	localTaskConfig, err = ps.readTaskInfoFromDir(filepath.Join(ps.cfg.RV.MetaPath, taskMetaDir))
 	if err != nil {
@@ -182,22 +195,21 @@ func (ps *peerServer) init() {
 		return
 	}
 
-	logrus.Infof("try to init task file")
+	logrus.Infof("try to reload task file")
 	ps.initLocalTask(localTaskConfig)
 	ps.registerTaskToSuperNode()
 }
 
 func (ps *peerServer) registerTaskToSuperNode() {
-	supernodeAPI := api.NewSupernodeAPI()
 	ps.syncTaskContainer.Range(func(key, value interface{}) bool {
 		taskFileName := key.(string)
 		tc := value.(*taskConfig)
-		ps.reportResource(supernodeAPI, taskFileName, tc)
+		ps.reportResource(taskFileName, tc)
 		return true
 	})
 }
 
-func (ps *peerServer) reportResource(supernodeAPI api.SupernodeAPI, taskFileName string, tc *taskConfig) {
+func (ps *peerServer) reportResource(taskFileName string, tc *taskConfig) {
 	req := &types.RegisterRequest{
 		RawURL: tc.Other.RawURL,
 		TaskURL: tc.Other.TaskURL,
@@ -215,10 +227,12 @@ func (ps *peerServer) reportResource(supernodeAPI api.SupernodeAPI, taskFileName
 	}
 
 	for _,node := range ps.cfg.Nodes {
-		resp, err := supernodeAPI.ReportResource(node, req)
+		resp, err := ps.api.ReportResource(node, req)
 		if err == nil && resp.Code == constants.Success {
 			logrus.Infof("success to report resource %v to supernode", req)
 			break
+		}else{
+			logrus.Errorf("failed to report resource %v tp supernode, resp: %v, err: %v", req, resp, err)
 		}
 	}
 }
@@ -299,7 +313,7 @@ func (ps *peerServer) taskMetaFileBakPath(taskFileName string) string {
 }
 
 // ----------------------------------------------------------------------------
-// init method of peerServer
+// reload method of peerServer
 
 func (ps *peerServer) initRouter() *mux.Router {
 	r := mux.NewRouter()
