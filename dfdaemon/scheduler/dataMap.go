@@ -61,3 +61,20 @@ func (dm *dataMap) getAsNode(key string) (*types.Node, error) {
 
 	return nil, errors.Wrapf(errortypes.ErrConvertFailed, "key %s: %v", key, v)
 }
+
+func (dm *dataMap) getAsLocalTaskState(key string) (*localTaskState, error) {
+	if stringutils.IsEmptyStr(key) {
+		return nil, errors.Wrap(errortypes.ErrEmptyValue, "taskID")
+	}
+
+	v, err := dm.Get(key)
+	if err != nil {
+		return nil, err
+	}
+
+	if lts, ok := v.(*localTaskState); ok {
+		return lts, nil
+	}
+
+	return nil, errors.Wrapf(errortypes.ErrConvertFailed, "key %s: %v", key, v)
+}

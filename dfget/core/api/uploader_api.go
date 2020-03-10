@@ -20,6 +20,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"github.com/dragonflyoss/Dragonfly/dfget/types"
 	"net/http"
 	"strconv"
 	"time"
@@ -44,6 +45,9 @@ type UploaderAPI interface {
 
 	// PingServer send a request to determine whether the server has started.
 	PingServer(ip string, port int) bool
+
+	// FetchLocalTask fetch the local resource
+	FetchLocalTask(ip string, port int) (*types.FetchLocalTaskInfo, error)
 }
 
 // uploaderAPI is an implementation of interface UploaderAPI.
@@ -107,4 +111,20 @@ func (u *uploaderAPI) PingServer(ip string, port int) bool {
 	logrus.Infof("ping server url: %s", url)
 	code, _, _ := httputils.Get(url, u.timeout)
 	return code == http.StatusOK
+}
+
+func (u *uploaderAPI) FetchLocalTask(ip string, port int) (*types.FetchLocalTaskInfo, error) {
+	url := fmt.Sprintf("http://%s:%d%s", ip, port, config.LocalHTTPFETCH)
+	logrus.Infof("fetch server url: %s", url)
+	code, body, _ := httputils.Get(url, u.timeout)
+	if code != http.StatusOK {
+		return nil, fmt.Errorf("get code: %d, resp: %v", code, body)
+	}
+
+	result := &types.FetchLocalTaskInfo{}
+	if err := json.Unmarshal(body, result); err != nil {
+		return nil, fmt.Errorf("failed to decode %v: %v", body, err)
+	}
+
+	return result, nil
 }

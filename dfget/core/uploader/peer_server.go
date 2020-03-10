@@ -23,8 +23,6 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
-	"github.com/dragonflyoss/Dragonfly/dfget/types"
-	"github.com/dragonflyoss/Dragonfly/pkg/constants"
 	"io"
 	"io/ioutil"
 	"net"
@@ -43,6 +41,9 @@ import (
 	"github.com/dragonflyoss/Dragonfly/pkg/limitreader"
 	"github.com/dragonflyoss/Dragonfly/pkg/ratelimiter"
 	"github.com/dragonflyoss/Dragonfly/version"
+	apitypes "github.com/dragonflyoss/Dragonfly/apis/types"
+	"github.com/dragonflyoss/Dragonfly/pkg/constants"
+	"github.com/dragonflyoss/Dragonfly/dfget/types"
 
 	"github.com/gorilla/mux"
 	"github.com/sirupsen/logrus"
@@ -322,7 +323,7 @@ func (ps *peerServer) initRouter() *mux.Router {
 	r.HandleFunc(config.LocalHTTPPathCheck+"{commonFile:.*}", ps.checkHandler).Methods("GET")
 	r.HandleFunc(config.LocalHTTPPathClient+"finish", ps.oneFinishHandler).Methods("GET")
 	r.HandleFunc(config.LocalHTTPPing, ps.pingHandler).Methods("GET")
-
+	r.HandleFunc(config.LocalHTTPFETCH, ps.fetchHandler).Methods("GET")
 	return r
 }
 
@@ -362,6 +363,9 @@ func (ps *peerServer) uploadHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	task := v.(*taskConfig)
+	// sync access time
+	task.AccessTime = time.Now()
+
 	if task.cache.valid {
 		// try to upload from cache
 		size = task.cache.size
@@ -846,4 +850,59 @@ func rangeErrorResponse(w http.ResponseWriter, err error) {
 func jsonStr(v interface{}) string {
 	b, _ := json.Marshal(v)
 	return string(b)
+}
+
+// fetchHandler fetchs the local resource
+func (ps *peerServer) fetchHandler(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		sendHeader(w, http.StatusBadRequest)
+		fmt.Fprint(w, err.Error())
+		return
+	}
+
+	// todo: add filter ?
+	result := []*apitypes.TaskFetchInfo{}
+
+	ps.syncTaskContainer.Range(func(key, value interface{}) bool {
+		taskFileName := key.(string)
+		tc := value.(*taskConfig)
+
+		taskInfo := &apitypes.TaskFetchInfo{
+			Pieces: []*apitypes.PieceInfo{
+				{
+					Path: taskFileName,
+				},
+			},
+			Task: &apitypes.TaskInfo{
+				ID: 	tc.TaskID,
+				TaskURL: tc.Other.TaskURL,
+				RawURL: tc.Other.RawURL,
+				PieceSize: int32(tc.Other.FileLength),
+				PieceTotal: 1,
+				FileLength: tc.Other.FileLength,
+				HTTPFileLength: tc.Other.FileLength,
+				// Headers: tc.Other.Headers, todo: parse header
+				Md5: ps.cfg.Md5,
+				Identifier: ps.cfg.Identifier,
+			},
+		}
+
+		result = append(result, taskInfo)
+		return true
+	})
+
+	resp := &types.FetchLocalTaskInfo{
+		Tasks: result,
+	}
+
+	respData, err := json.Marshal(resp)
+	if err != nil {
+		sendHeader(w, http.StatusInternalServerError)
+		fmt.Fprintf(w, "failed to encode %v: %v", resp, err)
+		return
+	}
+
+	sendHeader(w, http.StatusOK)
+	w.Write(respData)
+	return
 }
