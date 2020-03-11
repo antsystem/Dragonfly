@@ -39,6 +39,7 @@ const (
 	peerServiceDownPath   = "/peer/service/down"
 	metricsReportPath     = "/task/metrics"
 	fetchP2PNetworkPath   = "/peer/network"
+	peerHeartBeatPath     = "/peer/heartbeat"
 )
 
 // NewSupernodeAPI creates a new instance of SupernodeAPI with default value.
@@ -61,6 +62,7 @@ type SupernodeAPI interface {
 	FetchP2PNetworkInfo(node string, start int, limit int, req *types.FetchP2PNetworkInfoRequest) (resp *types.FetchP2PNetworkInfoResponse, e error)
 	ReportResource(node string, req *types.RegisterRequest) (resp *types.RegisterResponse, e error)
 	ReportResourceDeleted(node string, taskID string, cid string) (resp *types.BaseResponse, e error)
+	HeartBeat(node string, req *api_types.HeartBeatRequest) (resp *types.BaseResponse, e error)
 }
 
 type supernodeAPI struct {
@@ -132,24 +134,22 @@ func (api *supernodeAPI) ReportPiece(node string, req *types.ReportPieceRequest)
 func (api *supernodeAPI) ServiceDown(node string, taskID string, cid string) (
 	resp *types.BaseResponse, e error) {
 
-	//url := fmt.Sprintf("%s://%s%s?taskId=%s&cid=%s",
-	//	api.Scheme, node, peerServiceDownPath, taskID, cid)
+	url := fmt.Sprintf("%s://%s%s?taskId=%s&cid=%s",
+		api.Scheme, node, peerServiceDownPath, taskID, cid)
 
 	logrus.Infof("Call ServiceDown, node: %s, taskID: %s, cid: %s", node, taskID, cid)
 
 	resp = new(types.BaseResponse)
 	resp.Code = constants.CodeGetPeerDown
-	return
 
-	// note them
-	//if e = api.get(url, resp); e != nil {
-	//	logrus.Errorf("failed to send service down,err: %v", e)
-	//	return nil, e
-	//}
-	//if resp.Code != constants.CodeGetPeerDown {
-	//	logrus.Errorf("failed to send service down to supernode: api response code is %d not equal to %d", resp.Code, constants.CodeGetPeerDown)
-	//}
-	//return
+	if e = api.get(url, resp); e != nil {
+		logrus.Errorf("failed to send service down,err: %v", e)
+		return nil, e
+	}
+	if resp.Code != constants.CodeGetPeerDown {
+		logrus.Errorf("failed to send service down to supernode: api response code is %d not equal to %d", resp.Code, constants.CodeGetPeerDown)
+	}
+	return
 }
 
 // ReportClientError reports the client error when downloading piece to supernode.
@@ -301,7 +301,32 @@ func (api *supernodeAPI) ReportResourceDeleted(node string, taskID string, cid s
 		"url: %s, header: %v", node, taskID, cid, url, header)
 
 	resp = new(types.BaseResponse)
-
 	resp.Code = constants.Success
+
+	if err = api.get(url, resp); err != nil {
+		logrus.Errorf("failed to send service down,err: %v", err)
+		return nil, err
+	}
+	if resp.Code != constants.CodeGetPeerDown {
+		logrus.Errorf("failed to send service down to supernode: api response code is %d not equal to %d", resp.Code, constants.CodeGetPeerDown)
+	}
+
+	return
+}
+
+func (api *supernodeAPI) HeartBeat(node string, req *api_types.HeartBeatRequest) (resp *types.BaseResponse, err error) {
+	url := fmt.Sprintf("%s://%s%s?ip=%s&port=%dcid=%s",
+		api.Scheme, node, peerHeartBeatPath, req.IP, req.Port, req.CID)
+
+	resp = new(types.BaseResponse)
+	if err = api.get(url, resp); err != nil {
+		logrus.Errorf("failed to send service down,err: %v", err)
+		return nil, err
+	}
+
+	if resp.Code != constants.Success {
+		logrus.Errorf("failed to send heart beat to supernode: api response code is %d not equal to %d", resp.Code, constants.Success)
+	}
+
 	return
 }

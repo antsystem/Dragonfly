@@ -73,7 +73,8 @@ func NewLocalManager(cfg config.DFGetConfig) *LocalManager {
 		}
 
 		go localManager.fetchLoop(context.Background())
-		go localManager.syncLocalTask(context.Background())
+		go localManager.syncLocalTaskLoop(context.Background())
+		go localManager.heartBeatLoop(context.Background())
 	})
 
 	return localManager
@@ -399,8 +400,8 @@ func (lm *LocalManager) fetchP2PNetworkFromSupernode(node string, req *types.Fet
 	return result, nil
 }
 
-// syncLocalTask fetch local tasks to add to local schedule
-func (lm *LocalManager) syncLocalTask(ctx context.Context) {
+// syncLocalTaskLoop fetch local tasks to add to local schedule
+func (lm *LocalManager) syncLocalTaskLoop(ctx context.Context) {
 	for {
 		check := lm.checkUploader(ctx, 30 * time.Second)
 		if !check {
@@ -458,4 +459,28 @@ func (lm *LocalManager) fetchAndSyncLocalTask() {
 	}
 
 	lm.sm.SyncLocalTaskInfo(result)
+}
+
+func (lm *LocalManager) heartBeatLoop(ctx context.Context) {
+	ticker := time.NewTicker(time.Second * 30)
+	defer ticker.Stop()
+
+	for{
+		select {
+			case <- ctx.Done():
+				return
+			case <- ticker.C:
+				lm.heartbeat()
+		}
+	}
+}
+
+func (lm *LocalManager) heartbeat() {
+	for _,node := range lm.cfg.SuperNodes {
+		lm.supernodeAPI.HeartBeat(node, &types2.HeartBeatRequest{
+			IP: lm.cfg.LocalIP,
+			Port: int32(lm.cfg.PeerPort),
+			CID: lm.dfGetConfig.RV.Cid,
+		})
+	}
 }
