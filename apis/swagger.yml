@@ -1441,6 +1441,31 @@ definitions:
         items:
           $ref: "#/definitions/Node"
 
+  HeartBeatRequest:
+    type: "object"
+    description: ""
+    properties:
+      IP:
+        type: "string"
+        description: "IP address which peer client carries"
+        format: "string"
+      port:
+        type: "integer"
+        description: |
+          when registering, dfget will setup one uploader process.
+          This one acts as a server for peer pulling tasks.
+          This port is which this server listens on.
+        format: "int32"
+        minimum: 15000
+        maximum: 65000
+      cID:
+        type: "string"
+        description: |
+          CID means the client ID. It maps to the specific dfget process.
+          When user wishes to download an image/file, user would start a dfget process to do this.
+          This dfget is treated a client and carries a client ID.
+          Thus, multiple dfget processes on the same peer have different CIDs.
+
   ErrorResponse:
     type: "object"
     description: |

@@ -189,6 +189,10 @@ func (api *MockSupernodeAPI) ReportResourceDeleted(node string, taskID string, c
 	return nil, nil
 }
 
+func (api *MockSupernodeAPI) HeartBeat(node string, req *api_types.HeartBeatRequest) (resp *types.BaseResponse, e error) {
+	return nil, nil
+}
+
 // CreateRegisterFunc creates a mock register function.
 func CreateRegisterFunc() RegisterFuncType {
 	var newResponse = func(code int, msg string) *types.RegisterResponse {
