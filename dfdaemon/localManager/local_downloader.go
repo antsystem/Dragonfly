@@ -216,6 +216,7 @@ func (ld *LocalDownloader) reportResource(info *downloadNodeInfo) {
 			TaskURL: registerReq.TaskURL,
 			FileLength: registerReq.FileLength,
 			Headers: registerReq.Headers,
+			SpecReport: true,
 		},
 	}
 	err := ld.uploaderAPI.FinishTask(ld.config.RV.LocalIP, ld.config.RV.PeerPort, finishTaskReq)

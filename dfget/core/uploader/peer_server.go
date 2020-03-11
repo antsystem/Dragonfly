@@ -159,7 +159,6 @@ type taskConfig struct {
 	Finished   bool			`json:"finished"`
 	AccessTime time.Time	`json:"accessTime"`
 	Other      *api.FinishTaskOther `json:"other"`
-
 	cache		*cacheBuffer	`json:"-"`
 }
 
@@ -772,7 +771,7 @@ func (ps *peerServer) shutdown() {
 	// tell supernode this peer node is down and delete related files.
 	ps.syncTaskContainer.Range(func(key, value interface{}) bool {
 		task, ok := value.(*taskConfig)
-		if ok {
+		if ok && !task.Other.SpecReport {
 			ps.api.ServiceDown(task.SuperNode, task.TaskID, task.Cid)
 			serviceFile := helper.GetServiceFile(key.(string), task.DataDir)
 			os.Remove(serviceFile)
@@ -809,15 +808,19 @@ func (ps *peerServer) deleteExpiredFile(path string, info os.FileInfo,
 		// if the last access time is expireTime ago
 		if time.Since(lastAccessTime) > expireTime {
 			// ignore the gc
-			//if ok {
-			//	ps.api.ServiceDown(task.SuperNode, task.TaskID, task.Cid)
-			//}
-			//os.Remove(path)
-			//ps.syncTaskContainer.Delete(taskName)
-			//return true
+			if ok {
+				if !task.Other.SpecReport {
+					ps.api.ServiceDown(task.SuperNode, task.TaskID, task.Cid)
+				}else{
+					ps.api.ReportResourceDeleted(task.SuperNode, task.TaskID, task.Cid)
+				}
+			}
+			os.Remove(path)
+			ps.syncTaskContainer.Delete(taskName)
+			return true
 		}
 	} else {
-		//os.Remove(path)
+		os.Remove(path)
 		return true
 	}
 	return false

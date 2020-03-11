@@ -46,4 +46,5 @@ type FinishTaskOther struct {
 	TaskURL		 string	`json:"taskURL"`
 	FileLength   int64	`json:"fileLength"`
 	Headers		 []string  `json:"headers"`
+	SpecReport   bool	`json:"specReport"`
 }

@@ -73,7 +73,7 @@ func NewLocalManager(cfg config.DFGetConfig) *LocalManager {
 		}
 
 		go localManager.fetchLoop(context.Background())
-		go localManager.syncLocalTask()
+		go localManager.syncLocalTask(context.Background())
 	})
 
 	return localManager
@@ -400,30 +400,34 @@ func (lm *LocalManager) fetchP2PNetworkFromSupernode(node string, req *types.Fet
 }
 
 // syncLocalTask fetch local tasks to add to local schedule
-func (lm *LocalManager) syncLocalTask() {
-	result := &types.FetchLocalTaskInfo{}
-
+func (lm *LocalManager) syncLocalTask(ctx context.Context) {
 	for {
-		check := lm.checkUploader(30 * time.Second)
+		check := lm.checkUploader(ctx, 30 * time.Second)
 		if !check {
 			time.Sleep(time.Minute)
 			continue
 		}
 
-		r, err := lm.uploaderAPI.FetchLocalTask(lm.cfg.LocalIP, lm.cfg.PeerPort)
-		if err != nil {
-			logrus.Errorf("failed to fetch local task: %v", err)
-			return
-		}
-
-		result = r
 		break
 	}
 
-	lm.sm.SyncLocalTaskInfo(result)
+	// call it firstly
+	lm.fetchAndSyncLocalTask()
+
+	ticker := time.NewTicker(time.Minute)
+	defer ticker.Stop()
+
+	for{
+		select {
+		    case <- ctx.Done():
+				return
+			case <- ticker.C:
+				lm.fetchAndSyncLocalTask()
+		}
+	}
 }
 
-func (lm *LocalManager) checkUploader(timeout time.Duration) bool {
+func (lm *LocalManager) checkUploader(ctx context.Context, timeout time.Duration) bool {
 	ticker := time.NewTicker(time.Second * 1)
 	t := time.NewTimer(timeout)
 	defer t.Stop()
@@ -437,8 +441,21 @@ func (lm *LocalManager) checkUploader(timeout time.Duration) bool {
 				}
 			case <- t.C:
 				return false
+
+			case <- ctx.Done():
+				return false
 		}
 	}
 
 	return false
+}
+
+func (lm *LocalManager) fetchAndSyncLocalTask() {
+	result, err := lm.uploaderAPI.FetchLocalTask(lm.cfg.LocalIP, lm.cfg.PeerPort)
+	if err != nil {
+		logrus.Errorf("failed to fetch local task: %v", err)
+		return
+	}
+
+	lm.sm.SyncLocalTaskInfo(result)
 }
