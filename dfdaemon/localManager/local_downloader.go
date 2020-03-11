@@ -31,6 +31,8 @@ type downloadNodeInfo struct {
 	directSource bool
 	url 	string
 	header  map[string][]string
+	// is download from local
+	local   bool
 }
 
 // LocalDownloader will download the file, copy to stream and to local file system.
@@ -55,6 +57,9 @@ type LocalDownloader struct {
 	superAPI		api.SupernodeAPI
 	downloadAPI		api.DownloadAPI
 	uploaderAPI		api.UploaderAPI
+
+	// postNotifyUploader should be called after notify the local uploader finish
+	postNotifyUploader func(req *api.FinishTaskRequest)
 }
 
 func NewLocalDownloader() *LocalDownloader {
@@ -90,7 +95,7 @@ func (ld *LocalDownloader) run(ctx context.Context, pieceWriter downloader.Piece
 
 	for _, info := range ld.selectNodes {
 		ld.processPiece(ctx, info)
-		success, err := ld.processItem(ctx)
+		success, err := ld.processItem(ctx, info)
 		if !success {
 			lastErr = err
 			continue
@@ -105,7 +110,7 @@ func (ld *LocalDownloader) run(ctx context.Context, pieceWriter downloader.Piece
 }
 
 //
-func (ld *LocalDownloader) processItem(ctx context.Context) (success bool, err error) {
+func (ld *LocalDownloader) processItem(ctx context.Context, info *downloadNodeInfo) (success bool, err error) {
 	for {
 		v, ok := ld.queue.PollTimeout(2 * time.Second)
 		if ! ok {
@@ -118,40 +123,42 @@ func (ld *LocalDownloader) processItem(ctx context.Context) (success bool, err e
 			return false, fmt.Errorf("failed to download from %s", item.DstCid)
 		}
 
-		go ld.finishTask(item)
+		go ld.finishTask(item, info)
 		return true, nil
 	}
 
 }
 
 // task is finished, try to download to local file system and report to super node
-func (ld *LocalDownloader) finishTask(piece *downloader.Piece) {
-	tmpPath := filepath.Join(ld.systemDataDir, uuid.New())
-	f, err := os.OpenFile(tmpPath, os.O_TRUNC | os.O_WRONLY | os.O_CREATE, 0664)
-	if err != nil {
-		logrus.Warnf("failed to open tmp path: %v", err)
-		return
-	}
+func (ld *LocalDownloader) finishTask(piece *downloader.Piece, info *downloadNodeInfo) {
+	if !info.local {
+		tmpPath := filepath.Join(ld.systemDataDir, uuid.New())
+		f, err := os.OpenFile(tmpPath, os.O_TRUNC | os.O_WRONLY | os.O_CREATE, 0664)
+		if err != nil {
+			logrus.Warnf("failed to open tmp path: %v", err)
+			return
+		}
 
-	_, err = io.Copy(f, piece.RawContent())
-	if err != nil {
+		_, err = io.Copy(f, piece.RawContent())
+		if err != nil {
+			f.Close()
+			logrus.Warnf("failed to write tmp path: %v", err)
+			return
+		}
+
 		f.Close()
-		logrus.Warnf("failed to write tmp path: %v", err)
-		return
+
+		err = os.Rename(tmpPath, ld.outPath)
+		if err != nil {
+			logrus.Warnf("failed to rename: %v", err)
+			return
+		}
 	}
 
-	f.Close()
-
-	err = os.Rename(tmpPath, ld.outPath)
-	if err != nil {
-		logrus.Warnf("failed to rename: %v", err)
-		return
-	}
-
-	ld.reportResource()
+	ld.reportResource(info)
 }
 
-func (ld *LocalDownloader) reportResource() {
+func (ld *LocalDownloader) reportResource(info *downloadNodeInfo) {
 	// report to supernode
 	registerReq := &types.RegisterRequest{
 		RawURL: ld.url,
@@ -167,6 +174,10 @@ func (ld *LocalDownloader) reportResource() {
 		Headers: p2p.FlattenHeader(ld.header),
 		Md5: ld.config.Md5,
 		Identifier: ld.config.Identifier,
+	}
+
+	if info.local {
+		registerReq.Path = info.path
 	}
 
 	reportSuperNode := ""
@@ -189,18 +200,33 @@ func (ld *LocalDownloader) reportResource() {
 		return
 	}
 
+	if info.local {
+		logrus.Infof("success to download task %s from local", ld.taskID)
+		return
+	}
+
 	// notify local uploader
 	finishTaskReq := &api.FinishTaskRequest{
 		TaskFileName: ld.taskFileName,
 		TaskID: ld.taskID,
 		Node: reportSuperNode,
 		ClientID: ld.config.RV.Cid,
+		Other: api.FinishTaskOther{
+			RawURL: registerReq.RawURL,
+			TaskURL: registerReq.TaskURL,
+			FileLength: registerReq.FileLength,
+			Headers: registerReq.Headers,
+			SpecReport: true,
+		},
 	}
 	err := ld.uploaderAPI.FinishTask(ld.config.RV.LocalIP, ld.config.RV.PeerPort, finishTaskReq)
 	if err != nil {
 		logrus.Errorf("failed to finish task %v for uploader: %v", finishTaskReq, err)
 	}else{
 		logrus.Infof("success to finish task %v for uploader", finishTaskReq)
+		if ld.postNotifyUploader != nil {
+			ld.postNotifyUploader(finishTaskReq)
+		}
 	}
 }
 

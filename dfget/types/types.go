@@ -19,7 +19,15 @@
 // modules(systems). It's hard to read and maintain.
 package types
 
+import(
+	apitype "github.com/dragonflyoss/Dragonfly/apis/types"
+)
+
 // MetaInfo stores meta information of dfget.
 type MetaInfo struct {
 	ServicePort int
+}
+
+type FetchLocalTaskInfo struct {
+	Tasks  []*apitype.TaskFetchInfo
 }

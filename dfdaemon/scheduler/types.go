@@ -9,6 +9,7 @@ type taskInfoWrapper struct {
 
 type Result struct {
 	DstCid string
+	Local  bool
 	PeerInfo *types.PeerInfo
 	Task     *types.TaskInfo
 	Pieces []*types.PieceInfo

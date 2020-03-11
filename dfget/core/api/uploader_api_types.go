@@ -38,4 +38,13 @@ type FinishTaskRequest struct {
 	TaskID       string `request:"taskID"`
 	ClientID     string `request:"cid"`
 	Node         string `request:"superNode"`
+	Other		 FinishTaskOther `request:"other"`
+}
+
+type FinishTaskOther struct {
+	RawURL		 string	`json:"rawURL"`
+	TaskURL		 string	`json:"taskURL"`
+	FileLength   int64	`json:"fileLength"`
+	Headers		 []string  `json:"headers"`
+	SpecReport   bool	`json:"specReport"`
 }

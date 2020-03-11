@@ -72,6 +72,8 @@ const (
 	StrPieceSize    = "pieceSize"
 	StrDataDir      = "dataDir"
 	StrTotalLimit   = "totalLimit"
+	StrOther    = "other"
+
 
 	StrBytes = "bytes"
 
@@ -116,6 +118,7 @@ const (
 	LocalHTTPPathClient = "/client/"
 	LocalHTTPPathRate   = "/rate/"
 	LocalHTTPPing       = "/server/ping"
+	LocalHTTPFETCH	    = "/fetch"
 
 	DataExpireTime         = 3 * time.Minute
 	ServerAliveTime        = 5 * time.Minute

@@ -21,6 +21,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"net/http"
+	"path/filepath"
 	"time"
 
 	"github.com/dragonflyoss/Dragonfly/dfdaemon/config"
@@ -125,7 +126,9 @@ func LaunchPeerServer(cfg config.Properties) error {
 	peerServerConfig.RV.ServerAliveTime = 0
 	peerServerConfig.RV.SystemDataDir = cfg.DFRepo
 	peerServerConfig.RV.DataDir = cfg.DFRepo
-	peerServerConfig.RV.DataExpireTime = time.Hour * 24
+	peerServerConfig.RV.MetaPath = filepath.Join(cfg.WorkHome, "meta")
+	peerServerConfig.RV.DataExpireTime = time.Hour * 1
+	peerServerConfig.Nodes = cfg.SuperNodes
 	port, err := uploader.LaunchPeerServer(peerServerConfig)
 	if err != nil {
 		return err

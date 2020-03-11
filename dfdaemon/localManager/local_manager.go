@@ -14,6 +14,7 @@ import (
 	"github.com/dragonflyoss/Dragonfly/dfget/types"
 	"github.com/dragonflyoss/Dragonfly/pkg/errortypes"
 	"github.com/dragonflyoss/Dragonfly/pkg/httputils"
+	strfmt "github.com/go-openapi/strfmt"
 	"io"
 	"math"
 	"net/http"
@@ -52,19 +53,27 @@ type LocalManager struct {
 
 func NewLocalManager(cfg config.DFGetConfig) *LocalManager {
 	once.Do(func() {
+		dfcfg := convertToDFGetConfig(cfg, nil)
+		localPeer := &types2.PeerInfo{
+			ID: dfcfg.RV.Cid,
+			IP: strfmt.IPv4(dfcfg.RV.LocalIP),
+			Port: int32(dfcfg.RV.PeerPort),
+		}
+
 		localManager = &LocalManager{
-			sm: scheduler.NewScheduler(),
+			sm: scheduler.NewScheduler(localPeer),
 			supernodeAPI: api.NewSupernodeAPI(),
 			downloadAPI: api.NewDownloadAPI(),
 			uploaderAPI: api.NewUploaderAPI(30 * time.Second),
 			rm: newRequestManager(),
-			dfGetConfig: convertToDFGetConfig(cfg, nil),
+			dfGetConfig:  dfcfg,
 			cfg: cfg,
 			syncTime: time.Now(),
 			syncP2PNetworkCh: make(chan string, 2),
 		}
 
 		go localManager.fetchLoop(context.Background())
+		go localManager.syncLocalTask(context.Background())
 	})
 
 	return localManager
@@ -201,6 +210,7 @@ func (lm *LocalManager) DownloadStreamContext(ctx context.Context, url string, h
 				port: int(r.PeerInfo.Port),
 				path: r.Pieces[0].Path,
 				peerID: r.PeerInfo.ID,
+				local: r.Local,
 			}
 		}
 
@@ -221,6 +231,26 @@ localDownload:
 	localDownloader.header = header
 	localDownloader.url = url
 	localDownloader.taskFileName = name
+	localDownloader.postNotifyUploader = func(req *api.FinishTaskRequest) {
+		localTask := &types2.TaskFetchInfo{
+			Task: &types2.TaskInfo{
+				ID: req.TaskID,
+				FileLength: req.Other.FileLength,
+				HTTPFileLength: req.Other.FileLength,
+				//Headers: req.Other.Headers,
+				PieceSize: int32(req.Other.FileLength),
+				PieceTotal: 1,
+				TaskURL: req.Other.TaskURL,
+				RawURL: req.Other.RawURL,
+			},
+			Pieces: []*types2.PieceInfo{
+					{
+						Path: req.TaskFileName,
+					},
+			},
+		}
+		lm.sm.AddLocalTaskInfo(localTask)
+	}
 
 	rd, err := localDownloader.RunStream(ctx)
 	logrus.Infof("return io.read: %v", rd)
@@ -228,24 +258,6 @@ localDownload:
 }
 
 func (lm *LocalManager) scheduleBySuperNode(ctx context.Context, url string, header map[string][]string, name string, taskID string, length int64)  {
-	//conf := convertToDFGetConfig(lm.cfg, lm.dfGetConfig)
-	//conf.URL = url
-	//conf.RV.TaskURL = url
-	//conf.RV.TaskFileName = name
-	//conf.Header = p2p.FlattenHeader(header)
-	//conf.RV.Digest = taskID
-	//conf.RV.FileLength = length
-	//
-	//superNodeRegister := regist.NewSupernodeRegister(conf, lm.supernodeAPI)
-	//_, err := superNodeRegister.Register(conf.RV.PeerPort)
-	//if err == nil {
-	//
-	//}
-	//
-	//if err.Code == constants.CodeNOURL || err.Code == constants.CodeReturnSrc {
-	//	lm.rm.addRequest(url, true)
-	//}
-
 	lm.rm.addRequest(url, false)
 	lm.notifyFetchP2PNetwork(url)
 }
@@ -253,7 +265,6 @@ func (lm *LocalManager) scheduleBySuperNode(ctx context.Context, url string, hea
 func (lm *LocalManager) notifyFetchP2PNetwork(url string) {
 	lm.syncP2PNetworkCh <- url
 }
-
 
 func (lm *LocalManager) isDownloadDirectReturnSrc(ctx context.Context, url string) (bool, error) {
 	rs, err := lm.rm.getRequestState(url)
@@ -386,4 +397,65 @@ func (lm *LocalManager) fetchP2PNetworkFromSupernode(node string, req *types.Fet
 	}
 
 	return result, nil
+}
+
+// syncLocalTask fetch local tasks to add to local schedule
+func (lm *LocalManager) syncLocalTask(ctx context.Context) {
+	for {
+		check := lm.checkUploader(ctx, 30 * time.Second)
+		if !check {
+			time.Sleep(time.Minute)
+			continue
+		}
+
+		break
+	}
+
+	// call it firstly
+	lm.fetchAndSyncLocalTask()
+
+	ticker := time.NewTicker(time.Minute)
+	defer ticker.Stop()
+
+	for{
+		select {
+		    case <- ctx.Done():
+				return
+			case <- ticker.C:
+				lm.fetchAndSyncLocalTask()
+		}
+	}
+}
+
+func (lm *LocalManager) checkUploader(ctx context.Context, timeout time.Duration) bool {
+	ticker := time.NewTicker(time.Second * 1)
+	t := time.NewTimer(timeout)
+	defer t.Stop()
+	defer ticker.Stop()
+
+	for{
+		select {
+			case <- ticker.C:
+				if lm.uploaderAPI.PingServer(lm.cfg.LocalIP, lm.cfg.PeerPort) {
+					return true
+				}
+			case <- t.C:
+				return false
+
+			case <- ctx.Done():
+				return false
+		}
+	}
+
+	return false
+}
+
+func (lm *LocalManager) fetchAndSyncLocalTask() {
+	result, err := lm.uploaderAPI.FetchLocalTask(lm.cfg.LocalIP, lm.cfg.PeerPort)
+	if err != nil {
+		logrus.Errorf("failed to fetch local task: %v", err)
+		return
+	}
+
+	lm.sm.SyncLocalTaskInfo(result)
 }
