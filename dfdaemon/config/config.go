@@ -28,6 +28,7 @@ import (
 	"github.com/dragonflyoss/Dragonfly/pkg/dflog"
 	dferr "github.com/dragonflyoss/Dragonfly/pkg/errortypes"
 	"github.com/dragonflyoss/Dragonfly/pkg/rate"
+	dfgetcfg "github.com/dragonflyoss/Dragonfly/dfget/config"
 
 	"github.com/pkg/errors"
 	"github.com/spf13/afero"
@@ -116,6 +117,9 @@ type Properties struct {
 
 	// Extreme is
 	Extreme	  *ExtremeConfig	`yaml:"extreme" json:"extreme"`
+
+	// CacheMode in upload file
+	CacheMode  int			  `yaml:"cacheMode" json:"cacheMode"`
 }
 
 // Validate validates the config
@@ -131,6 +135,13 @@ func (p *Properties) Validate() error {
 		return dferr.Newf(
 			constant.CodeExitPathNotAbs,
 			"local repo %s is not absolute", p.DFRepo,
+		)
+	}
+
+	if p.CacheMode != dfgetcfg.NoCache && p.CacheMode != dfgetcfg.SysPageCache && p.CacheMode != dfgetcfg.UserCache {
+		return dferr.Newf(
+			constant.CodeExitConfigError,
+			"cache mode %d should be 0: no cache; 1: system cache; 2: user cache.", p.CacheMode,
 		)
 	}
 

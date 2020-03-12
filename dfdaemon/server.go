@@ -129,6 +129,7 @@ func LaunchPeerServer(cfg config.Properties) error {
 	peerServerConfig.RV.MetaPath = filepath.Join(cfg.WorkHome, "meta")
 	peerServerConfig.RV.DataExpireTime = time.Hour * 1
 	peerServerConfig.Nodes = cfg.SuperNodes
+	peerServerConfig.RV.CacheMode = cfg.CacheMode
 	port, err := uploader.LaunchPeerServer(peerServerConfig)
 	if err != nil {
 		return err

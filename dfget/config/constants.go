@@ -56,6 +56,18 @@ const (
 	DefaultSupernodeWeight = 1
 )
 
+/* cache mode of upload file */
+const(
+	// no buffer cache
+	NoCache = 0
+
+	// system page cache
+	SysPageCache = 1
+
+	// cache in user mode
+	UserCache = 2
+)
+
 /* http headers */
 const (
 	StrRange         = "Range"

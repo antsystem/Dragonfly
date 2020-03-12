@@ -375,6 +375,9 @@ type RuntimeVariable struct {
 
 	// the digest of resource, it could be got from url headers
 	Digest string
+
+	// cache mode of upload file
+	CacheMode int
 }
 
 func (rv *RuntimeVariable) String() string {

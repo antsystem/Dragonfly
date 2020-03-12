@@ -120,6 +120,14 @@ func (t *taskContainer) Range(f func(key, value interface{}) bool) {
 }
 
 func (t *taskContainer) Delete(taskFileName string) {
+	v, ok := t.syncTaskMap.Load(taskFileName)
+	if !ok {
+		return
+	}
+
+	tc := v.(*taskConfig)
+	tc.cache.close()
+
 	t.syncTaskMap.Delete(taskFileName)
 	fp := t.ps.taskMetaFilePath(taskFileName)
 	fpBak := t.ps.taskMetaFileBakPath(taskFileName)
@@ -159,7 +167,7 @@ type taskConfig struct {
 	Finished   bool			`json:"finished"`
 	AccessTime time.Time	`json:"accessTime"`
 	Other      *api.FinishTaskOther `json:"other"`
-	cache		*cacheBuffer	`json:"-"`
+	cache	   *cacheBuffer	`json:"-"`
 }
 
 // uploadParam refers to all params needed in the handler of upload.
@@ -299,7 +307,9 @@ func (ps *peerServer) initLocalTask(m map[string]*taskConfig) {
 
 		tc.cache = newCacheBuffer()
 		ps.syncTaskContainer.Store(taskFileName, tc)
-		ps.syncCache(taskFileName)
+		if ps.cfg.RV.CacheMode == config.SysPageCache {
+			ps.syncSysCache(taskFileName)
+		}
 		// todo: notify the supernode to register task
 	}
 }
@@ -365,7 +375,8 @@ func (ps *peerServer) uploadHandler(w http.ResponseWriter, r *http.Request) {
 	// sync access time
 	task.AccessTime = time.Now()
 
-	if task.cache.valid {
+	cache, valid := task.cache.readBytes()
+	if valid {
 		// try to upload from cache
 		size = task.cache.size
 		if err = amendRange(size, true, up); err != nil {
@@ -374,7 +385,7 @@ func (ps *peerServer) uploadHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		if err := ps.uploadPieceFromCache(task.cache, w, up); err != nil {
+		if err := ps.uploadPieceFromCache(cache, w, up); err != nil {
 			logrus.Errorf("failed to send range(%s) of file(%s): %v", rangeStr, taskFileName, err)
 		}
 
@@ -402,7 +413,7 @@ func (ps *peerServer) uploadHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (ps *peerServer) uploadPieceFromCache(c *cacheBuffer, w http.ResponseWriter, up *uploadParam) (e error) {
+func (ps *peerServer) uploadPieceFromCache(data []byte, w http.ResponseWriter, up *uploadParam) (e error) {
 	w.Header().Set(config.StrContentLength, strconv.FormatInt(up.length, 10))
 	sendHeader(w, http.StatusPartialContent)
 
@@ -415,7 +426,7 @@ func (ps *peerServer) uploadPieceFromCache(c *cacheBuffer, w http.ResponseWriter
 		defer w.Write([]byte{config.PieceTailChar})
 	}
 
-	brd := bytes.NewReader(c.buf.Bytes())
+	brd := bytes.NewReader(data)
 	brd.Seek(up.start, 0)
 	r := io.LimitReader(brd, readLen)
 	if ps.rateLimiter != nil {
@@ -545,36 +556,43 @@ func (ps *peerServer) oneFinishHandler(w http.ResponseWriter, r *http.Request) {
 			Other:      &otherSt,
 		})
 	}
-	go ps.syncCache(taskFileName)
+
+	if ps.cfg.RV.CacheMode == config.SysPageCache {
+		go ps.syncSysCache(taskFileName)
+	}
+
 	sendSuccess(w)
 	fmt.Fprintf(w, "success")
 }
 
-func (ps *peerServer) syncCache(taskFileName string) {
+func (ps *peerServer) syncSysCache(taskFileName string) {
 	v, ok := ps.syncTaskContainer.Load(taskFileName)
 	if !ok {
 		return
 	}
 
 	task := v.(*taskConfig)
-	f,size, err := ps.getTaskFile(taskFileName)
+	f, size, err := ps.getTaskFile(taskFileName)
 	if err != nil {
-		logrus.Errorf("in syncCache %s, failed to getTaskFile: %v", taskFileName, err)
+		logrus.Errorf("in syncSysCache %s, failed to getTaskFile: %v", taskFileName, err)
 		return
 	}
 
-	defer f.Close()
+	//buf := &bytes.Buffer{}
+	//copySize, _ := io.CopyN(buf, f, size)
+	//if copySize != size {
+	//	logrus.Errorf("failed to syncSysCache %s from file %s, expected size %d, but got %d",
+	//		taskFileName, f.Name(), size, copySize)
+	//	return
+	//}
+	//task.cache.buf = buf
 
-	buf := &bytes.Buffer{}
-	copySize, _ := io.CopyN(buf, f, size)
-	if copySize != size {
-		logrus.Errorf("failed to syncCache %s from file %s, expected size %d, but got %d",
-			taskFileName, f.Name(), size, copySize)
-		return
-	}
-	task.cache.buf = buf
+	task.cache.Lock()
+	defer task.cache.Unlock()
+
 	task.cache.size = size
 	task.cache.valid = true
+	task.cache.f = f
 
 	logrus.Infof("success to sync cache %s", taskFileName)
 }

@@ -30,10 +30,8 @@ import (
 	"github.com/dragonflyoss/Dragonfly/dfget/util"
 	"github.com/dragonflyoss/Dragonfly/pkg/dflog"
 	"github.com/dragonflyoss/Dragonfly/pkg/errortypes"
-	"github.com/dragonflyoss/Dragonfly/pkg/fileutils"
 	"github.com/dragonflyoss/Dragonfly/pkg/httputils"
 	"github.com/dragonflyoss/Dragonfly/pkg/netutils"
-	statutil "github.com/dragonflyoss/Dragonfly/pkg/stat"
 	"github.com/dragonflyoss/Dragonfly/pkg/stringutils"
 
 	"github.com/pkg/errors"
@@ -96,6 +94,10 @@ func initDfdaemon(cfg *config.Properties) error {
 		cfg.LocalIP = checkConnectSupernode(cfg.SuperNodes)
 	}
 
+	if cfg.CacheMode == 0 {
+		cfg.CacheMode = dfgetcfg.NoCache
+	}
+
 	go cleanLocalRepo(cfg.DFRepo)
 
 	return nil
@@ -137,30 +139,30 @@ func cleanLocalRepo(dfpath string) {
 	for {
 		time.Sleep(time.Minute * 2)
 		logrus.Info("scan repo and clean expired files")
-		filepath.Walk(dfpath, func(path string, info os.FileInfo, err error) error {
-			if err != nil {
-				logrus.Warnf("walk file:%s error:%v", path, err)
-				return nil
-			}
-			if !info.Mode().IsRegular() {
-				logrus.Debugf("ignore %s: not a regular file", path)
-				return nil
-			}
-			// get the last access time
-			statT, ok := fileutils.GetSys(info)
-			if !ok {
-				logrus.Warnf("ignore %s: failed to get last access time", path)
-				return nil
-			}
-			// if the last access time is 1 hour ago
-			if time.Since(statutil.Atime(statT)) > time.Hour {
-				if err := os.Remove(path); err == nil {
-					logrus.Infof("remove file:%s success", path)
-				} else {
-					logrus.Warnf("remove file:%s error:%v", path, err)
-				}
-			}
-			return nil
-		})
+		//filepath.Walk(dfpath, func(path string, info os.FileInfo, err error) error {
+		//	if err != nil {
+		//		logrus.Warnf("walk file:%s error:%v", path, err)
+		//		return nil
+		//	}
+		//	if !info.Mode().IsRegular() {
+		//		logrus.Debugf("ignore %s: not a regular file", path)
+		//		return nil
+		//	}
+		//	// get the last access time
+		//	statT, ok := fileutils.GetSys(info)
+		//	if !ok {
+		//		logrus.Warnf("ignore %s: failed to get last access time", path)
+		//		return nil
+		//	}
+		//	// if the last access time is 1 hour ago
+		//	if time.Since(statutil.Atime(statT)) > time.Hour {
+		//		if err := os.Remove(path); err == nil {
+		//			logrus.Infof("remove file:%s success", path)
+		//		} else {
+		//			logrus.Warnf("remove file:%s error:%v", path, err)
+		//		}
+		//	}
+		//	return nil
+		//})
 	}
 }
