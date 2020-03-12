@@ -43,6 +43,10 @@ const (
 const (
 	// DefaultConfigPath is the default path of dfdaemon configuration file.
 	DefaultConfigPath = "/etc/dragonfly/dfdaemon.yml"
+
+	// DefaultSpecKeyOfExtremeTaskID is the default value of key which represents
+	// the taskID in extreme mode.
+	DefaultSpecKeyOfExtremeTaskID = "X-extreme-key"
 )
 
 const (

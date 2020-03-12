@@ -22,6 +22,8 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
+	"github.com/dragonflyoss/Dragonfly/dfdaemon/config"
+	"github.com/dragonflyoss/Dragonfly/pkg/httputils"
 	"io"
 	"io/ioutil"
 	"net"
@@ -53,6 +55,8 @@ type DFRoundTripper struct {
 	ShouldUseDfget   func(req *http.Request) bool
 	Downloader       downloader.Interface
 	StreamDownloader downloader.Stream
+	ExtremeDownloader downloader.Stream
+	config			 *config.Properties
 
 	nWare			 NumericalWare
 }
@@ -122,6 +126,20 @@ func WithStreamDownloader(d downloader.Stream) Option {
 	}
 }
 
+func WithExtremeDownloader(d downloader.Stream) Option {
+	return func(rt *DFRoundTripper) error {
+		rt.ExtremeDownloader = d
+		return nil
+	}
+}
+
+func WithConfig(cfg *config.Properties) Option {
+	return func(rt *DFRoundTripper) error {
+		rt.config = cfg
+		return nil
+	}
+}
+
 // WithCondition configures how to decide whether to use dfget or not.
 func WithCondition(c func(r *http.Request) bool) Option {
 	return func(rt *DFRoundTripper) error {
@@ -133,12 +151,14 @@ func WithCondition(c func(r *http.Request) bool) Option {
 // RoundTrip only process first redirect at present
 // fix resource release
 func (roundTripper *DFRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
-	if req.Header.Get("x-nydus-proxy-healthcheck") != "" {
-		return &http.Response{
-			StatusCode: 200,
-			// add a body with no data
-			Body: ioutil.NopCloser(bytes.NewReader([]byte{})),
-		}, nil
+	if roundTripper.config.Extreme.SpecKeyOfDirectRet != "" {
+		if req.Header.Get(roundTripper.config.Extreme.SpecKeyOfDirectRet) != "" {
+			return &http.Response{
+				StatusCode: 200,
+				// add a body with no data
+				Body: ioutil.NopCloser(bytes.NewReader([]byte{})),
+			}, nil
+		}
 	}
 
 	if req.Header.Get("x-numerical-ware") != "" {
@@ -188,8 +208,6 @@ func (roundTripper *DFRoundTripper) RoundTrip(req *http.Request) (*http.Response
 	return res, err
 }
 
-
-
 // download uses dfget to download.
 func (roundTripper *DFRoundTripper) download(req *http.Request, urlString string) (*http.Response, error) {
 	reader, err := roundTripper.downloadByStream(req.Context(), urlString, req.Header, uuid.New())
@@ -214,6 +232,12 @@ func (roundTripper *DFRoundTripper) downloadByGetter(ctx context.Context, url st
 }
 
 func (roundTripper *DFRoundTripper) downloadByStream(ctx context.Context, url string, header map[string][]string, name string) (io.Reader, error) {
+	taskID := httputils.GetTaskIDFromHeader(url, header, roundTripper.config.Extreme.SpecKeyOfTaskID)
+	if taskID != "" {
+		logrus.Infof("start download url in extreme mode: %s to %s in repo", url, name)
+		return roundTripper.ExtremeDownloader.DownloadStreamContext(ctx, url, header, name)
+	}
+
 	logrus.Infof("start download url:%s to %s in repo", url, name)
 	return roundTripper.StreamDownloader.DownloadStreamContext(ctx, url, header, name)
 }

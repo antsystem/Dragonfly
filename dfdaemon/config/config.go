@@ -113,6 +113,9 @@ type Properties struct {
 	LogConfig dflog.LogConfig `yaml:"logConfig" json:"logConfig"`
 	LocalIP   string          `yaml:"localIP" json:"localIP"`
 	PeerPort  int             `yaml:"peerPort" json:"peerPort"`
+
+	// Extreme is
+	Extreme	  *ExtremeConfig	`yaml:"extreme" json:"extreme"`
 }
 
 // Validate validates the config
@@ -145,13 +148,14 @@ func (p *Properties) DFGetConfig() DFGetConfig {
 	}
 
 	dfgetConfig := DFGetConfig{
-		DfgetFlags: dfgetFlags,
-		SuperNodes: p.SuperNodes,
-		RateLimit:  p.RateLimit.String(),
-		DFRepo:     p.DFRepo,
-		DFPath:     p.DFPath,
-		LocalIP:    p.LocalIP,
-		PeerPort:   p.PeerPort,
+		DfgetFlags:             dfgetFlags,
+		SuperNodes:             p.SuperNodes,
+		RateLimit:              p.RateLimit.String(),
+		DFRepo:                 p.DFRepo,
+		DFPath:                 p.DFPath,
+		LocalIP:                p.LocalIP,
+		PeerPort:               p.PeerPort,
+		SpecKeyOfExtremeTaskID: p.Extreme.SpecKeyOfTaskID,
 	}
 	if p.HijackHTTPS != nil {
 		dfgetConfig.HostsConfig = p.HijackHTTPS.Hosts
@@ -166,19 +170,25 @@ func (p *Properties) DFGetConfig() DFGetConfig {
 			})
 		}
 	}
+
+	if dfgetConfig.SpecKeyOfExtremeTaskID == "" {
+		dfgetConfig.SpecKeyOfExtremeTaskID = constant.DefaultSpecKeyOfExtremeTaskID
+	}
+
 	return dfgetConfig
 }
 
 // DFGetConfig configures how dfdaemon calls dfget.
 type DFGetConfig struct {
-	DfgetFlags  []string      `yaml:"dfget_flags"`
-	SuperNodes  []string      `yaml:"supernodes"`
-	RateLimit   string        `yaml:"ratelimit"`
-	DFRepo      string        `yaml:"localrepo"`
-	DFPath      string        `yaml:"dfpath"`
-	HostsConfig []*HijackHost `yaml:"hosts" json:"hosts"`
-	PeerPort    int           `yaml:"peerPort"`
-	LocalIP     string        `yaml:"localIP"`
+	DfgetFlags             []string      `yaml:"dfget_flags"`
+	SuperNodes             []string      `yaml:"supernodes"`
+	RateLimit              string        `yaml:"ratelimit"`
+	DFRepo                 string        `yaml:"localrepo"`
+	DFPath                 string        `yaml:"dfpath"`
+	HostsConfig            []*HijackHost `yaml:"hosts" json:"hosts"`
+	PeerPort               int           `yaml:"peerPort"`
+	LocalIP                string        `yaml:"localIP"`
+	SpecKeyOfExtremeTaskID string        `yaml:"specKeyOfTaskID"`
 }
 
 // RegistryMirror configures the mirror of the official docker registry
@@ -411,4 +421,12 @@ func NewProxy(regx string, useHTTPS bool, direct bool, redirect string) (*Proxy,
 // Match checks if the given url matches the rule.
 func (r *Proxy) Match(url string) bool {
 	return r.Regx != nil && r.Regx.MatchString(url)
+}
+
+// ExtremeConfig represents the config of extreme mode
+type ExtremeConfig struct {
+	// SpecKeyOfExtremeTaskID defines the header key which represents the taskID
+	SpecKeyOfTaskID		string		`yaml:"specKeyOfTaskID" json:"specKeyOfTaskID"`
+
+	SpecKeyOfDirectRet string		`yaml:"specKeyOfDirectRet" json:"specKeyOfDirectRet"`
 }

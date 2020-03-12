@@ -5,7 +5,6 @@ import (
 	"fmt"
 	types2 "github.com/dragonflyoss/Dragonfly/apis/types"
 	"github.com/dragonflyoss/Dragonfly/dfdaemon/config"
-	"github.com/dragonflyoss/Dragonfly/dfdaemon/downloader/p2p"
 	"github.com/dragonflyoss/Dragonfly/dfdaemon/scheduler"
 	"github.com/dragonflyoss/Dragonfly/dfdaemon/transport"
 	dfgetcfg "github.com/dragonflyoss/Dragonfly/dfget/config"
@@ -14,7 +13,7 @@ import (
 	"github.com/dragonflyoss/Dragonfly/dfget/types"
 	"github.com/dragonflyoss/Dragonfly/pkg/errortypes"
 	"github.com/dragonflyoss/Dragonfly/pkg/httputils"
-	strfmt "github.com/go-openapi/strfmt"
+	"github.com/go-openapi/strfmt"
 	"io"
 	"math"
 	"net/http"
@@ -161,6 +160,11 @@ func (lm *LocalManager) DownloadStreamContext(ctx context.Context, url string, h
 		key			string
 	)
 
+	taskID := httputils.GetTaskIDFromHeader(url, header, lm.cfg.SpecKeyOfExtremeTaskID)
+	if taskID == "" {
+		return nil, fmt.Errorf("in extreme mode, taskID should be set")
+	}
+
 	nWareOb := ctx.Value("numericalWare")
 	ware, ok := nWareOb.(transport.NumericalWare)
 	if ok {
@@ -184,7 +188,6 @@ func (lm *LocalManager) DownloadStreamContext(ctx context.Context, url string, h
 
 	defer lm.rm.addRequest(url, false)
 
-	taskID := lm.getDigestFromHeader(url, header)
 	length := lm.getLengthFromHeader(url, header)
 
 	logrus.Infof("start to download, url: %s, header: %v, taskID: %s, length: %d", url,
@@ -192,18 +195,14 @@ func (lm *LocalManager) DownloadStreamContext(ctx context.Context, url string, h
 
 
 	// try to download from peer by internal schedule
-	if taskID != "" {
-		// local schedule
-		result, err := lm.sm.SchedulerByTaskID(ctx, taskID, lm.dfGetConfig.RV.Cid, "", 0)
-		if nWare != nil {
-			nWare.Add(key, transport.ScheduleName, time.Since(startTime).Nanoseconds())
-			startTime = time.Now()
-		}
-		if err != nil {
-			go lm.scheduleBySuperNode(ctx, url, header, name, taskID, length)
-			goto localDownload
-		}
-
+	result, err := lm.sm.SchedulerByTaskID(ctx, taskID, lm.dfGetConfig.RV.Cid, "", 0)
+	if nWare != nil {
+		nWare.Add(key, transport.ScheduleName, time.Since(startTime).Nanoseconds())
+		startTime = time.Now()
+	}
+	if err != nil {
+		go lm.scheduleBySuperNode(ctx, url, header, name, taskID, length)
+	}else{
 		tmpInfos := make([]*downloadNodeInfo, len(result))
 		for i, r := range result {
 			tmpInfos[i] = &downloadNodeInfo{
@@ -218,7 +217,7 @@ func (lm *LocalManager) DownloadStreamContext(ctx context.Context, url string, h
 		infos = append(tmpInfos, infos...)
 	}
 
-localDownload:
+	// local download
 	localDownloader = NewLocalDownloader()
 	localDownloader.selectNodes = infos
 	localDownloader.length = length
@@ -253,7 +252,7 @@ localDownload:
 		lm.sm.AddLocalTaskInfo(localTask)
 	}
 
-	rd, err := localDownloader.RunStream(ctx)
+	rd, err = localDownloader.RunStream(ctx)
 	logrus.Infof("return io.read: %v", rd)
 	return rd, err
 }
@@ -297,25 +296,6 @@ func (lm *LocalManager) downloadFromPeer(peer *types2.PeerInfo, taskFileName str
 
 	// todo: close the body
 	return resp.Body, nil
-}
-
-func (lm *LocalManager) getDigestFromHeader(url string, header map[string][]string) string {
-	hr := http.Header(header)
-	if digestHeaderStr := hr.Get(dfgetcfg.StrDigest); digestHeaderStr != "" {
-		ds, err := p2p.GetDigestFromHeader(digestHeaderStr)
-		if err != nil {
-			return ""
-		}
-
-		// todo: support the merge request
-		if len(ds) != 1 {
-			return ""
-		}
-
-		return ds[0].Digest
-	}
-
-	return ""
 }
 
 func (lm *LocalManager) getLengthFromHeader(url string, header map[string][]string) int64 {

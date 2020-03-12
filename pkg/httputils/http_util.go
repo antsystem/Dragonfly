@@ -454,3 +454,85 @@ func handlePairRange(rangeStr string, length int64) (*RangeStruct, error) {
 		EndIndex:   endIndex,
 	}, nil
 }
+
+func GetTaskIDFromHeader(url string, header map[string][]string, keyOfTaskID string) string {
+	hr := http.Header(header)
+	if taskIDHeaderStr := hr.Get(keyOfTaskID); taskIDHeaderStr != "" {
+		ds, err := GetDigestFromHeader(taskIDHeaderStr)
+		if err != nil {
+			return ""
+		}
+
+		// todo: support the merge request
+		if len(ds) != 1 {
+			return ""
+		}
+
+		return ds[0].Digest
+	}
+
+	return ""
+}
+
+type DigestStruct struct {
+	Digest string
+	RangeStruct
+}
+
+func GetDigestFromHeader(digestHeaderStr string) ([]*DigestStruct, error) {
+	var (
+		digest   string
+		rangeStr string
+	)
+
+	// digestHeaderStr looks like "sha256_1:0,1000;sha256_2:1001,2000"
+
+	result := []*DigestStruct{}
+
+	arr := strings.Split(digestHeaderStr, ";")
+	for _, elem := range arr {
+		kv := strings.Split(elem, ":")
+		if len(kv) > 3 || len(kv) < 2 {
+			return nil, fmt.Errorf("%s is not vaild for digestHeader", digestHeaderStr)
+		}
+
+		if len(kv) == 2 {
+			digest = fmt.Sprintf("sha256:%s", kv[0])
+			rangeStr = kv[1]
+		}
+
+		if len(kv) == 3 {
+			digest = fmt.Sprintf("%s:%s", kv[0], kv[1])
+			rangeStr = kv[2]
+		}
+
+		// todo: verify the sha256 string
+
+		rangeIndex := strings.Split(rangeStr, ",")
+		if len(rangeIndex) != 2 {
+			return nil, fmt.Errorf("%s is not vaild for digestHeader", digestHeaderStr)
+		}
+
+		startIndex, err := strconv.ParseInt(rangeIndex[0], 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("%s is not vaild for digestHeader", digestHeaderStr)
+		}
+
+		endIndex, err := strconv.ParseInt(rangeIndex[1], 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("%s is not vaild for digestHeader", digestHeaderStr)
+		}
+
+		ds := &DigestStruct{
+			Digest: digest,
+			RangeStruct: RangeStruct{
+				StartIndex: startIndex,
+				EndIndex:   endIndex,
+			},
+		}
+
+		result = append(result, ds)
+	}
+
+	return result, nil
+}

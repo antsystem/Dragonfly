@@ -74,11 +74,8 @@ const (
 	StrTotalLimit   = "totalLimit"
 	StrOther    = "other"
 
-
 	StrBytes = "bytes"
-
-	StrDigest = "X-dragonfly-digest"
-)
+	)
 
 /* piece meta */
 const (
