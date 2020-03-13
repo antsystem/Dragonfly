@@ -56,6 +56,7 @@ const (
 var DefaultHTTPClient SimpleHTTPClient = &defaultHTTPClient{}
 
 var protocols = sync.Map{}
+var validURLProtocols = "https?|HTTPS?"
 
 // SimpleHTTPClient defines some http functions used frequently.
 type SimpleHTTPClient interface {
@@ -470,12 +471,14 @@ func handlePairRange(rangeStr string, length int64) (*RangeStruct, error) {
 	}, nil
 }
 
-// RegisterProtocol registers custom protocols in global variable "protocols" which will use in dfget and supernode
+// RegisterProtocol registers custom protocols in global variable "protocols" which will be used in dfget and supernode
 // Example:
 //   protocols := "helloworld"
 //   newTransport := funcNewTransport
 //   httputils.RegisterProtocol(protocols, newTransport)
+// RegisterProtocol must be called before initialise dfget or supernode instances.
 func RegisterProtocol(scheme string, rt http.RoundTripper) {
+	validURLProtocols += "|" + scheme
 	protocols.Store(scheme, rt)
 }
 
@@ -487,4 +490,8 @@ func RegisterProtocolOnTransport(tr *http.Transport) {
 			tr.RegisterProtocol(key.(string), value.(http.RoundTripper))
 			return true
 		})
+}
+
+func GetValidURLSchemas() string {
+	return validURLProtocols
 }
