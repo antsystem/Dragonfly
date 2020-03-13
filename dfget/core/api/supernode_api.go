@@ -304,11 +304,11 @@ func (api *supernodeAPI) ReportResourceDeleted(node string, taskID string, cid s
 	resp.Code = constants.Success
 
 	if err = api.get(url, resp); err != nil {
-		logrus.Errorf("failed to send service down,err: %v", err)
+		logrus.Errorf("failed to send resource deleted, err: %v", err)
 		return nil, err
 	}
 	if resp.Code != constants.CodeGetPeerDown {
-		logrus.Errorf("failed to send service down to supernode: api response code is %d not equal to %d", resp.Code, constants.CodeGetPeerDown)
+		logrus.Errorf("failed to send resource deleted to supernode: api response code is %d not equal to %d", resp.Code, constants.CodeGetPeerDown)
 	}
 
 	return
@@ -320,7 +320,7 @@ func (api *supernodeAPI) HeartBeat(node string, req *api_types.HeartBeatRequest)
 
 	resp = new(types.BaseResponse)
 	if err = api.get(url, resp); err != nil {
-		logrus.Errorf("failed to send service down,err: %v", err)
+		logrus.Errorf("failed to send heat beat,err: %v", err)
 		return nil, err
 	}
 
