@@ -19,9 +19,6 @@ package proxy
 import (
 	"crypto/tls"
 	"fmt"
-	"github.com/dragonflyoss/Dragonfly/dfdaemon/downloader/dfget"
-	"github.com/dragonflyoss/Dragonfly/dfdaemon/downloader/p2p"
-	"github.com/dragonflyoss/Dragonfly/dfdaemon/localManager"
 	"io"
 	"net"
 	"net/http"
@@ -32,6 +29,9 @@ import (
 
 	"github.com/dragonflyoss/Dragonfly/dfdaemon/config"
 	"github.com/dragonflyoss/Dragonfly/dfdaemon/downloader"
+	"github.com/dragonflyoss/Dragonfly/dfdaemon/downloader/dfget"
+	"github.com/dragonflyoss/Dragonfly/dfdaemon/downloader/p2p"
+	"github.com/dragonflyoss/Dragonfly/dfdaemon/localManager"
 	"github.com/dragonflyoss/Dragonfly/dfdaemon/transport"
 
 	"github.com/pkg/errors"
@@ -145,7 +145,6 @@ func NewFromConfig(c config.Properties) (*Proxy, error) {
 		WithRules(c.Proxies),
 		WithRegistryMirror(c.RegistryMirror),
 		WithStreamDownloaderFactory(func() downloader.Stream {
-			dfget.NewGetter(c.DFGetConfig())
 			return p2p.NewClient(c.DFGetConfig())
 		}),
 		WithExtremeDownloaderFactory(func() downloader.Stream {
@@ -202,10 +201,10 @@ type Proxy struct {
 	// directHandler are used to handle non proxy requests
 	directHandler http.Handler
 	// downloadFactory returns the downloader used for p2p downloading
-	downloadFactory       downloader.Factory
-	streamDownloadFactory downloader.StreamFactory
+	downloadFactory        downloader.Factory
+	streamDownloadFactory  downloader.StreamFactory
 	extremeDownloadFactory downloader.StreamFactory
-	config		 *config.Properties
+	config                 *config.Properties
 }
 
 func (proxy *Proxy) mirrorRegistry(w http.ResponseWriter, r *http.Request) {

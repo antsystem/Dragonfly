@@ -136,7 +136,7 @@ func launch(cfg *config.Config, p2pPtr *unsafe.Pointer) error {
 func waitForStartup(result chan error, p2pPtr *unsafe.Pointer) (err error) {
 	ticker := time.NewTicker(5 * time.Millisecond)
 	defer ticker.Stop()
-	timeout := time.After(10 * time.Second)
+	timeout := time.After(233 * time.Millisecond)
 
 	for {
 		select {

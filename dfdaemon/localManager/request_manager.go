@@ -1,24 +1,27 @@
 package localManager
 
 import (
-	"github.com/dragonflyoss/Dragonfly/pkg/errortypes"
-	"github.com/pkg/errors"
 	"time"
+
+	"github.com/dragonflyoss/Dragonfly/pkg/errortypes"
+	"github.com/dragonflyoss/Dragonfly/pkg/queue"
+
+	"github.com/pkg/errors"
 )
 
 // requestManager manage the recent the requests, it provides the
 type requestManager struct {
-	q 	*finiteQueue
+	q 	*queue.CircleQueue
 }
 
 func newRequestManager() *requestManager {
 	return &requestManager{
-		q:  newFiniteQueue(100),
+		q:  queue.NewCircleQueue(100),
 	}
 }
 
 func (rm *requestManager) addRequest(url string, directReturnSrc bool) error {
-	data, err := rm.q.getItemByKey(url)
+	data, err := rm.q.GetItemByKey(url)
 	if err != nil && err != errortypes.ErrDataNotFound {
 		return err
 	}
@@ -42,7 +45,7 @@ func (rm *requestManager) addRequest(url string, directReturnSrc bool) error {
 	}
 
 	rs.updateRecentTime()
-	rm.q.putFront(url, rs)
+	rm.q.PutFront(url, rs)
 
 	return nil
 }
@@ -52,7 +55,7 @@ func (rm *requestManager) getRecentRequest(count int) []string {
 	if count == 0 {
 		count = 5
 	}
-	arr := rm.q.getFront(count)
+	arr := rm.q.GetFront(count)
 	result := []string{}
 
 	for _, d := range arr {
@@ -65,7 +68,7 @@ func (rm *requestManager) getRecentRequest(count int) []string {
 }
 
 func (rm *requestManager) getRequestState(url string) (*requestState, error) {
-	data, err := rm.q.getItemByKey(url)
+	data, err := rm.q.GetItemByKey(url)
 	if err != nil {
 		return nil, err
 	}

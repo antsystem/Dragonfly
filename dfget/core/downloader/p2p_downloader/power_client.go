@@ -18,8 +18,10 @@ package downloader
 
 import (
 	"bytes"
+	"crypto/md5"
 	"encoding/binary"
 	"fmt"
+	"hash"
 	"io"
 	"net/http"
 	"strings"
@@ -149,6 +151,7 @@ func (pc *PowerClient) downloadPiece() (content *bytes.Buffer, e error) {
 	var(
 		resp *http.Response
 		err error
+		md5HashReader hash.Hash
 	)
 
 	pieceMetaArr := strings.Split(pc.pieceTask.PieceMd5, ":")
@@ -173,13 +176,11 @@ func (pc *PowerClient) downloadPiece() (content *bytes.Buffer, e error) {
 			header[k] = h.Get(k)
 		}
 		resp, err = httputils.HTTPGetTimeout(pc.pieceTask.Url, header, timeout)
-		logrus.Infof("in downloadPiece by returnSrc, url: %s, header: %v, err: %d", pc.pieceTask.Url, header, err)
+		logrus.Debugf("in downloadPiece by returnSrc, url: %s, header: %v, err: %d", pc.pieceTask.Url, header, err)
 	}else{
-		downloadRequest := pc.createDownloadRequest()
-		downloadRequest.PieceRange = fmt.Sprintf("0-%d", downloadRequest.PieceSize + config.PieceMetaSize)
-		downloadRequest.Path = fmt.Sprintf("%s%s", config.PeerHTTPPathPrefix, downloadRequest.Path)
-		resp, err = pc.downloadAPI.Download(dstIP, peerPort, downloadRequest, timeout)
-		logrus.Infof("in downloadPiece by p2p, dstIP: %s, peerPort: %d, req: %v, err: %v", dstIP, peerPort, downloadRequest, err)
+		createReq := pc.createDownloadRequest()
+		resp, err = pc.downloadAPI.Download(dstIP, peerPort, createReq, timeout)
+		logrus.Debugf("in downloadPiece by p2p, dstIP: %s, peerPort: %d, req: %v, err: %v", dstIP, peerPort, pc.createDownloadRequest(), err)
 	}
 
 	if err != nil {
@@ -197,10 +198,10 @@ func (pc *PowerClient) downloadPiece() (content *bytes.Buffer, e error) {
 		return nil, errortypes.New(resp.StatusCode, pc.readBody(resp.Body))
 	}
 
-	// start to read data from resp
-	// use limitReader to limit the download speed
-	limitReader := limitreader.NewLimitReaderWithLimiter(pc.rateLimiter, resp.Body, pieceMD5 != "")
 	content = &bytes.Buffer{}
+	if pieceMD5 != "" {
+		md5HashReader = md5.New()
+	}
 
 	if pc.pieceTask.DirectSource {
 		// add pad if download from src url
@@ -209,13 +210,26 @@ func (pc *PowerClient) downloadPiece() (content *bytes.Buffer, e error) {
 		buf := make([]byte, 128)
 		binary.BigEndian.PutUint32(buf, uint32((pieceSize)|(pieceSize)<<4))
 		content.Write(buf[:config.PieceHeadSize])
-		defer content.Write([]byte{config.PieceTailChar})
+		if md5HashReader != nil {
+			md5HashReader.Write(buf[:config.PieceHeadSize])
+		}
 	}
+
+	// start to read data from resp
+	// use limitReader to limit the download speed
+	limitReader := limitreader.NewLimitReaderWithLimiterAndMD5Sum(resp.Body, pc.rateLimiter, md5HashReader)
 
 	if pc.total, e = content.ReadFrom(limitReader); e != nil {
 		return nil, e
 	}
 	pc.readCost = time.Since(startTime)
+
+	if pc.pieceTask.DirectSource {
+		if md5HashReader != nil {
+			md5HashReader.Write([]byte{config.PieceTailChar})
+		}
+		content.Write([]byte{config.PieceTailChar})
+	}
 
 	// Verify md5 code
 	if realMd5 := limitReader.Md5(); realMd5 != pieceMD5 {

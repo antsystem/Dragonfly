@@ -151,42 +151,14 @@ func WithCondition(c func(r *http.Request) bool) Option {
 // RoundTrip only process first redirect at present
 // fix resource release
 func (roundTripper *DFRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
-	if roundTripper.config.Extreme.SpecKeyOfDirectRet != "" {
-		if req.Header.Get(roundTripper.config.Extreme.SpecKeyOfDirectRet) != "" {
-			return &http.Response{
-				StatusCode: 200,
-				// add a body with no data
-				Body: ioutil.NopCloser(bytes.NewReader([]byte{})),
-			}, nil
-		}
+	ret, resp, err := roundTripper.directReturn(req)
+	if ret {
+		return resp, err
 	}
 
-	if req.Header.Get("x-numerical-ware") != "" {
-		var  baseLine int64 = 0
-		var msgErr error
-		baseLineStr := req.Header.Get("x-numerical-ware-baseline")
-		if baseLineStr != "" {
-			bl, err := strconv.ParseInt(baseLineStr, 10, 64)
-			if err != nil {
-				msgErr = fmt.Errorf("base line parse failed: %v", err)
-			}
-
-			baseLine = bl
-		}
-
-		reset := req.Header.Get("x-numerical-ware-reset")
-		if strings.TrimSpace(reset) == "true" {
-			defer roundTripper.nWare.Reset()
-		}
-
-		rs := roundTripper.nWare.OutputWithBaseLine(baseLine)
-		rs.Err = msgErr
-		rsData,_ := json.Marshal(rs)
-
-		return &http.Response{
-			StatusCode: 200,
-			Body: ioutil.NopCloser(bytes.NewReader(rsData)),
-		}, nil
+	ret, resp, err = roundTripper.isNumericalResult(req)
+	if ret {
+		return resp, err
 	}
 
 	if roundTripper.ShouldUseDfget(req) {
@@ -246,4 +218,49 @@ func (roundTripper *DFRoundTripper) downloadByStream(ctx context.Context, url st
 // images layers with dfget.
 func NeedUseGetter(req *http.Request) bool {
 	return req.Method == http.MethodGet && layerReg.MatchString(req.URL.Path)
+}
+
+func (roundTripper *DFRoundTripper) directReturn(req *http.Request) (bool, *http.Response, error) {
+	if roundTripper.config.Extreme.SpecKeyOfDirectRet != "" &&
+		req.Header.Get(roundTripper.config.Extreme.SpecKeyOfDirectRet) != ""{
+		return true, &http.Response{
+			StatusCode: 200,
+			// add a body with no data
+			Body: ioutil.NopCloser(bytes.NewReader([]byte{})),
+		}, nil
+	}
+
+	return false, nil, nil
+}
+
+func (roundTripper *DFRoundTripper) isNumericalResult(req *http.Request)  (bool, *http.Response, error)  {
+	if req.Header.Get("x-numerical-ware") == "" {
+		return false, nil, nil
+	}
+
+	var  baseLine int64 = 0
+	var msgErr error
+	baseLineStr := req.Header.Get("x-numerical-ware-baseline")
+	if baseLineStr != "" {
+		bl, err := strconv.ParseInt(baseLineStr, 10, 64)
+		if err != nil {
+			msgErr = fmt.Errorf("base line parse failed: %v", err)
+		}
+
+		baseLine = bl
+	}
+
+	reset := req.Header.Get("x-numerical-ware-reset")
+	if strings.TrimSpace(reset) == "true" {
+		defer roundTripper.nWare.Reset()
+	}
+
+	rs := roundTripper.nWare.OutputWithBaseLine(baseLine)
+	rs.Err = msgErr
+	rsData,_ := json.Marshal(rs)
+
+	return true, &http.Response{
+		StatusCode: 200,
+		Body: ioutil.NopCloser(bytes.NewReader(rsData)),
+	}, nil
 }

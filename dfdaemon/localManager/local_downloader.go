@@ -233,13 +233,13 @@ func (ld *LocalDownloader) reportResource(info *downloadNodeInfo) {
 func (ld *LocalDownloader) processPiece(ctx context.Context, info* downloadNodeInfo) {
 	logrus.Debugf("pieces to be processed:%v", info)
 	pieceTask := &types.PullPieceTaskResponseContinueData{
-		Range: fmt.Sprintf("0-%d", ld.length - 1),
+		Range: fmt.Sprintf("0-%d", ld.length - 1 + config.PieceMetaSize),
 		PieceNum: 0,
 		PieceSize: int32(ld.length),
 		Cid: info.peerID,
 		PeerIP: info.ip,
 		PeerPort: info.port,
-		Path: info.path,
+		Path: fmt.Sprintf("%s%s", config.PeerHTTPPathPrefix, info.path),
 		Url: info.url,
 		Header: info.header,
 		DirectSource: info.directSource,

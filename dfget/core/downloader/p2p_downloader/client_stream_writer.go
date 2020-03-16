@@ -213,7 +213,7 @@ func (csw *ClientStreamWriter) writePieceToPipe(p *Piece) error {
 func (csw *ClientStreamWriter) Read(p []byte) (n int, err error) {
 	n, err = csw.limitReader.Read(p)
 	csw.alreadyReadSize += int64(n)
-	if csw.alreadyReadSize == csw.expectReadSize {
+	if csw.expectReadSize > 0 && csw.alreadyReadSize >= csw.expectReadSize {
 		go csw.notifyCloseStream()
 		if csw.nWare != nil {
 			csw.nWare.Add(csw.nKey, transport.RequestReadName, time.Since(csw.startTime).Nanoseconds())
