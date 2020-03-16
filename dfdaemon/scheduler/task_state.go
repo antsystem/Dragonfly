@@ -75,9 +75,9 @@ func (ts *taskState) getPeersByLoad(maxCount int, maxLoad int64) []*taskStatePer
 
 	ts.peerContainer.Range(func(key, value interface{}) bool {
 		pn := value.(*taskStatePerNode)
-		if *(pn.load) >= maxLoad {
-			return true
-		}
+		//if *(pn.load) >= maxLoad {
+		//	return true
+		//}
 
 		sorter.items = append(sorter.items, pn)
 		return true

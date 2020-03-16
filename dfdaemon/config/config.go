@@ -114,6 +114,8 @@ type Properties struct {
 	LogConfig dflog.LogConfig `yaml:"logConfig" json:"logConfig"`
 	LocalIP   string          `yaml:"localIP" json:"localIP"`
 	PeerPort  int             `yaml:"peerPort" json:"peerPort"`
+	// client id, it will be used in extreme mode
+	Cid       string		  `yaml:"-" json:"-"`
 
 	// Extreme is
 	Extreme	  *ExtremeConfig	`yaml:"extreme" json:"extreme"`
@@ -167,6 +169,7 @@ func (p *Properties) DFGetConfig() DFGetConfig {
 		LocalIP:                p.LocalIP,
 		PeerPort:               p.PeerPort,
 		SpecKeyOfExtremeTaskID: p.Extreme.SpecKeyOfTaskID,
+		Cid: 					p.Cid,
 	}
 	if p.HijackHTTPS != nil {
 		dfgetConfig.HostsConfig = p.HijackHTTPS.Hosts
@@ -200,6 +203,7 @@ type DFGetConfig struct {
 	PeerPort               int           `yaml:"peerPort"`
 	LocalIP                string        `yaml:"localIP"`
 	SpecKeyOfExtremeTaskID string        `yaml:"specKeyOfTaskID"`
+	Cid					   string		 `yaml:"-"`
 }
 
 // RegistryMirror configures the mirror of the official docker registry

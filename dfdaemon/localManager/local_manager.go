@@ -138,7 +138,7 @@ func convertToDFGetConfig(cfg config.DFGetConfig, oldCfg *dfgetcfg.Config) *dfge
 			PeerPort: cfg.PeerPort,
 			SystemDataDir: cfg.DFRepo,
 			DataDir: cfg.DFRepo,
-			Cid: fmt.Sprintf("%s-%s", cfg.LocalIP, sign),
+			Cid: cfg.Cid,
 		},
 	}
 

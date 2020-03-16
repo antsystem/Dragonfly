@@ -121,6 +121,7 @@ func NewFromConfig(cfg config.Properties) (*Server, error) {
 
 func LaunchPeerServer(cfg config.Properties) error {
 	peerServerConfig := dfgetConfig.NewConfig()
+	peerServerConfig.RV.Cid = cfg.Cid
 	peerServerConfig.RV.LocalIP = cfg.LocalIP
 	peerServerConfig.RV.PeerPort = cfg.PeerPort
 	peerServerConfig.RV.ServerAliveTime = 0

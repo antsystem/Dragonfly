@@ -98,6 +98,12 @@ func initDfdaemon(cfg *config.Properties) error {
 		cfg.CacheMode = dfgetcfg.NoCache
 	}
 
+	if cfg.Cid == "" {
+		sign := fmt.Sprintf("%d-%.3f",
+			os.Getpid(), float64(time.Now().UnixNano())/float64(time.Second))
+		cfg.Cid = fmt.Sprintf("%s-%s", cfg.LocalIP, sign)
+	}
+
 	go cleanLocalRepo(cfg.DFRepo)
 
 	return nil

@@ -326,17 +326,17 @@ func (api *supernodeAPI) HeartBeat(node string, req *api_types.HeartBeatRequest)
 		return &types.BaseResponse{Code: constants.CodePeerWaitHeartBeat}, nil
 	}
 
-	url := fmt.Sprintf("%s://%s%s?ip=%s&port=%dcid=%s",
+	url := fmt.Sprintf("%s://%s%s?ip=%s&port=%d&cid=%s",
 		api.Scheme, node, peerHeartBeatPath, req.IP, req.Port, req.CID)
 
 	resp = new(types.BaseResponse)
 	if err = api.get(url, resp); err != nil {
-		logrus.Errorf("failed to send heat beat,err: %v", err)
+		logrus.Errorf("failed to send heat beat, url: %s, err: %v",url, err)
 		return nil, err
 	}
 
 	if resp.Code != constants.Success {
-		logrus.Errorf("failed to send heart beat to supernode: api response code is %d not equal to %d", resp.Code, constants.Success)
+		logrus.Errorf("failed to send heart beat to supernode: api response code is %d not equal to %d, url %s", resp.Code, constants.Success, url)
 	}
 
 	return
