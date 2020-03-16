@@ -106,6 +106,9 @@ func (ld *LocalDownloader) run(ctx context.Context, pieceWriter downloader.Piece
 		}
 	}
 
+	//failed to download, notify client stream to reset
+	ld.clientQueue.Put("reset")
+
 	return lastErr
 }
 
