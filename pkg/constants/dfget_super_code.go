@@ -75,8 +75,9 @@ const (
 	CodeGetPieceReport  = 611
 	CodeGetPeerDown     = 612
 
-	CodeNOURL			= 700
-	CodeReturnSrc		= 701
+	CodeNOURL             = 700
+	CodeReturnSrc         = 701
+	CodePeerWaitHeartBeat = 702
 )
 
 /* the code of task result that dfget will report to supernode */

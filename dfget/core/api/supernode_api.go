@@ -69,6 +69,9 @@ type supernodeAPI struct {
 	Scheme     string
 	Timeout    time.Duration
 	HTTPClient httputils.SimpleHTTPClient
+
+	// if allowHeartBeat is true, allow to report heartbeat to supernode
+	allowHeartBeat bool
 }
 
 var _ SupernodeAPI = &supernodeAPI{}
@@ -93,6 +96,7 @@ func (api *supernodeAPI) Register(node string, req *types.RegisterRequest) (
 	if e = json.Unmarshal(body, resp); e != nil {
 		return nil, e
 	}
+	api.allowHeartBeat = true
 	return resp, e
 }
 
@@ -276,7 +280,7 @@ func (api *supernodeAPI) ReportResource(node string, req *types.RegisterRequest)
 		return nil, err
 	}
 
-	logrus.Infof("ReportResource, url: %s, header: %v, req: %v, " +
+	logrus.Infof("ReportResource, url: %s, header: %v, req: %v, "+
 		"code: %d, body: %s", url, header, req, code, string(body))
 
 	if !httputils.HTTPStatusOk(code) {
@@ -286,6 +290,8 @@ func (api *supernodeAPI) ReportResource(node string, req *types.RegisterRequest)
 	if err = json.Unmarshal(body, resp); err != nil {
 		return nil, err
 	}
+
+	api.allowHeartBeat = true
 	return resp, err
 }
 
@@ -297,7 +303,7 @@ func (api *supernodeAPI) ReportResourceDeleted(node string, taskID string, cid s
 		"X-report-resource": "true",
 	}
 
-	logrus.Infof("Call ReportResourceDeleted, node: %s, taskID: %s, cid: %s, " +
+	logrus.Infof("Call ReportResourceDeleted, node: %s, taskID: %s, cid: %s, "+
 		"url: %s, header: %v", node, taskID, cid, url, header)
 
 	resp = new(types.BaseResponse)
@@ -315,6 +321,11 @@ func (api *supernodeAPI) ReportResourceDeleted(node string, taskID string, cid s
 }
 
 func (api *supernodeAPI) HeartBeat(node string, req *api_types.HeartBeatRequest) (resp *types.BaseResponse, err error) {
+	if !api.allowHeartBeat {
+		logrus.Debugf("not allow to heart beat")
+		return &types.BaseResponse{Code: constants.CodePeerWaitHeartBeat}, nil
+	}
+
 	url := fmt.Sprintf("%s://%s%s?ip=%s&port=%dcid=%s",
 		api.Scheme, node, peerHeartBeatPath, req.IP, req.Port, req.CID)
 
