@@ -5,9 +5,8 @@ import (
 	"github.com/dragonflyoss/Dragonfly/pkg/errortypes"
 	"github.com/dragonflyoss/Dragonfly/pkg/stringutils"
 	"github.com/dragonflyoss/Dragonfly/pkg/syncmap"
+
 	"github.com/pkg/errors"
-
-
 )
 
 type dataMap struct {
