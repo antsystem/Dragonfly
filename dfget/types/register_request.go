@@ -41,6 +41,8 @@ type RegisterRequest struct {
 	RootCAs     [][]byte `json:"rootCAs,omitempty"`
 	TaskId      string   `json:"taskId,omitempty"`
 	FileLength  int64    `json:"fileLength,omitempty"`
+
+	AsSeed		bool	 `json:"asSeed,omitempty"`
 }
 
 func (r *RegisterRequest) String() string {

@@ -21,6 +21,10 @@ type TaskRegisterRequest struct {
 	// Format: ipv4
 	IP strfmt.IPv4 `json:"IP,omitempty"`
 
+	// This attribute represents the node as a seed node for the taskURL.
+	//
+	AsSeed bool `json:"asSeed,omitempty"`
+
 	// CID means the client ID. It maps to the specific dfget process.
 	// When user wishes to download an image/file, user would start a dfget process to do this.
 	// This dfget is treated a client and carries a client ID.

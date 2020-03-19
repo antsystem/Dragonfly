@@ -805,6 +805,11 @@ definitions:
           this parameter from the headers of request URL. If fileLength is vaild, the supernode need
           not get the length of resource by accessing the rawURL.
         format: "int64"
+      asSeed:
+        type: "boolean"
+        description: |
+          This attribute represents the node as a seed node for the taskURL.
+
 
   PeerCreateRequest:
     type: "object"
@@ -1072,6 +1077,11 @@ definitions:
           from source server as user's wish.
         additionalProperties:
           type: "string"
+      asSeed:
+        type: "boolean"
+        description: |
+          This attribute represents the node as a seed node for the taskURL.
+
 
   TaskUpdateRequest:
     type: "object"
