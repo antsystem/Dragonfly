@@ -11,12 +11,12 @@ import (
 
 // requestManager manage the recent the requests, it provides the
 type requestManager struct {
-	q 	*queue.CircleQueue
+	q 	*queue.LRUQueue
 }
 
 func newRequestManager() *requestManager {
 	return &requestManager{
-		q:  queue.NewCircleQueue(100),
+		q:  queue.NewLRUQueue(100),
 	}
 }
 
@@ -45,7 +45,7 @@ func (rm *requestManager) addRequest(url string, directReturnSrc bool) error {
 	}
 
 	rs.updateRecentTime()
-	rm.q.PutFront(url, rs)
+	rm.q.Put(url, rs)
 
 	return nil
 }
