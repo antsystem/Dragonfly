@@ -5,9 +5,9 @@ import (
 )
 
 func (suite *DFGetUtilSuite) TestCircleQueue(c *check.C) {
-	q := NewCircleQueue(5)
+	q := NewLRUQueue(5)
 
-	q.PutFront("key1", 1)
+	q.Put("key1", 1)
 
 	v1, err := q.GetItemByKey("key1")
 	c.Assert(err, check.IsNil)
@@ -17,8 +17,8 @@ func (suite *DFGetUtilSuite) TestCircleQueue(c *check.C) {
 	c.Assert(len(items), check.Equals, 1)
 	c.Assert(items[0], check.Equals, 1)
 
-	q.PutFront("key2", 2)
-	q.PutFront("key1", 3)
+	q.Put("key2", 2)
+	q.Put("key1", 3)
 
 	v1, err = q.GetItemByKey("key1")
 	c.Assert(err, check.IsNil)
@@ -36,9 +36,9 @@ func (suite *DFGetUtilSuite) TestCircleQueue(c *check.C) {
 	_, err = q.GetItemByKey("key3")
 	c.Assert(err, check.NotNil)
 
-	q.PutFront("key3", "data3")
-	q.PutFront("key4", "data4")
-	q.PutFront("key5", "data5")
+	q.Put("key3", "data3")
+	q.Put("key4", "data4")
+	q.Put("key5", "data5")
 
 	items = q.GetFront(10)
 	c.Assert(len(items), check.Equals, 5)
@@ -48,7 +48,7 @@ func (suite *DFGetUtilSuite) TestCircleQueue(c *check.C) {
 	c.Assert(items[3], check.Equals, 3)
 	c.Assert(items[4], check.Equals, 2)
 
-	q.PutFront("key6", "data6")
+	q.Put("key6", "data6")
 	_, err = q.GetItemByKey("key2")
 	c.Assert(err, check.NotNil)
 

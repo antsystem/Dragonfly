@@ -6,6 +6,7 @@ import (
 	types2 "github.com/dragonflyoss/Dragonfly/apis/types"
 	"github.com/dragonflyoss/Dragonfly/dfdaemon/config"
 	"github.com/dragonflyoss/Dragonfly/dfdaemon/scheduler"
+	"github.com/dragonflyoss/Dragonfly/dfdaemon/seed"
 	"github.com/dragonflyoss/Dragonfly/dfdaemon/transport"
 	dfgetcfg "github.com/dragonflyoss/Dragonfly/dfget/config"
 	"github.com/dragonflyoss/Dragonfly/dfget/core/api"
@@ -13,6 +14,7 @@ import (
 	"github.com/dragonflyoss/Dragonfly/dfget/types"
 	"github.com/dragonflyoss/Dragonfly/pkg/errortypes"
 	"github.com/dragonflyoss/Dragonfly/pkg/httputils"
+	"github.com/dragonflyoss/Dragonfly/pkg/ratelimiter"
 	"github.com/go-openapi/strfmt"
 	"io"
 	"math"
@@ -35,6 +37,7 @@ type LocalManager struct {
 	supernodeAPI api.SupernodeAPI
 	downloadAPI  api.DownloadAPI
 	uploaderAPI  api.UploaderAPI
+	seedManager	 seed.SeedManager
 
 	dfGetConfig  *dfgetcfg.Config
 	cfg config.DFGetConfig
@@ -48,6 +51,10 @@ type LocalManager struct {
 
 	// recentFetchUrls is the urls which as the parameters to fetch the p2p network recently
 	recentFetchUrls     []string
+
+	// default is 7 days
+	// todo: it should be configured
+	seedExpiredTime		time.Duration
 }
 
 func NewLocalManager(cfg config.DFGetConfig) *LocalManager {
@@ -69,6 +76,7 @@ func NewLocalManager(cfg config.DFGetConfig) *LocalManager {
 			cfg: cfg,
 			syncTime: time.Now(),
 			syncP2PNetworkCh: make(chan string, 2),
+			seedExpiredTime: time.Hour * 24 * 7,
 		}
 
 		go localManager.fetchLoop(context.Background())
@@ -463,4 +471,40 @@ func (lm *LocalManager) heartbeat() {
 			CID: lm.dfGetConfig.RV.Cid,
 		})
 	}
+}
+
+// tryToPrefetchSeedFile will try to prefetch the seed file
+func (lm *LocalManager) tryToPrefetchSeedFile(taskID string, info *seed.PreFetchInfo) {
+	sd, err := lm.seedManager.Register(taskID, info)
+	if err != nil {
+		logrus.Errorf("failed to register the seed %v: %v", info, err)
+		return
+	}
+
+	if sd.Status() != seed.INITIAL_STATUS {
+		// if seed status is FETCHING_STATUS or FINISHED_STATUS, return.
+		return
+	}
+
+	limiter := ratelimiter.NewRateLimiter(int64(lm.dfGetConfig.LocalLimit), 2)
+	finishCh, err := sd.Prefetch(limiter, lm.seedExpiredTime)
+	if err != nil {
+		logrus.Errorf("failed to prefetch the seed %v: %v", sd, err)
+		return
+	}
+
+	result := <- finishCh
+
+	if result.Canceled {
+		return
+	}
+
+	if !result.Success {
+		// todo: try to prefetch again?
+		logrus.Errorf("failed to prefetch %v: %v", sd, result.Err)
+		return
+	}
+
+	// todo: report the seed info to supernode and wait for expired time
+
 }

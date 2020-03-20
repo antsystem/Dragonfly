@@ -12,7 +12,7 @@ type cQElementData struct {
 	data interface{}
 }
 
-type CircleQueue struct {
+type LRUQueue struct {
 	sync.Mutex
 	capacity int
 
@@ -20,16 +20,16 @@ type CircleQueue struct {
 	l       *list.List
 }
 
-func NewCircleQueue(capacity int) *CircleQueue {
-	return &CircleQueue{
+func NewLRUQueue(capacity int) *LRUQueue {
+	return &LRUQueue{
 		capacity: capacity,
 		itemMap:  make(map[string]*list.Element, capacity),
 		l:        list.New(),
 	}
 }
 
-// put item to front
-func (q *CircleQueue) PutFront(key string, data interface{}) {
+// put item to front, return the obsolete item
+func (q *LRUQueue) Put(key string, data interface{})  (obsoleteKey string, obsoleteData interface{}) {
 	q.Lock()
 	defer q.Unlock()
 
@@ -45,15 +45,18 @@ func (q *CircleQueue) PutFront(key string, data interface{}) {
 		i := q.internalRemoveTail()
 		if i != nil {
 			delete(q.itemMap, i.Value.(*cQElementData).key)
+			obsoleteKey = key
+			obsoleteData = i.Value.(*cQElementData).data
 		}
 	}
 
 	i := q.internalPutValue(&cQElementData{key: key, data: data})
 	q.itemMap[key] = i
+	return
 }
 
 // getFront will get several item from front and not poll out them.
-func (q *CircleQueue) GetFront(count int) []interface{} {
+func (q *LRUQueue) GetFront(count int) []interface{} {
 	q.Lock()
 	defer q.Unlock()
 
@@ -77,7 +80,7 @@ func (q *CircleQueue) GetFront(count int) []interface{} {
 	return result[:index]
 }
 
-func (q *CircleQueue) GetItemByKey(key string) (interface{}, error) {
+func (q *LRUQueue) GetItemByKey(key string) (interface{}, error) {
 	q.Lock()
 	defer q.Unlock()
 
@@ -88,16 +91,20 @@ func (q *CircleQueue) GetItemByKey(key string) (interface{}, error) {
 	return nil, errortypes.ErrDataNotFound
 }
 
-func (q *CircleQueue) internalPutFront(i *list.Element) {
+func (q *LRUQueue) Delete() {
+
+}
+
+func (q *LRUQueue) internalPutFront(i *list.Element) {
 	q.l.MoveToFront(i)
 }
 
-func (q *CircleQueue) internalPutValue(data interface{}) *list.Element {
+func (q *LRUQueue) internalPutValue(data interface{}) *list.Element {
 	e := q.l.PushFront(data)
 	return e
 }
 
-func (q *CircleQueue) internalRemoveTail() *list.Element {
+func (q *LRUQueue) internalRemoveTail() *list.Element {
 	e := q.l.Back()
 	q.l.Remove(e)
 
