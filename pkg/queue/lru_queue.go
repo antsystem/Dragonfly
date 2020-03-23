@@ -91,8 +91,20 @@ func (q *LRUQueue) GetItemByKey(key string) (interface{}, error) {
 	return nil, errortypes.ErrDataNotFound
 }
 
-func (q *LRUQueue) Delete() {
+func (q *LRUQueue) Delete(key string) interface{} {
+	q.Lock()
+	defer q.Unlock()
 
+	data, exist := q.itemMap[key]
+	if !exist {
+		return nil
+	}
+
+	retData := data.Value.(*cQElementData).data
+	delete(q.itemMap, key)
+	q.internalRemove(data)
+
+	return retData
 }
 
 func (q *LRUQueue) internalPutFront(i *list.Element) {
@@ -109,4 +121,8 @@ func (q *LRUQueue) internalRemoveTail() *list.Element {
 	q.l.Remove(e)
 
 	return e
+}
+
+func (q *LRUQueue) internalRemove(i *list.Element) {
+	q.l.Remove(i)
 }

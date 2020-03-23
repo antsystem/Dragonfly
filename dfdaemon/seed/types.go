@@ -16,3 +16,15 @@ type PreFetchResult struct {
 	// if canceled, caller need not to do other
 	Canceled    bool
 }
+
+type DownloadStatus struct {
+	Finished    bool
+	Canceled	bool
+	Start		int64
+	Length      int64
+}
+
+type prefetchSt struct {
+	sd   *seed
+	ch    chan PreFetchResult
+}
