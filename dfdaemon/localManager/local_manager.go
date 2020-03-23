@@ -481,7 +481,7 @@ func (lm *LocalManager) tryToPrefetchSeedFile(taskID string, info *seed.PreFetch
 		return
 	}
 
-	if sd.Status() != seed.INITIAL_STATUS {
+	if sd.GetStatus() != seed.INITIAL_STATUS {
 		// if seed status is FETCHING_STATUS or FINISHED_STATUS, return.
 		return
 	}
