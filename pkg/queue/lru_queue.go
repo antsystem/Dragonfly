@@ -13,7 +13,7 @@ type cQElementData struct {
 }
 
 type LRUQueue struct {
-	sync.Mutex
+	lock sync.Mutex
 	capacity int
 
 	itemMap map[string]*list.Element
@@ -30,8 +30,8 @@ func NewLRUQueue(capacity int) *LRUQueue {
 
 // put item to front, return the obsolete item
 func (q *LRUQueue) Put(key string, data interface{})  (obsoleteKey string, obsoleteData interface{}) {
-	q.Lock()
-	defer q.Unlock()
+	q.lock.Lock()
+	defer q.lock.Unlock()
 
 	if i, ok := q.itemMap[key]; ok {
 		//todo: update data
@@ -45,7 +45,7 @@ func (q *LRUQueue) Put(key string, data interface{})  (obsoleteKey string, obsol
 		i := q.internalRemoveTail()
 		if i != nil {
 			delete(q.itemMap, i.Value.(*cQElementData).key)
-			obsoleteKey = key
+			obsoleteKey = i.Value.(*cQElementData).key
 			obsoleteData = i.Value.(*cQElementData).data
 		}
 	}
@@ -57,8 +57,8 @@ func (q *LRUQueue) Put(key string, data interface{})  (obsoleteKey string, obsol
 
 // getFront will get several item from front and not poll out them.
 func (q *LRUQueue) GetFront(count int) []interface{} {
-	q.Lock()
-	defer q.Unlock()
+	q.lock.Lock()
+	defer q.lock.Unlock()
 
 	result := make([]interface{}, count)
 	item := q.l.Front()
@@ -81,8 +81,8 @@ func (q *LRUQueue) GetFront(count int) []interface{} {
 }
 
 func (q *LRUQueue) GetItemByKey(key string) (interface{}, error) {
-	q.Lock()
-	defer q.Unlock()
+	q.lock.Lock()
+	defer q.lock.Unlock()
 
 	if data, exist := q.itemMap[key]; exist {
 		return data.Value.(*cQElementData).data, nil
@@ -92,8 +92,8 @@ func (q *LRUQueue) GetItemByKey(key string) (interface{}, error) {
 }
 
 func (q *LRUQueue) Delete(key string) interface{} {
-	q.Lock()
-	defer q.Unlock()
+	q.lock.Lock()
+	defer q.lock.Unlock()
 
 	data, exist := q.itemMap[key]
 	if !exist {

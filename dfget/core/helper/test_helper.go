@@ -22,6 +22,7 @@ import (
 	"github.com/dragonflyoss/Dragonfly/pkg/httputils"
 	"io"
 	"io/ioutil"
+	"math"
 	"math/rand"
 	"net"
 	"net/http"
@@ -304,7 +305,7 @@ func (fs *MockFileServer) ServeHTTP(resp http.ResponseWriter, req *http.Request)
 	rangeStr := req.Header.Get("Range")
 
 	if  rangeStr != "" {
-		rangeSt, err = httputils.GetRangeSE(rangeStr, mf.size)
+		rangeSt, err = httputils.GetRangeSE(rangeStr, math.MaxInt64)
 		if err != nil {
 			resp.WriteHeader(http.StatusBadRequest)
 			return
@@ -363,20 +364,26 @@ func (fs *MockFileServer) MockResp(resp http.ResponseWriter, mf *mockFile,  rang
 	var(
 		start int64 = 0
 		end   int64 = mf.size - 1
+		respCode int
 	)
 	if rangeSt != nil {
 		start = rangeSt.StartIndex
-		end = rangeSt.EndIndex
-		resp.WriteHeader(http.StatusPartialContent)
+		if rangeSt.EndIndex < end {
+			end = rangeSt.EndIndex
+		}
+		respCode = http.StatusPartialContent
 	}else{
-		resp.WriteHeader(http.StatusOK)
+		respCode = http.StatusOK
 	}
+
+	resp.Header().Set("Content-Length", fmt.Sprintf("%d", end - start + 1))
+	resp.WriteHeader(respCode)
 
 	repeatStrLen := int64(len(mf.repeatStr))
 	strIndex := start %  int64(repeatStrLen)
 
 	for{
-		if start >= end {
+		if start > end {
 			break
 		}
 
