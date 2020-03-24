@@ -3,7 +3,10 @@ package seed
 import (
 	"fmt"
 	"io"
+	"net/http"
 	"os"
+
+	"github.com/dragonflyoss/Dragonfly/pkg/errortypes"
 )
 
 // cacheBuffer interface caches the seed file
@@ -16,8 +19,8 @@ type cacheBuffer interface {
 	Remove() error
 }
 
-// if file Size is shorter than existSize, exist return false and write from 0;
-// if file Size is longer or equal than existSize, exit return true and write from existSize.
+// if file size is shorter than existSize, exist return false and write from 0;
+// if file size is longer or equal than existSize, exist return true and write from existSize.
 // if finished set true and file Size is longer or equal than existSize, exist return true. It will
 // no need to write again.
 func newFileCacheBuffer(path string, existSize int64, finished bool) (cb cacheBuffer, exist bool, err error) {
@@ -70,10 +73,12 @@ type fileCacheBuffer struct {
 	path     string
 	fw       *os.File
 	finished bool
+	remove   bool
+	size	 int64
 }
 
 func (fcb *fileCacheBuffer) Write(p []byte) (int, error) {
-	if fcb.finished {
+	if fcb.finished || fcb.remove {
 		//todo: return the error
 		return 0, io.ErrClosedPipe
 	}
@@ -81,7 +86,7 @@ func (fcb *fileCacheBuffer) Write(p []byte) (int, error) {
 }
 
 func (fcb *fileCacheBuffer) Seek(offset int64, whence int) (int64, error) {
-	if fcb.finished {
+	if fcb.finished || fcb.remove {
 		//todo: return the error
 		return 0, io.ErrClosedPipe
 	}
@@ -89,15 +94,35 @@ func (fcb *fileCacheBuffer) Seek(offset int64, whence int) (int64, error) {
 }
 
 func (fcb *fileCacheBuffer) Close() error {
+	if fcb.remove {
+		return io.ErrClosedPipe
+	}
+
 	if fcb.finished {
 		return nil
 	}
 
+	err := fcb.fw.Close()
+	if err != nil {
+		return err
+	}
+
+	// get the size of file
+	fi, err := os.Stat(fcb.path)
+	if err != nil {
+		return err
+	}
+
+	fcb.size = fi.Size()
 	fcb.finished = true
-	return fcb.fw.Close()
+	return nil
 }
 
 func (fcb *fileCacheBuffer) Sync() error {
+	if fcb.remove {
+		return io.ErrClosedPipe
+	}
+
 	if fcb.finished {
 		return nil
 	}
@@ -105,6 +130,10 @@ func (fcb *fileCacheBuffer) Sync() error {
 }
 
 func (fcb *fileCacheBuffer) ReadStream(off int64, size int64) (io.ReadCloser, error) {
+	if fcb.remove {
+		return nil, io.ErrClosedPipe
+	}
+
 	if !fcb.finished {
 		return nil, fmt.Errorf("not finished")
 	}
@@ -113,6 +142,11 @@ func (fcb *fileCacheBuffer) ReadStream(off int64, size int64) (io.ReadCloser, er
 }
 
 func (fcb *fileCacheBuffer) Remove() error {
+	if fcb.remove {
+		return nil
+	}
+
+	fcb.remove = true
 	return os.Remove(fcb.path)
 }
 
@@ -120,6 +154,24 @@ func (fcb *fileCacheBuffer) openReadCloser(off int64, size int64) (io.ReadCloser
 	fr, err := os.Open(fcb.path)
 	if err != nil {
 		return nil, err
+	}
+
+	if off < 0 {
+		off = 0
+	}
+
+	// if size <= 0, direct return the fr.
+	if size <= 0 {
+		_, err = fr.Seek(off, io.SeekStart)
+		if err != nil {
+			return nil, err
+		}
+
+		return fr, nil
+	}
+
+	if off + size > fcb.size {
+		return nil, errortypes.NewHttpError(http.StatusRequestedRangeNotSatisfiable, "out of range")
 	}
 
 	return newLimitReadCloser(fr, off, size)

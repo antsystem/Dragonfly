@@ -19,15 +19,14 @@ package helper
 import (
 	"context"
 	"fmt"
+	"github.com/dragonflyoss/Dragonfly/dfget/config"
+	"github.com/dragonflyoss/Dragonfly/pkg/httputils"
+	"github.com/go-check/check"
+	"io/ioutil"
 	"reflect"
 	"runtime"
 	"strings"
 	"testing"
-	"time"
-
-	"github.com/dragonflyoss/Dragonfly/dfget/config"
-	"github.com/dragonflyoss/Dragonfly/pkg/httputils"
-	"github.com/go-check/check"
 )
 
 // ----------------------------------------------------------------------------
@@ -87,16 +86,17 @@ func (s *HelperTestSuite) readFromFileServer(port int, path string, off int64, s
 		header["Range"] = fmt.Sprintf("bytes=%d-%d", off, off + size - 1)
 	}
 
-	code, data, err := httputils.GetWithHeaders(url, header, 5 * time.Second)
+	resp, err := httputils.HTTPGet(url, header)
 	if err != nil {
 		return nil, err
 	}
 
-	if code >= 400 {
-		return nil, fmt.Errorf("resp code %d", code)
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("resp code %d", resp.StatusCode)
 	}
 
-	return data, nil
+	defer resp.Body.Close()
+	return ioutil.ReadAll(resp.Body)
 }
 
 func (s *HelperTestSuite) getRepeatStr(data []byte, size int64) []byte {

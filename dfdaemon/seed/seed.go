@@ -34,7 +34,7 @@ type Seed interface {
 	Download(start int64, length int64) (io.ReadCloser, error)
 
 	// NotifyExpired
-	NotifyExpired() (chan <- struct{}, error)
+	NotifyExpired() ( <- chan struct{}, error)
 
 	//
 	GetStatus() string
@@ -52,7 +52,8 @@ type seed struct {
 	// current content size, it may be not full downloaded
 	Size        int64               `json:"size"`
 	ContentPath string              `json:"contentPath"`
-	TaskId      string              `json:"TaskId"`
+	TaskId      string              `json:"taskId"`
+	HttpFileLength int64			`json:"httpFileLength"`
 
 	Status string 			   `json:"Status"`
 
@@ -60,8 +61,9 @@ type seed struct {
 	cache	cacheBuffer
 
 	rate          *ratelimiter.RateLimiter
-	ExpireTimeDur time.Duration 	`json:"ExpireTimeDur"`
-	ExpireTime    time.Time			`json:"expireTime"`
+	ExpireTimeDur time.Duration 	`json:"expireTimeDur"`
+	expireTime    time.Time			`json:"-"`
+	DeadLineTime  string			`json:"deadLineTime"`
 
 	metaPath      string
 	metaBakPath   string
@@ -88,6 +90,7 @@ func newSeed(sm *seedManager, taskID string, info *PreFetchInfo) (Seed, error) {
 		metaPath: sm.seedMetaPath(taskID),
 		metaBakPath: sm.seedMetaBakPath(taskID),
 		ContentPath: contentPath,
+		// if expired, close expireCh
 		expireCh:  make(chan struct{}),
 	}, nil
 }
@@ -150,16 +153,19 @@ func (sd *seed) Delete() error {
 	sd.Lock()
 	defer sd.Unlock()
 
+	if sd.Status == INITIAL_STATUS {
+		return nil
+	}
+
 	sd.Status = INITIAL_STATUS
 
-	// remove the meta data
-	os.Remove(sd.metaPath)
-	os.Remove(sd.metaBakPath)
+	close(sd.expireCh)
 
-	// remove the cache
-	return sd.cache.Remove()
+	// clear the resource
+	return sd.clearResource()
 }
 
+// refresh expired  time, if set to 0, refresh last expired time duration
 func (sd *seed) RefreshExpiredTime(expiredTime time.Duration) {
 	sd.Lock()
 	defer sd.Unlock()
@@ -168,8 +174,11 @@ func (sd *seed) RefreshExpiredTime(expiredTime time.Duration) {
 }
 
 func (sd *seed) refreshExpiredTimeWithOutLock(expiredTime time.Duration) {
-	sd.ExpireTimeDur = expiredTime
-	sd.ExpireTime = time.Now().Add(expiredTime)
+	if expiredTime != 0 {
+		sd.ExpireTimeDur = expiredTime
+	}
+	sd.expireTime = time.Now().Add(expiredTime)
+	sd.storeWithoutLock()
 	sd.sm.updateLRU(sd)
 }
 
@@ -187,7 +196,7 @@ func (sd *seed) Download(off int64, size int64) (io.ReadCloser, error) {
 	return sd.cache.ReadStream(off, size)
 }
 
-func (sd *seed) NotifyExpired() (chan <- struct{}, error) {
+func (sd *seed) NotifyExpired() ( <- chan struct{}, error) {
 	return sd.expireCh, nil
 }
 
@@ -242,6 +251,7 @@ func (sd *seed) updateSize(size int64) error {
 
 // store the meta data to local fs
 func (sd *seed) storeWithoutLock() error {
+	sd.DeadLineTime = sd.expireTime.UTC().Format(time.RFC3339Nano)
 	data, err := json.Marshal(sd)
 	if err != nil {
 		return err
@@ -253,4 +263,54 @@ func (sd *seed) storeWithoutLock() error {
 	}
 
 	return os.Rename(sd.metaBakPath, sd.metaPath)
+}
+
+// set seed file expired
+func (sd *seed) setExpired() {
+	sd.Lock()
+	defer sd.Unlock()
+
+	if sd.Status == INITIAL_STATUS {
+		return
+	}
+
+	sd.Status = INITIAL_STATUS
+	close(sd.expireCh)
+
+	sd.clearResource()
+}
+
+func (sd *seed) clearResource() error {
+	// remove the meta data
+	os.Remove(sd.metaPath)
+	os.Remove(sd.metaBakPath)
+
+	// remove the cache
+	return sd.cache.Remove()
+}
+
+// verify is expired
+func (sd *seed) verifyExpired() bool {
+	sd.Lock()
+	defer sd.Unlock()
+	// if expire time dur is 0, return false
+	if  sd.ExpireTimeDur == 0 {
+		return false
+	}
+
+	return time.Now().After(sd.expireTime)
+}
+
+func (sd *seed) getHttpFileLength() int64 {
+	sd.Lock()
+	defer sd.Unlock()
+
+	return sd.HttpFileLength
+}
+
+func (sd *seed) setHttpFileLength(length int64) {
+	sd.Lock()
+	defer sd.Unlock()
+
+	sd.HttpFileLength = length
 }
