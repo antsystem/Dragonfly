@@ -3,7 +3,8 @@ package seed
 import (
 	"context"
 	"fmt"
-	"github.com/dragonflyoss/Dragonfly/dfdaemon/config"
+	"github.com/dragonflyoss/Dragonfly/dfget/config"
+	dfdaemonCfg "github.com/dragonflyoss/Dragonfly/dfdaemon/config"
 	"github.com/dragonflyoss/Dragonfly/pkg/errortypes"
 	"github.com/dragonflyoss/Dragonfly/pkg/httputils"
 	"github.com/dragonflyoss/Dragonfly/pkg/netutils"
@@ -22,6 +23,7 @@ import (
 
 var(
 	localSeedManager SeedManager
+	once 		sync.Once
 )
 
 const(
@@ -52,8 +54,8 @@ type SeedManager interface {
 	List() ([]Seed, error)
 }
 
-func NewSeedManager(cfg config.DFGetConfig) SeedManager {
-	sync.Once{}.Do(func() {
+func NewSeedManager(cfg dfdaemonCfg.DFGetConfig) SeedManager {
+	once.Do(func() {
 		var err error
 		// todo: config the total limit
 		localSeedManager, err = newSeedManager(filepath.Join(cfg.DFRepo, "seed"), 0, 50, 0)
