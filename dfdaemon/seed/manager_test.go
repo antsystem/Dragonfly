@@ -109,7 +109,7 @@ func (s *SeedTestSuite) checkSeedFile(c *check.C, path string, fileLength int64,
 }
 
 func (s *SeedTestSuite) TestOneSeed(c *check.C) {
-	sm, err := NewSeedManager(s.cacheDir, 2, 10, 1024 * 1024)
+	sm, err := newSeedManager(s.cacheDir, 2, 10, 1024 * 1024)
 	c.Assert(err, check.IsNil)
 
 	preInfo := &PreFetchInfo{
@@ -180,7 +180,7 @@ func (s *SeedTestSuite) TestOneSeed(c *check.C) {
 }
 
 func (s *SeedTestSuite) TestManySeed(c *check.C) {
-	sm, err := NewSeedManager(s.cacheDir, 2, 4, 1024 * 1024)
+	sm, err := newSeedManager(s.cacheDir, 2, 4, 1024 * 1024)
 	c.Assert(err, check.IsNil)
 
 	filePaths := []string{"fileB", "fileC", "fileD", "fileE", "fileF"}

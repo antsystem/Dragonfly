@@ -3,7 +3,7 @@ package seed
 import (
 	"context"
 	"fmt"
-	"github.com/dragonflyoss/Dragonfly/dfget/config"
+	"github.com/dragonflyoss/Dragonfly/dfdaemon/config"
 	"github.com/dragonflyoss/Dragonfly/pkg/errortypes"
 	"github.com/dragonflyoss/Dragonfly/pkg/httputils"
 	"github.com/dragonflyoss/Dragonfly/pkg/netutils"
@@ -18,6 +18,10 @@ import (
 
 	"github.com/sirupsen/logrus"
 	"github.com/pkg/errors"
+)
+
+var(
+	localSeedManager SeedManager
 )
 
 const(
@@ -48,9 +52,22 @@ type SeedManager interface {
 	List() ([]Seed, error)
 }
 
+func NewSeedManager(cfg config.DFGetConfig) SeedManager {
+	sync.Once{}.Do(func() {
+		var err error
+		// todo: config the total limit
+		localSeedManager, err = newSeedManager(filepath.Join(cfg.DFRepo, "seed"), 0, 50, 0)
+		if err != nil {
+			panic(err)
+		}
+	})
+
+	return localSeedManager
+}
+
 // concurrentLimit limits the concurrency of downloading seed.
 // totalLimit limits the total of seed file.
-func NewSeedManager(cacheDir string, concurrentLimit int, totalLimit int, downloadBlock int64) (SeedManager, error) {
+func newSeedManager(cacheDir string, concurrentLimit int, totalLimit int, downloadBlock int64) (SeedManager, error) {
 	if concurrentLimit > MaxDownloadConcurrency {
 		concurrentLimit = MaxDownloadConcurrency
 	}

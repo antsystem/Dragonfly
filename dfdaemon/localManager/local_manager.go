@@ -5,6 +5,7 @@ import (
 	"fmt"
 	types2 "github.com/dragonflyoss/Dragonfly/apis/types"
 	"github.com/dragonflyoss/Dragonfly/dfdaemon/config"
+	"github.com/dragonflyoss/Dragonfly/dfdaemon/downloader/p2p"
 	"github.com/dragonflyoss/Dragonfly/dfdaemon/scheduler"
 	"github.com/dragonflyoss/Dragonfly/dfdaemon/seed"
 	"github.com/dragonflyoss/Dragonfly/dfdaemon/transport"
@@ -38,6 +39,7 @@ type LocalManager struct {
 	downloadAPI  api.DownloadAPI
 	uploaderAPI  api.UploaderAPI
 	seedManager	 seed.SeedManager
+	spProxy		 *superNodeProxy
 
 	dfGetConfig  *dfgetcfg.Config
 	cfg config.DFGetConfig
@@ -71,12 +73,14 @@ func NewLocalManager(cfg config.DFGetConfig) *LocalManager {
 			supernodeAPI: api.NewSupernodeAPI(),
 			downloadAPI: api.NewDownloadAPI(),
 			uploaderAPI: api.NewUploaderAPI(30 * time.Second),
+			spProxy:  newSuperNodeProxy(cfg.SuperNodes),
 			rm: newRequestManager(),
 			dfGetConfig:  dfcfg,
 			cfg: cfg,
 			syncTime: time.Now(),
 			syncP2PNetworkCh: make(chan string, 2),
 			seedExpiredTime: time.Hour * 24 * 7,
+			seedManager: seed.NewSeedManager(cfg),
 		}
 
 		go localManager.fetchLoop(context.Background())
@@ -203,7 +207,7 @@ func (lm *LocalManager) DownloadStreamContext(ctx context.Context, url string, h
 
 
 	// try to download from peer by internal schedule
-	result, err := lm.sm.SchedulerByTaskID(ctx, taskID, lm.dfGetConfig.RV.Cid, "", 0)
+	result, err := lm.sm.SchedulerByTaskID(ctx, taskID, url, "", 0)
 	if nWare != nil {
 		nWare.Add(key, transport.ScheduleName, time.Since(startTime).Nanoseconds())
 		startTime = time.Now()
@@ -219,6 +223,7 @@ func (lm *LocalManager) DownloadStreamContext(ctx context.Context, url string, h
 				path: r.Pieces[0].Path,
 				peerID: r.PeerInfo.ID,
 				local: r.Local,
+				seed: r.Task.AsSeed,
 			}
 		}
 
@@ -258,6 +263,13 @@ func (lm *LocalManager) DownloadStreamContext(ctx context.Context, url string, h
 			},
 		}
 		lm.sm.AddLocalTaskInfo(localTask)
+	}
+	localDownloader.postNotifySeedPrefetch = func(ld *LocalDownloader, req *types.RegisterRequest, resp *types.RegisterResponseData) {
+		header := ld.header
+		// delete the range of headers
+		delete(header, dfgetcfg.StrRange)
+
+		go lm.tryToPrefetchSeedFile(resp.TaskID, &seed.PreFetchInfo{URL: req.TaskURL, Header: header})
 	}
 
 	rd, err = localDownloader.RunStream(ctx)
@@ -505,7 +517,31 @@ func (lm *LocalManager) tryToPrefetchSeedFile(taskID string, info *seed.PreFetch
 		return
 	}
 
-	// todo: report the seed info to supernode and wait for expired time
+	fileLength, err := sd.Length()
+	if err != nil {
+		logrus.Errorf("failed to get length: %v", err)
+		return
+	}
 
+	// todo: report the seed info to super node and wait for expired time
+	resp, err := lm.spProxy.ReportResource(&types.RegisterRequest{
+		TaskId: taskID,
+		TaskURL: info.URL,
+		RawURL: info.URL,
+		Cid: lm.dfGetConfig.RV.Cid,
+		IP: lm.dfGetConfig.RV.LocalIP,
+		Port: lm.dfGetConfig.RV.PeerPort,
+		// todo: set the taskID as the path
+		Path: taskID,
+		Headers: p2p.FlattenHeader(info.Header),
+		FileLength: fileLength,
+		AsSeed: true,
+	})
 
+	if err != nil || resp.Code != 200 {
+		logrus.Errorf("failed to report seed file %s, resp %v: %v", taskID, resp, err)
+		return
+	}
+
+	logrus.Infof("success to report seed file %s, resp %v", taskID, resp)
 }

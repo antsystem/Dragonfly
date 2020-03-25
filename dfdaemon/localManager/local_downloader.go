@@ -10,9 +10,11 @@ import (
 	"github.com/dragonflyoss/Dragonfly/dfget/core/downloader/p2p_downloader"
 	"github.com/dragonflyoss/Dragonfly/dfget/types"
 	"github.com/dragonflyoss/Dragonfly/pkg/constants"
+	"github.com/dragonflyoss/Dragonfly/pkg/httputils"
 	"github.com/dragonflyoss/Dragonfly/pkg/queue"
 	"github.com/dragonflyoss/Dragonfly/pkg/ratelimiter"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"time"
@@ -33,6 +35,7 @@ type downloadNodeInfo struct {
 	header  map[string][]string
 	// is download from local
 	local   bool
+	seed    bool
 }
 
 // LocalDownloader will download the file, copy to stream and to local file system.
@@ -61,7 +64,7 @@ type LocalDownloader struct {
 	// postNotifyUploader should be called after notify the local uploader finish
 	postNotifyUploader func(req *api.FinishTaskRequest)
 
-	postNotifySeedPrefetch func(req *types.RegisterRequest, resp *types.RegisterResponseData)
+	postNotifySeedPrefetch func(ld *LocalDownloader, req *types.RegisterRequest, resp *types.RegisterResponseData)
 }
 
 func NewLocalDownloader() *LocalDownloader {
@@ -200,7 +203,7 @@ func (ld *LocalDownloader) reportResource(info *downloadNodeInfo) {
 			reportSuperNode = node
 			if resp.Data.AsSeed {
 				// notify as the seed
-				ld.postNotifySeedPrefetch(registerReq, resp.Data)
+				ld.postNotifySeedPrefetch(ld, registerReq, resp.Data)
 			}
 
 			break
@@ -254,6 +257,19 @@ func (ld *LocalDownloader) processPiece(ctx context.Context, info* downloadNodeI
 		Url: info.url,
 		Header: info.header,
 		DirectSource: info.directSource,
+	}
+
+	// if target is seed, construct the range by header
+	if info.seed {
+		rangeStr, ok := ld.header[config.StrRange]
+		if ok && rangeStr[0] != "" {
+			// todo: fix it if no range
+			rangeSt, err := httputils.GetRangeSE(rangeStr[0], math.MaxInt64)
+			if err == nil {
+				pieceTask.Range = fmt.Sprintf("%d-%d", rangeSt[0].StartIndex, rangeSt[0].EndIndex)
+				pieceTask.PieceSize = int32(rangeSt[0].EndIndex - rangeSt[0].StartIndex + 1)
+			}
+		}
 	}
 
 	go ld.startTask(ctx, pieceTask)
