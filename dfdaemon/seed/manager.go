@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"github.com/dragonflyoss/Dragonfly/dfget/config"
-	dfdaemonCfg "github.com/dragonflyoss/Dragonfly/dfdaemon/config"
 	"github.com/dragonflyoss/Dragonfly/pkg/errortypes"
 	"github.com/dragonflyoss/Dragonfly/pkg/httputils"
 	"github.com/dragonflyoss/Dragonfly/pkg/netutils"
@@ -40,16 +39,16 @@ const(
 // SeedManager is an interface which manages the seeds
 type SeedManager interface {
 	// Register a seed, manager will prefetch it to cache
-	Register(taskID string, info *PreFetchInfo) (Seed, error)
+	Register(key string, info *PreFetchInfo) (Seed, error)
 
 	// UnRegister
-	UnRegister(taskID string) error
+	UnRegister(key string) error
 
 	// SetPrefetchLimit limits the concurrency of downloading seed.
 	// default is DefaultDownloadConcurrency.
 	SetConcurrentLimit(limit int)  (validLimit int)
 
-	Get(taskID string) (Seed, error)
+	Get(key string) (Seed, error)
 
 	List() ([]Seed, error)
 }
@@ -142,20 +141,20 @@ type seedManager struct {
 	originClient    httpclient.OriginHTTPClient
 }
 
-func (sr *seedManager) Register(taskID string, info *PreFetchInfo) (Seed, error) {
+func (sr *seedManager) Register(key string, info *PreFetchInfo) (Seed, error) {
 	sr.Lock()
 	defer sr.Unlock()
 
-	_, exist := sr.seedContainer[taskID]
+	_, exist := sr.seedContainer[key]
 	if exist {
 		return nil, fmt.Errorf("Confilct ")
 	}
 
-	sd, err := newSeed(sr, taskID, info)
+	sd, err := newSeed(sr, key, info)
 	if err != nil {
 		return nil, err
 	}
-	sr.seedContainer[taskID] = sd
+	sr.seedContainer[key] = sd
 
 	return sd, nil
 }
@@ -177,11 +176,11 @@ func (sr *seedManager) SetConcurrentLimit(limit int)  (validLimit int) {
 	return 0
 }
 
-func (sr *seedManager) Get(taskID string) (Seed, error) {
+func (sr *seedManager) Get(key string) (Seed, error) {
 	sr.Lock()
 	defer sr.Unlock()
 
-	sd, exist := sr.seedContainer[taskID]
+	sd, exist := sr.seedContainer[key]
 	if exist {
 		return sd, nil
 	}
@@ -203,27 +202,27 @@ func (sr *seedManager) List() ([]Seed, error) {
 	return ret, nil
 }
 
-func (sr *seedManager) seedMetaPath(taskID string) string {
-	return filepath.Join(sr.cacheDir, "meta", fmt.Sprintf("%s.meta", taskID))
+func (sr *seedManager) seedMetaPath(key string) string {
+	return filepath.Join(sr.cacheDir, "meta", fmt.Sprintf("%s.meta", key))
 }
 
-func (sr *seedManager) seedMetaBakPath(taskID string) string {
-	return filepath.Join(sr.cacheDir, "meta", fmt.Sprintf("%s.meta.bak", taskID))
+func (sr *seedManager) seedMetaBakPath(key string) string {
+	return filepath.Join(sr.cacheDir, "meta", fmt.Sprintf("%s.meta.bak", key))
 }
 
-func (sr *seedManager) seedContentPath(taskID string) string {
-	return filepath.Join(sr.cacheDir, "content", fmt.Sprintf("%s.service", taskID))
+func (sr *seedManager) seedContentPath(key string) string {
+	return filepath.Join(sr.cacheDir, "content", fmt.Sprintf("%s.service", key))
 }
 
 func (sr *seedManager) updateLRU(sd *seed) {
-	obsoleteKey, obsoleteData := sr.lru.Put(sd.TaskId, sd)
+	obsoleteKey, obsoleteData := sr.lru.Put(sd.SeedKey, sd)
 	if obsoleteKey != "" {
 		go sr.gcSeed(obsoleteKey, obsoleteData.(*seed))
 	}
 }
 
 func (sr *seedManager) gcSeed(key string, sd *seed) {
-	logrus.Infof("gc seed TaskId  %s, Url %s", sd.TaskId, sd.Url)
+	logrus.Infof("gc seed SeedKey  %s, Url %s", sd.SeedKey, sd.Url)
 	// delete from map
 	sr.Lock()
 	delete(sr.seedContainer, key)
@@ -288,7 +287,7 @@ func (sr *seedManager) gcExpiredSeed() {
 		}
 
 		if sd.verifyExpired() {
-			sr.gcSeed(sd.TaskId, sd)
+			sr.gcSeed(sd.SeedKey, sd)
 		}
 	}
 }
@@ -312,7 +311,7 @@ func (sr *seedManager) downloadSeed(ctx context.Context, sd *seed, ch chan PreFe
 			header[k] = v[0]
 		}
 
-		length, err := sr.getHTTPFileLength(sd.TaskId, sd.Url, header)
+		length, err := sr.getHTTPFileLength(sd.SeedKey, sd.Url, header)
 		if  err != nil {
 			// todo: handle the error
 

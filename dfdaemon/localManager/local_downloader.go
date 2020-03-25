@@ -199,7 +199,7 @@ func (ld *LocalDownloader) reportResource(info *downloadNodeInfo) {
 		}
 
 		if err == nil && resp.Code == constants.Success {
-			logrus.Infof("success to report resource %v to supernode", registerReq)
+			logrus.Debugf("success to report resource %v to supernode, resp: %v", registerReq, resp.Data)
 			reportSuperNode = node
 			if resp.Data.AsSeed {
 				// notify as the seed
