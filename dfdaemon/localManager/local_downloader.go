@@ -266,7 +266,7 @@ func (ld *LocalDownloader) processPiece(ctx context.Context, info* downloadNodeI
 			// todo: fix it if no range
 			rangeSt, err := httputils.GetRangeSE(rangeStr[0], math.MaxInt64)
 			if err == nil {
-				pieceTask.Range = fmt.Sprintf("%d-%d", rangeSt[0].StartIndex, rangeSt[0].EndIndex)
+				pieceTask.Range = fmt.Sprintf("%d-%d", rangeSt[0].StartIndex, rangeSt[0].EndIndex + config.PieceMetaSize)
 				pieceTask.PieceSize = int32(rangeSt[0].EndIndex - rangeSt[0].StartIndex + 1)
 			}
 		}

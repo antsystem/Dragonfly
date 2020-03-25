@@ -34,17 +34,17 @@ import (
 	"sync"
 	"time"
 
+	apitypes "github.com/dragonflyoss/Dragonfly/apis/types"
 	"github.com/dragonflyoss/Dragonfly/dfdaemon/seed"
 	"github.com/dragonflyoss/Dragonfly/dfget/config"
 	"github.com/dragonflyoss/Dragonfly/dfget/core/api"
 	"github.com/dragonflyoss/Dragonfly/dfget/core/helper"
+	"github.com/dragonflyoss/Dragonfly/dfget/types"
+	"github.com/dragonflyoss/Dragonfly/pkg/constants"
 	"github.com/dragonflyoss/Dragonfly/pkg/errortypes"
 	"github.com/dragonflyoss/Dragonfly/pkg/limitreader"
 	"github.com/dragonflyoss/Dragonfly/pkg/ratelimiter"
 	"github.com/dragonflyoss/Dragonfly/version"
-	apitypes "github.com/dragonflyoss/Dragonfly/apis/types"
-	"github.com/dragonflyoss/Dragonfly/pkg/constants"
-	"github.com/dragonflyoss/Dragonfly/dfget/types"
 
 	"github.com/gorilla/mux"
 	"github.com/sirupsen/logrus"
@@ -354,6 +354,8 @@ func (ps *peerServer) uploadHandler(w http.ResponseWriter, r *http.Request) {
 		f    *os.File
 		size int64
 		err  error
+		rc io.ReadCloser
+		success bool
 	)
 
 	taskFileName := mux.Vars(r)["commonFile"]
@@ -369,35 +371,23 @@ func (ps *peerServer) uploadHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	success := ps.uploadFromSeedFile(up, taskFileName, w)
+	// prepare read stream from seed
+	rc, size, success = ps.prepareReadStreamFromSeed(up, taskFileName)
+	if !success {
+		// prepare read stream from cache
+		rc, size, success = ps.prepareReadStreamFromCache(taskFileName)
+	}
+
 	if success {
-		logrus.Infof("success to upload file %s, req: %v", taskFileName, r.Header)
-		return
-	}
+		defer rc.Close()
 
-	// get task config
-	v, ok := ps.syncTaskContainer.Load(taskFileName)
-	if !ok {
-		rangeErrorResponse(w, fmt.Errorf("failed to get taskPath: %s", taskFileName))
-		logrus.Errorf("failed to open file:%s, %v", taskFileName, err)
-		return
-	}
-
-	task := v.(*taskConfig)
-	// sync access time
-	task.AccessTime = time.Now()
-
-	cache, valid := task.cache.readBytes()
-	if valid {
-		// try to upload from cache
-		size = task.cache.size
 		if err = amendRange(size, true, up); err != nil {
 			rangeErrorResponse(w, err)
 			logrus.Errorf("failed to amend range of file %s: %v", taskFileName, err)
 			return
 		}
 
-		if err := ps.uploadPieceFromCache(cache, w, up); err != nil {
+		if err := ps.uploadRange(rc, w, up); err != nil {
 			logrus.Errorf("failed to send range(%s) of file(%s): %v", rangeStr, taskFileName, err)
 		}
 
@@ -425,50 +415,43 @@ func (ps *peerServer) uploadHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (ps *peerServer) uploadFromSeedFile(up *uploadParam, path string, w http.ResponseWriter) (success bool) {
+func (ps *peerServer) prepareReadStreamFromSeed(up *uploadParam, path string) (rc io.ReadCloser, size int64, success bool) {
 	sd, err :=  ps.seedManager.Get(path)
 	if err != nil {
-		return false
+		return nil, 0, false
 	}
 
-	rc, err := sd.Download(up.start, up.length)
+	size, err = sd.Length()
 	if err != nil {
-		return false
+		return nil, 0, false
 	}
 
-	defer rc.Close()
-	err = ps.uploadRange(rc, w, up)
-	if  err != nil {
-		return false
+	rc, err = sd.Download(up.start, up.length - up.padSize)
+	if err != nil {
+		return nil, 0, false
 	}
 
-	return true
+	return rc,  size, true
 }
 
-func (ps *peerServer) uploadPieceFromCache(data []byte, w http.ResponseWriter, up *uploadParam) (e error) {
-	w.Header().Set(config.StrContentLength, strconv.FormatInt(up.length, 10))
-	sendHeader(w, http.StatusPartialContent)
-
-	readLen := up.length - up.padSize
-	buf := make([]byte, 256*1024)
-
-	if up.padSize > 0 {
-		binary.BigEndian.PutUint32(buf, uint32((readLen)|(up.pieceSize)<<4))
-		w.Write(buf[:config.PieceHeadSize])
-		defer w.Write([]byte{config.PieceTailChar})
+func (ps *peerServer) prepareReadStreamFromCache(taskFileName string) (rc io.ReadCloser, size int64, success bool) {
+	v, ok := ps.syncTaskContainer.Load(taskFileName)
+	if !ok {
+		logrus.Errorf("failed to open file:%s", taskFileName)
+		return nil, 0, false
 	}
 
-	brd := bytes.NewReader(data)
-	brd.Seek(up.start, 0)
-	r := io.LimitReader(brd, readLen)
-	if ps.rateLimiter != nil {
-		lr := limitreader.NewLimitReaderWithLimiter(ps.rateLimiter, r, false)
-		_, e = io.CopyBuffer(w, lr, buf)
-	} else {
-		_, e = io.CopyBuffer(w, r, buf)
+	task := v.(*taskConfig)
+	// sync access time
+	task.AccessTime = time.Now()
+
+	cache, valid := task.cache.readBytes()
+	if valid {
+		// try to upload from cache
+		return ioutil.NopCloser(bytes.NewReader(cache)), task.cache.size, true
 	}
 
-	return
+	return nil, 0, false
 }
 
 func (ps *peerServer) parseRateHandler(w http.ResponseWriter, r *http.Request) {
@@ -610,15 +593,6 @@ func (ps *peerServer) syncSysCache(taskFileName string) {
 		return
 	}
 
-	//buf := &bytes.Buffer{}
-	//copySize, _ := io.CopyN(buf, f, size)
-	//if copySize != size {
-	//	logrus.Errorf("failed to syncSysCache %s from file %s, expected size %d, but got %d",
-	//		taskFileName, f.Name(), size, copySize)
-	//	return
-	//}
-	//task.cache.buf = buf
-
 	task.cache.Lock()
 	defer task.cache.Unlock()
 
@@ -759,7 +733,7 @@ func (ps *peerServer) uploadPiece(f *os.File, w http.ResponseWriter, up *uploadP
 	return
 }
 
-// uploadPiece sends a piece of the file to the remote peer.
+// uploadRange sends a piece of the file to the remote peer.
 func (ps *peerServer) uploadRange(rc io.Reader, w http.ResponseWriter, up *uploadParam) (e error) {
 	w.Header().Set(config.StrContentLength, strconv.FormatInt(up.length, 10))
 	sendHeader(w, http.StatusPartialContent)
