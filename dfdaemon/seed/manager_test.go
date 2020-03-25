@@ -231,8 +231,8 @@ func (s *SeedTestSuite) TestManySeed(c *check.C) {
 	c.Assert(receiveExpired, check.Equals, true)
 
 	// refresh taskIDArr[1]
-	seedArr[1].RefreshExpiredTime(120 * time.Second)
-	time.Sleep(65 * time.Second)
+	seedArr[1].RefreshExpiredTime(0)
+	time.Sleep(35 * time.Second)
 	lsm := sm.(*seedManager)
 	// gc expired seed
 	lsm.gcExpiredSeed()

@@ -487,7 +487,8 @@ func (lm *LocalManager) heartbeat() {
 
 // tryToPrefetchSeedFile will try to prefetch the seed file
 func (lm *LocalManager) tryToPrefetchSeedFile(taskID string, info *seed.PreFetchInfo) {
-	sd, err := lm.seedManager.Register(taskID, info)
+	key := seed.GenerateKeyByUrl(info.URL)
+	sd, err := lm.seedManager.Register(key, info)
 	if err != nil {
 		logrus.Errorf("failed to register the seed %v: %v", info, err)
 		return
@@ -531,8 +532,8 @@ func (lm *LocalManager) tryToPrefetchSeedFile(taskID string, info *seed.PreFetch
 		Cid: lm.dfGetConfig.RV.Cid,
 		IP: lm.dfGetConfig.RV.LocalIP,
 		Port: lm.dfGetConfig.RV.PeerPort,
-		// todo: set the taskID as the path
-		Path: taskID,
+		// set the key as the path
+		Path: key,
 		Headers: p2p.FlattenHeader(info.Header),
 		FileLength: fileLength,
 		AsSeed: true,

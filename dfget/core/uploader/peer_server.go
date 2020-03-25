@@ -36,7 +36,6 @@ import (
 
 	"github.com/dragonflyoss/Dragonfly/dfdaemon/seed"
 	"github.com/dragonflyoss/Dragonfly/dfget/config"
-	dfconfig "github.com/dragonflyoss/Dragonfly/dfdaemon/config"
 	"github.com/dragonflyoss/Dragonfly/dfget/core/api"
 	"github.com/dragonflyoss/Dragonfly/dfget/core/helper"
 	"github.com/dragonflyoss/Dragonfly/pkg/errortypes"

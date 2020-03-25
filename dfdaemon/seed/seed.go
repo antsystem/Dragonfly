@@ -38,7 +38,7 @@ type Seed interface {
 
 	//
 	GetStatus() string
-	TaskID() string
+	Key() string
 	URL() string
 	Length() (int64, error)
 }
@@ -50,10 +50,10 @@ type seed struct {
 	Header      map[string][]string `json:"header"`
 	Url         string              `json:"url"`
 	// current content size, it may be not full downloaded
-	Size        int64               `json:"size"`
-	ContentPath string              `json:"contentPath"`
-	TaskId      string              `json:"taskId"`
-	HttpFileLength int64			`json:"httpFileLength"`
+	Size           int64  `json:"size"`
+	ContentPath    string `json:"contentPath"`
+	SeedKey        string `json:"seedKey"`
+	HttpFileLength int64  `json:"httpFileLength"`
 
 	Status string 			   `json:"Status"`
 
@@ -71,8 +71,8 @@ type seed struct {
 	expireCh      chan struct{}
 }
 
-func newSeed(sm *seedManager, taskID string, info *PreFetchInfo) (Seed, error) {
-	contentPath := sm.seedContentPath(taskID)
+func newSeed(sm *seedManager, key string, info *PreFetchInfo) (Seed, error) {
+	contentPath := sm.seedContentPath(key)
 
 	cache, _, err :=  newFileCacheBuffer(contentPath, 0, false)
 	if err != nil {
@@ -80,15 +80,15 @@ func newSeed(sm *seedManager, taskID string, info *PreFetchInfo) (Seed, error) {
 	}
 
 	return &seed{
-		Status: INITIAL_STATUS,
-		Url:    info.URL,
-		Header: info.Header,
-		Size:   info.Length,
-		TaskId: taskID,
-		cache:  cache,
-		sm:     sm,
-		metaPath: sm.seedMetaPath(taskID),
-		metaBakPath: sm.seedMetaBakPath(taskID),
+		Status:      INITIAL_STATUS,
+		Url:         info.URL,
+		Header:      info.Header,
+		Size:        info.Length,
+		SeedKey:     key,
+		cache:       cache,
+		sm:          sm,
+		metaPath:    sm.seedMetaPath(key),
+		metaBakPath: sm.seedMetaBakPath(key),
 		ContentPath: contentPath,
 		// if expired, close expireCh
 		expireCh:  make(chan struct{}),
@@ -96,7 +96,7 @@ func newSeed(sm *seedManager, taskID string, info *PreFetchInfo) (Seed, error) {
 }
 
 // restore from meta, if it is not finished, return nil.
-func restoreFromMeta(sm *seedManager, taskID string, data []byte) (Seed, error) {
+func restoreFromMeta(sm *seedManager, key string, data []byte) (Seed, error) {
 	sd := &seed{}
 	err := json.Unmarshal(data, &sd)
 	if err != nil {
@@ -108,7 +108,7 @@ func restoreFromMeta(sm *seedManager, taskID string, data []byte) (Seed, error) 
 	}
 
 	sd.sm = sm
-	sd.TaskId = taskID
+	sd.SeedKey = key
 	cache, exist, err :=  newFileCacheBuffer(sd.ContentPath, sd.Size, sd.Status == FINISHED_STATUS)
 	if err != nil {
 		return nil, err
@@ -121,8 +121,8 @@ func restoreFromMeta(sm *seedManager, taskID string, data []byte) (Seed, error) 
 	}
 
 	sd.cache = cache
-	sd.metaBakPath = sm.seedMetaBakPath(taskID)
-	sd.metaPath = sm.seedMetaPath(taskID)
+	sd.metaBakPath = sm.seedMetaBakPath(key)
+	sd.metaPath = sm.seedMetaPath(key)
 
 	return sd, nil
 }
@@ -177,7 +177,7 @@ func (sd *seed) refreshExpiredTimeWithOutLock(expiredTime time.Duration) {
 	if expiredTime != 0 {
 		sd.ExpireTimeDur = expiredTime
 	}
-	sd.expireTime = time.Now().Add(expiredTime)
+	sd.expireTime = time.Now().Add(sd.ExpireTimeDur)
 	sd.storeWithoutLock()
 	sd.sm.updateLRU(sd)
 }
@@ -207,11 +207,11 @@ func (sd *seed) GetStatus() string {
 	return sd.Status
 }
 
-func (sd *seed) TaskID() string {
+func (sd *seed) Key() string {
 	sd.RLock()
 	defer sd.RUnlock()
 
-	return sd.TaskId
+	return sd.SeedKey
 }
 
 func (sd *seed) URL() string {
