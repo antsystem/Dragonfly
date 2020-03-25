@@ -80,7 +80,7 @@ func NewLocalManager(cfg config.DFGetConfig) *LocalManager {
 			syncTime: time.Now(),
 			syncP2PNetworkCh: make(chan string, 2),
 			seedExpiredTime: time.Hour * 24 * 7,
-			seedManager: seed.NewSeedManager(cfg),
+			seedManager: seed.NewSeedManager(""),
 		}
 
 		go localManager.fetchLoop(context.Background())

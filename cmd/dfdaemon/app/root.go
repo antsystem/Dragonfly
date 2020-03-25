@@ -19,6 +19,7 @@ package app
 import (
 	"encoding/json"
 	"github.com/dragonflyoss/Dragonfly/dfdaemon/localManager"
+	"github.com/dragonflyoss/Dragonfly/dfdaemon/seed"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -71,6 +72,7 @@ var rootCmd = &cobra.Command{
 
 
 		_ = localManager.NewLocalManager(cfg.DFGetConfig())
+		_ = seed.NewSeedManager(cfg.WorkHome)
 
 		s, err := dfdaemon.NewFromConfig(*cfg)
 		if err != nil {
