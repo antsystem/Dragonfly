@@ -54,11 +54,11 @@ type SeedManager interface {
 	List() ([]Seed, error)
 }
 
-func NewSeedManager(cfg dfdaemonCfg.DFGetConfig) SeedManager {
+func NewSeedManager(metaDir string) SeedManager {
 	once.Do(func() {
 		var err error
 		// todo: config the total limit
-		localSeedManager, err = newSeedManager(filepath.Join(cfg.DFRepo, "seed"), 0, 50, 0)
+		localSeedManager, err = newSeedManager(filepath.Join(metaDir, "seed"), 0, 50, 0)
 		if err != nil {
 			panic(err)
 		}

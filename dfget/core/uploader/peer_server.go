@@ -60,7 +60,7 @@ func newPeerServer(cfg *config.Config, port int) *peerServer {
 		port:     port,
 		api:      api.NewSupernodeAPI(),
 		//todo:
-		seedManager: seed.NewSeedManager(dfconfig.DFGetConfig{DFRepo: cfg.RV.MetaPath}),
+		seedManager: seed.NewSeedManager(cfg.RV.MetaPath),
 	}
 
 	s.syncTaskContainer = &taskContainer{
