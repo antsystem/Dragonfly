@@ -177,7 +177,7 @@ func (sd *seed) refreshExpiredTimeWithOutLock(expiredTime time.Duration) {
 	if expiredTime != 0 {
 		sd.ExpireTimeDur = expiredTime
 	}
-	sd.expireTime = time.Now().Add(expiredTime)
+	sd.expireTime = time.Now().Add(sd.ExpireTimeDur)
 	sd.storeWithoutLock()
 	sd.sm.updateLRU(sd)
 }
