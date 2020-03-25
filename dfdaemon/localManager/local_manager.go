@@ -269,7 +269,7 @@ func (lm *LocalManager) DownloadStreamContext(ctx context.Context, url string, h
 		// delete the range of headers
 		delete(header, dfgetcfg.StrRange)
 
-		go lm.tryToPrefetchSeedFile(resp.TaskID, &seed.PreFetchInfo{URL: req.TaskURL, Header: header})
+		go lm.tryToPrefetchSeedFile(resp.SeedTaskID, &seed.PreFetchInfo{URL: req.TaskURL, Header: header, TaskID: resp.SeedTaskID})
 	}
 
 	rd, err = localDownloader.RunStream(ctx)

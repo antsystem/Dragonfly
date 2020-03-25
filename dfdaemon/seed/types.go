@@ -1,6 +1,7 @@
 package seed
 
 type PreFetchInfo struct {
+	TaskID  string
 	URL 	string
 	Header  map[string][]string
 	Length  int64
