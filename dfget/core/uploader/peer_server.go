@@ -34,7 +34,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/dragonflyoss/Dragonfly/dfdaemon/seed"
 	"github.com/dragonflyoss/Dragonfly/dfget/config"
+	dfconfig "github.com/dragonflyoss/Dragonfly/dfdaemon/config"
 	"github.com/dragonflyoss/Dragonfly/dfget/core/api"
 	"github.com/dragonflyoss/Dragonfly/dfget/core/helper"
 	"github.com/dragonflyoss/Dragonfly/pkg/errortypes"
@@ -57,6 +59,8 @@ func newPeerServer(cfg *config.Config, port int) *peerServer {
 		host:     cfg.RV.LocalIP,
 		port:     port,
 		api:      api.NewSupernodeAPI(),
+		//todo:
+		seedManager: seed.NewSeedManager(dfconfig.DFGetConfig{DFRepo: cfg.RV.MetaPath}),
 	}
 
 	s.syncTaskContainer = &taskContainer{
@@ -99,6 +103,9 @@ type peerServer struct {
 
 	// syncTaskContainer stores the meta name of tasks on the host
 	syncTaskContainer *taskContainer
+
+	// seed manager, prior to download from seed file
+	seedManager 	seed.SeedManager
 }
 
 type taskContainer struct {
@@ -363,6 +370,12 @@ func (ps *peerServer) uploadHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	success := ps.uploadFromSeedFile(up, taskFileName, w)
+	if success {
+		logrus.Infof("success to upload file %s, req: %v", taskFileName, r.Header)
+		return
+	}
+
 	// get task config
 	v, ok := ps.syncTaskContainer.Load(taskFileName)
 	if !ok {
@@ -411,6 +424,26 @@ func (ps *peerServer) uploadHandler(w http.ResponseWriter, r *http.Request) {
 	if err := ps.uploadPiece(f, w, up); err != nil {
 		logrus.Errorf("failed to send range(%s) of file(%s): %v", rangeStr, taskFileName, err)
 	}
+}
+
+func (ps *peerServer) uploadFromSeedFile(up *uploadParam, path string, w http.ResponseWriter) (success bool) {
+	sd, err :=  ps.seedManager.Get(path)
+	if err != nil {
+		return false
+	}
+
+	rc, err := sd.Download(up.start, up.length)
+	if err != nil {
+		return false
+	}
+
+	defer rc.Close()
+	err = ps.uploadRange(rc, w, up)
+	if  err != nil {
+		return false
+	}
+
+	return true
 }
 
 func (ps *peerServer) uploadPieceFromCache(data []byte, w http.ResponseWriter, up *uploadParam) (e error) {
@@ -717,6 +750,31 @@ func (ps *peerServer) uploadPiece(f *os.File, w http.ResponseWriter, up *uploadP
 
 	f.Seek(up.start, 0)
 	r := io.LimitReader(f, readLen)
+	if ps.rateLimiter != nil {
+		lr := limitreader.NewLimitReaderWithLimiter(ps.rateLimiter, r, false)
+		_, e = io.CopyBuffer(w, lr, buf)
+	} else {
+		_, e = io.CopyBuffer(w, r, buf)
+	}
+
+	return
+}
+
+// uploadPiece sends a piece of the file to the remote peer.
+func (ps *peerServer) uploadRange(rc io.Reader, w http.ResponseWriter, up *uploadParam) (e error) {
+	w.Header().Set(config.StrContentLength, strconv.FormatInt(up.length, 10))
+	sendHeader(w, http.StatusPartialContent)
+
+	readLen := up.length - up.padSize
+	buf := make([]byte, 256*1024)
+
+	if up.padSize > 0 {
+		binary.BigEndian.PutUint32(buf, uint32((readLen)|(up.pieceSize)<<4))
+		w.Write(buf[:config.PieceHeadSize])
+		defer w.Write([]byte{config.PieceTailChar})
+	}
+
+	r := io.LimitReader(rc, readLen)
 	if ps.rateLimiter != nil {
 		lr := limitreader.NewLimitReaderWithLimiter(ps.rateLimiter, r, false)
 		_, e = io.CopyBuffer(w, lr, buf)
