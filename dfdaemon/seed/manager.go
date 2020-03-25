@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"github.com/dragonflyoss/Dragonfly/dfget/config"
-	dfdaemonCfg "github.com/dragonflyoss/Dragonfly/dfdaemon/config"
 	"github.com/dragonflyoss/Dragonfly/pkg/errortypes"
 	"github.com/dragonflyoss/Dragonfly/pkg/httputils"
 	"github.com/dragonflyoss/Dragonfly/pkg/netutils"
