@@ -6,6 +6,7 @@ import(
 	"github.com/go-check/check"
 	"github.com/pborman/uuid"
 	"io/ioutil"
+	"path/filepath"
 	"sync"
 	"time"
 )
@@ -109,8 +110,10 @@ func (s *SeedTestSuite) checkSeedFile(c *check.C, path string, fileLength int64,
 }
 
 func (s *SeedTestSuite) TestOneSeed(c *check.C) {
-	sm, err := newSeedManager(s.cacheDir, 2, 10, 1024 * 1024)
+	sm, err := newSeedManager(filepath.Join(s.cacheDir, "TestOneSeed"), 2, 10, 1024 * 1024)
 	c.Assert(err, check.IsNil)
+
+	defer sm.Stop()
 
 	preInfo := &PreFetchInfo{
 		// fileA: 500KB
@@ -180,8 +183,10 @@ func (s *SeedTestSuite) TestOneSeed(c *check.C) {
 }
 
 func (s *SeedTestSuite) TestManySeed(c *check.C) {
-	sm, err := newSeedManager(s.cacheDir, 2, 4, 1024 * 1024)
+	sm, err := newSeedManager(filepath.Join(s.cacheDir, "TestManySeed"), 2, 4, 1024 * 1024)
 	c.Assert(err, check.IsNil)
+
+	defer sm.Stop()
 
 	filePaths := []string{"fileB", "fileC", "fileD", "fileE", "fileF"}
 	fileLens := []int64{1024 * 1024, 1500 * 1024, 2048 * 1024, 9500 * 1024, 10 * 1024 * 1024}
@@ -192,7 +197,7 @@ func (s *SeedTestSuite) TestManySeed(c *check.C) {
 	for i:= 0; i < 4; i ++ {
 		wg.Add(1)
 		taskIDArr[i] = uuid.New()
-		sd, err := sm.Register(taskIDArr[i], &PreFetchInfo{URL: fmt.Sprintf("http://%s/%s", s.host, filePaths[i]),})
+		sd, err := sm.Register(taskIDArr[i], &PreFetchInfo{URL: fmt.Sprintf("http://%s/%s", s.host, filePaths[i]), TaskID: taskIDArr[i]})
 		c.Assert(err, check.IsNil)
 		seedArr[i] = sd
 
@@ -211,7 +216,7 @@ func (s *SeedTestSuite) TestManySeed(c *check.C) {
 
 	// new one seed, it may wide out the oldest one
 	taskIDArr[4] = uuid.New()
-	seedArr[4], err = sm.Register(taskIDArr[4], &PreFetchInfo{URL: fmt.Sprintf("http://%s/%s", s.host, filePaths[4]),})
+	seedArr[4], err = sm.Register(taskIDArr[4], &PreFetchInfo{URL: fmt.Sprintf("http://%s/%s", s.host, filePaths[4]), TaskID: taskIDArr[4]})
 	c.Assert(err, check.IsNil)
 	s.checkSeedFile(c, filePaths[4], fileLens[4], seedArr[4].(*seed), nil)
 
@@ -252,5 +257,63 @@ func (s *SeedTestSuite) TestManySeed(c *check.C) {
 		}
 
 		c.Assert(receiveExpired, check.Equals, true)
+	}
+}
+
+func (s *SeedTestSuite) TestSeedRestore (c *check.C) {
+	sm, err := newSeedManager(filepath.Join(s.cacheDir, "TestSeedRestore"), 2, 4, 1024 * 1024)
+	c.Assert(err, check.IsNil)
+
+	defer sm.Stop()
+
+	filePaths := []string{"fileB", "fileC", "fileD", "fileE", "fileF"}
+	fileLens := []int64{1024 * 1024, 1500 * 1024, 2048 * 1024, 9500 * 1024, 10 * 1024 * 1024}
+	taskIDArr := make([]string, 5)
+	seedArr := make([]Seed, 5)
+
+	wg := &sync.WaitGroup{}
+	for i:= 0; i < 4; i ++ {
+		wg.Add(1)
+		taskIDArr[i] = uuid.New()
+		sd, err := sm.Register(taskIDArr[i], &PreFetchInfo{URL: fmt.Sprintf("http://%s/%s", s.host, filePaths[i]), TaskID: taskIDArr[i]})
+		c.Assert(err, check.IsNil)
+		seedArr[i] = sd
+
+		go func(lsd Seed, path string, fileLength int64) {
+			s.checkSeedFile(c, path, fileLength, lsd.(*seed), wg)
+		}(sd, filePaths[i], fileLens[i])
+	}
+
+	wg.Wait()
+	// refresh expired time, seed[0] and seed[1] will be wide out before next restore.
+	seedArr[0].RefreshExpiredTime(30 * time.Second)
+	seedArr[1].RefreshExpiredTime(30 * time.Second)
+
+	for i:= 2; i < 4; i ++ {
+		seedArr[i].RefreshExpiredTime(180 * time.Second)
+	}
+
+	// stop sm
+	sm.Stop()
+
+	time.Sleep(40 * time.Second)
+	// restore seedManager
+	sm, err = newSeedManager(filepath.Join(s.cacheDir, "TestSeedRestore"), 2, 4, 1024 * 1024)
+	c.Assert(err, check.IsNil)
+
+	seedArr, err = sm.List()
+	c.Assert(len(seedArr), check.Equals, 2)
+
+	_, err = sm.Get(taskIDArr[0])
+	c.Assert(err, check.NotNil)
+
+	_, err = sm.Get(taskIDArr[1])
+	c.Assert(err, check.NotNil)
+
+	for i:= 2; i < 4; i ++ {
+		sd, err := sm.Get(taskIDArr[i])
+		c.Assert(err, check.IsNil)
+
+		s.checkFileWithSeed(c, filePaths[i], fileLens[i], sd)
 	}
 }

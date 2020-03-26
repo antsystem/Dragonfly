@@ -129,7 +129,7 @@ func (s *SeedTestSuite) TestFileCacheBufferWithExistFile(c *check.C) {
 	c.Assert(err, check.IsNil)
 
 	// reopen again
-	cb, exist, err = newFileCacheBuffer("./testdata/fileB", 30, false)
+	cb, exist, err = newFileCacheBuffer(filepath.Join(testDir, "fileB"), 30, false)
 	c.Assert(err, check.IsNil)
 	c.Assert(exist, check.Equals, true)
 
@@ -141,6 +141,9 @@ func (s *SeedTestSuite) TestFileCacheBufferWithExistFile(c *check.C) {
 	// close
 	err = cb.Close()
 	c.Assert(err, check.IsNil)
+	size, err := cb.Size()
+	c.Assert(err, check.IsNil)
+	c.Assert(int(size), check.Equals, 35)
 
 	// read all
 	rc, err := cb.ReadStream(0, -1)

@@ -10,9 +10,12 @@ import (
 	"github.com/dragonflyoss/Dragonfly/pkg/queue"
 	"github.com/dragonflyoss/Dragonfly/supernode/httpclient"
 	"io"
+	"io/ioutil"
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -51,6 +54,9 @@ type SeedManager interface {
 	Get(key string) (Seed, error)
 
 	List() ([]Seed, error)
+
+	// stop the SeedManager
+	Stop()
 }
 
 func NewSeedManager(metaDir string, totalLimitOfSeeds int) SeedManager {
@@ -102,7 +108,11 @@ func newSeedManager(cacheDir string, concurrentLimit int, totalLimit int, downlo
 		return nil, err
 	}
 
+	ctx, cancelFn := context.WithCancel(context.Background())
+
 	sr := &seedManager{
+		ctx: ctx,
+		cancelFn: cancelFn,
 		cacheDir: cacheDir,
 		concurrentLimit: concurrentLimit,
 		totalLimit: totalLimit,
@@ -114,14 +124,21 @@ func newSeedManager(cacheDir string, concurrentLimit int, totalLimit int, downlo
 		originClient: httpclient.NewOriginClient(),
 	}
 
-	go sr.prefetchLoop(context.Background())
-	go sr.gcLoop(context.Background())
+	sr.restore(ctx)
+
+	go sr.prefetchLoop(ctx)
+	go sr.gcLoop(ctx)
 
 	return sr, nil
 }
 
 type seedManager struct {
 	sync.Mutex
+
+	// the context which is monitor by all loop
+	ctx				context.Context
+	// call cancelFn to stop all loop
+	cancelFn		func()
 
 	cacheDir    	string
 	concurrentLimit int
@@ -147,7 +164,7 @@ func (sr *seedManager) Register(key string, info *PreFetchInfo) (Seed, error) {
 
 	_, exist := sr.seedContainer[key]
 	if exist {
-		return nil, fmt.Errorf("Confilct ")
+		return nil, fmt.Errorf("confilct key %s", key)
 	}
 
 	sd, err := newSeed(sr, key, info)
@@ -200,6 +217,69 @@ func (sr *seedManager) List() ([]Seed, error) {
 	}
 
 	return ret, nil
+}
+
+func (sr *seedManager) Stop() {
+	sr.cancelFn()
+}
+
+func (sr *seedManager) restore(ctx context.Context) {
+	metaDir := filepath.Join(sr.cacheDir, "meta")
+	fis, err := ioutil.ReadDir(metaDir)
+	if err != nil {
+		logrus.Errorf("failed to read cache dir %s: %v", metaDir, err)
+		return
+	}
+
+	seeds := []*seed{}
+
+	// todo: clear the unexpected meta file
+	for _, fi := range fis {
+		if fi.IsDir() {
+			continue
+		}
+
+		name := fi.Name()
+		if !strings.HasSuffix(name, ".meta") {
+			continue
+		}
+
+		key := strings.TrimSuffix( name, ".meta")
+		data, err := ioutil.ReadFile(filepath.Join(metaDir, name))
+		if err != nil {
+			logrus.Errorf("failed to read file %s: %v", name, err)
+			continue
+		}
+
+		sed, err := restoreFromMeta(sr, key, data)
+		if err != nil {
+			logrus.Errorf("failed to restore from meta %s: %v", key, err)
+			continue
+		}
+
+		sd := sed.(*seed)
+		if sd.isExpired() {
+			// if expired, remove the seed
+			sd.Delete()
+			continue
+		}
+
+		seeds = append(seeds, sd)
+	}
+
+	sort.Slice(seeds, func(i, j int) bool {
+		return seeds[i].expireTime.Before(seeds[j].expireTime)
+	})
+
+	// add seed to map
+	for _, sd := range seeds {
+		sr.seedContainer[sd.Key()] = sd
+	}
+
+	// update seed to url queue
+	for _, sd := range seeds {
+		sr.updateLRU(sd)
+	}
 }
 
 func (sr *seedManager) seedMetaPath(key string) string {
@@ -266,6 +346,7 @@ func (sr *seedManager) gcLoop(ctx context.Context) {
 		select {
 		case <- ctx.Done():
 			logrus.Infof("context done, return gcLoop")
+			return
 
 		case <- ticker.C:
 			logrus.Infof("start to  gc loop")
@@ -286,7 +367,7 @@ func (sr *seedManager) gcExpiredSeed() {
 			continue
 		}
 
-		if sd.verifyExpired() {
+		if sd.isExpired() {
 			sr.gcSeed(sd.SeedKey, sd)
 		}
 	}
@@ -305,6 +386,13 @@ func (sr *seedManager) downloadSeed(ctx context.Context, sd *seed, ch chan PreFe
 		err   error
 	)
 
+	dn := newLocalDownloader(sd.Url, sd.Header, sd.rate)
+	// download 50MB per request
+	downloadBlock := sr.downloadBlockSize
+	defaultTimeout := netutils.CalculateTimeout(int64(downloadBlock), 0, config.DefaultMinRate, 10*time.Second)
+	retryTimeout := defaultTimeout * 2
+	retry := 0
+
 	if sd.getHttpFileLength() == 0 {
 		header := map[string]string{}
 		for k, v := range sd.Header {
@@ -314,20 +402,13 @@ func (sr *seedManager) downloadSeed(ctx context.Context, sd *seed, ch chan PreFe
 		length, err := sr.getHTTPFileLength(sd.SeedKey, sd.Url, header)
 		if  err != nil {
 			// todo: handle the error
-
+			goto handleErr
 		}
 
 		sd.setHttpFileLength(length)
 	}
 
-	dn := newLocalDownloader(sd.Url, sd.Header, sd.rate)
-	// download 50MB per request
-	downloadBlock := sr.downloadBlockSize
-	defaultTimeout := netutils.CalculateTimeout(int64(downloadBlock), 0, config.DefaultMinRate, 10*time.Second)
-	retryTimeout := defaultTimeout * 2
-	retry := 0
-
-	start = 0
+	start = sd.currentSize()
 	for{
 		end = start + downloadBlock - 1
 		if end >= sd.HttpFileLength - 1 {
@@ -391,7 +472,7 @@ handleErr:
 		sr.downloadCh <- struct{}{}
 	}()
 	ch <- PreFetchResult{Success: false, Canceled: true, Err: err}
-	// todo:
+
 	return
 
 finished:

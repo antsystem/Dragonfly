@@ -50,10 +50,10 @@ func (rm *requestManager) addRequest(url string, directReturnSrc bool) error {
 	return nil
 }
 
-// getRecentRequest will return 5 of the recent request url
+// getRecentRequest will return 10 of the recent request url
 func (rm *requestManager) getRecentRequest(count int) []string {
 	if count == 0 {
-		count = 5
+		count = 10
 	}
 	arr := rm.q.GetFront(count)
 	result := []string{}

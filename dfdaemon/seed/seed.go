@@ -17,6 +17,9 @@ const(
 	FINISHED_STATUS = "finished"
 	FETCHING_STATUS = "fetching"
 	INITIAL_STATUS = "initial"
+	DEAD_STATUS = "dead"
+
+	defaultTimeLayout = time.RFC3339Nano
 )
 
 type Seed interface {
@@ -41,6 +44,7 @@ type Seed interface {
 	TaskID() string
 	Key() string
 	URL() string
+	Headers() map[string][]string
 	Length() (int64, error)
 }
 
@@ -106,8 +110,14 @@ func restoreFromMeta(sm *seedManager, key string, data []byte) (Seed, error) {
 		return nil, err
 	}
 
+	// todo: if seed file is not finished, consider to continue to download
 	if sd.Status != FINISHED_STATUS {
 		return nil, fmt.Errorf("status not %s", FINISHED_STATUS)
+	}
+
+	sd.expireTime, err = time.Parse(defaultTimeLayout ,sd.DeadLineTime)
+	if err != nil {
+		return nil, fmt.Errorf("seed key %s, failed to parse expire time %s: %v", key, sd.DeadLineTime, err)
 	}
 
 	sd.sm = sm
@@ -126,6 +136,7 @@ func restoreFromMeta(sm *seedManager, key string, data []byte) (Seed, error) {
 	sd.cache = cache
 	sd.metaBakPath = sm.seedMetaBakPath(key)
 	sd.metaPath = sm.seedMetaPath(key)
+	sd.expireCh = make(chan struct{})
 
 	return sd, nil
 }
@@ -135,7 +146,7 @@ func (sd *seed) Prefetch(limiter *ratelimiter.RateLimiter, expireTime time.Durat
 	sd.RLock()
 	defer sd.RUnlock()
 
-	if sd.Status == FINISHED_STATUS || sd.Status == FETCHING_STATUS {
+	if sd.Status == FINISHED_STATUS || sd.Status == FETCHING_STATUS || sd.Status == DEAD_STATUS {
 		ch <- PreFetchResult{Canceled: true}
 		return ch, nil
 	}
@@ -156,11 +167,11 @@ func (sd *seed) Delete() error {
 	sd.Lock()
 	defer sd.Unlock()
 
-	if sd.Status == INITIAL_STATUS {
+	if sd.Status == DEAD_STATUS {
 		return nil
 	}
 
-	sd.Status = INITIAL_STATUS
+	sd.Status = DEAD_STATUS
 
 	close(sd.expireCh)
 
@@ -172,6 +183,10 @@ func (sd *seed) Delete() error {
 func (sd *seed) RefreshExpiredTime(expiredTime time.Duration) {
 	sd.Lock()
 	defer sd.Unlock()
+
+	if sd.Status == DEAD_STATUS {
+		return
+	}
 
 	sd.refreshExpiredTimeWithOutLock(expiredTime)
 }
@@ -242,6 +257,13 @@ func (sd *seed) TaskID() string {
 	return sd.TaskId
 }
 
+func (sd *seed) Headers() map[string][]string {
+	sd.RLock()
+	defer sd.RUnlock()
+
+	return sd.Header
+}
+
 func (sd *seed) setStatus(status string) error {
 	sd.Lock()
 	defer sd.Unlock()
@@ -261,7 +283,7 @@ func (sd *seed) updateSize(size int64) error {
 
 // store the meta data to local fs
 func (sd *seed) storeWithoutLock() error {
-	sd.DeadLineTime = sd.expireTime.UTC().Format(time.RFC3339Nano)
+	sd.DeadLineTime = sd.expireTime.UTC().Format(defaultTimeLayout)
 	data, err := json.Marshal(sd)
 	if err != nil {
 		return err
@@ -280,11 +302,11 @@ func (sd *seed) setExpired() {
 	sd.Lock()
 	defer sd.Unlock()
 
-	if sd.Status == INITIAL_STATUS {
+	if sd.Status == DEAD_STATUS {
 		return
 	}
 
-	sd.Status = INITIAL_STATUS
+	sd.Status = DEAD_STATUS
 	close(sd.expireCh)
 
 	sd.clearResource()
@@ -299,8 +321,8 @@ func (sd *seed) clearResource() error {
 	return sd.cache.Remove()
 }
 
-// verify is expired
-func (sd *seed) verifyExpired() bool {
+// if expired, return true
+func (sd *seed) isExpired() bool {
 	sd.Lock()
 	defer sd.Unlock()
 	// if expire time dur is 0, return false
@@ -323,4 +345,11 @@ func (sd *seed) setHttpFileLength(length int64) {
 	defer sd.Unlock()
 
 	sd.HttpFileLength = length
+}
+
+func (sd *seed) currentSize() int64 {
+	sd.Lock()
+	defer sd.Unlock()
+
+	return sd.Size
 }

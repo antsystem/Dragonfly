@@ -14,7 +14,6 @@ import (
 	"github.com/dragonflyoss/Dragonfly/dfget/core/helper"
 	"github.com/dragonflyoss/Dragonfly/dfget/types"
 	"github.com/dragonflyoss/Dragonfly/pkg/constants"
-	"github.com/dragonflyoss/Dragonfly/pkg/errortypes"
 	"github.com/dragonflyoss/Dragonfly/pkg/httputils"
 	"github.com/dragonflyoss/Dragonfly/pkg/ratelimiter"
 	"github.com/go-openapi/strfmt"
@@ -88,12 +87,27 @@ func NewLocalManager(cfg config.DFGetConfig, seedExpireTimeOfHours int) *LocalMa
 			localManager.seedExpiredTime = time.Hour * time.Duration(seedExpireTimeOfHours)
 		}
 
+		localManager.restoreSeed(context.Background())
 		go localManager.fetchLoop(context.Background())
 		go localManager.syncLocalTaskLoop(context.Background())
 		go localManager.heartBeatLoop(context.Background())
 	})
 
 	return localManager
+}
+
+// restoreSeed will restore the local seeds and report to super node
+func (lm *LocalManager) restoreSeed(ctx context.Context) {
+	seeds, err := lm.seedManager.List()
+	if err != nil {
+		return
+	}
+
+	for _, sd := range seeds {
+		go lm.addSeedToLocalScheduler(sd)
+		go lm.monitorExpiredSeed(ctx, sd)
+		go lm.reportSeedToSuperNode(sd)
+	}
 }
 
 func (lm *LocalManager) fetchLoop(ctx context.Context) {
@@ -167,7 +181,7 @@ func convertToDFGetConfig(cfg config.DFGetConfig, oldCfg *dfgetcfg.Config) *dfge
 	return newCfg
 }
 
-//
+// DownloadStreamContext provider the read stream for client request
 func (lm *LocalManager) DownloadStreamContext(ctx context.Context, url string, header map[string][]string, name string) (io.Reader, error) {
 	var(
 		infos = []*downloadNodeInfo{}
@@ -217,7 +231,7 @@ func (lm *LocalManager) DownloadStreamContext(ctx context.Context, url string, h
 		nWare.Add(key, transport.ScheduleName, time.Since(startTime).Nanoseconds())
 		startTime = time.Now()
 	}
-	if err != nil {
+	if err != nil || len(result) == 0 {
 		go lm.scheduleBySuperNode(ctx, url, header, name, taskID, length)
 	}else{
 		tmpInfos := make([]*downloadNodeInfo, len(result))
@@ -291,19 +305,6 @@ func (lm *LocalManager) notifyFetchP2PNetwork(url string) {
 	lm.syncP2PNetworkCh <- url
 }
 
-func (lm *LocalManager) isDownloadDirectReturnSrc(ctx context.Context, url string) (bool, error) {
-	rs, err := lm.rm.getRequestState(url)
-	if err != nil {
-		if err == errortypes.ErrDataNotFound {
-			return false, nil
-		}
-
-		return false, err
-	}
-
-	return rs.needReturnSrc(), nil
-}
-
 // downloadFromPeer download file from peer node.
 // param:
 // 	taskFileName: target file name
@@ -336,7 +337,7 @@ func (lm *LocalManager) getLengthFromHeader(url string, header map[string][]stri
 			return 0
 		}
 
-		return (ds[0].EndIndex - ds[0].StartIndex + 1)
+		return ds[0].EndIndex - ds[0].StartIndex + 1
 	}
 
 	return 0
@@ -523,36 +524,38 @@ func (lm *LocalManager) tryToPrefetchSeedFile(ctx context.Context, taskID string
 		return
 	}
 
+	go lm.addSeedToLocalScheduler(sd)
+	go lm.monitorExpiredSeed(ctx, sd)
+	go lm.reportSeedToSuperNode(sd)
+}
+
+func (lm *LocalManager) reportSeedToSuperNode(sd seed.Seed) {
 	fileLength, err := sd.Length()
 	if err != nil {
 		logrus.Errorf("failed to get length: %v", err)
 		return
 	}
 
-	go lm.addSeedToLocalScheduler(sd)
-	go lm.monitorExpiredSeed(ctx, sd)
-
-	// todo: report the seed info to super node and wait for expired time
 	resp, err := lm.spProxy.ReportResource(&types.RegisterRequest{
-		TaskId: taskID,
-		TaskURL: info.URL,
-		RawURL: info.URL,
+		TaskId: sd.TaskID(),
+		TaskURL: sd.URL(),
+		RawURL: sd.URL(),
 		Cid: lm.dfGetConfig.RV.Cid,
 		IP: lm.dfGetConfig.RV.LocalIP,
 		Port: lm.dfGetConfig.RV.PeerPort,
 		// set the key as the path
-		Path: key,
-		Headers: p2p.FlattenHeader(info.Header),
+		Path: sd.Key(),
+		Headers: p2p.FlattenHeader(sd.Headers()),
 		FileLength: fileLength,
 		AsSeed: true,
 	})
 
 	if err != nil || resp.Code != 200 {
-		logrus.Errorf("failed to report seed file %s, resp %v: %v", taskID, resp, err)
+		logrus.Errorf("failed to report seed file %s, resp %v: %v", sd.TaskID(), resp, err)
 		return
 	}
 
-	logrus.Infof("success to report seed file %s, resp %v", taskID, resp)
+	logrus.Infof("success to report seed file %s, resp %v", sd.TaskID(), resp)
 }
 
 // add seed to local scheduler

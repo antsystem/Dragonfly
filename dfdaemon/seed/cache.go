@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"sync"
 
 	"github.com/dragonflyoss/Dragonfly/pkg/errortypes"
 )
@@ -17,6 +18,9 @@ type cacheBuffer interface {
 	ReadStream(off int64, size int64) (io.ReadCloser, error)
 	// remove the cache
 	Remove() error
+
+	// cache size
+	Size() (int64, error)
 }
 
 // if file size is shorter than existSize, exist return false and write from 0;
@@ -61,7 +65,7 @@ truncWrite:
 		}
 	}
 
-	fcb := &fileCacheBuffer{path: path, fw: fw}
+	fcb := &fileCacheBuffer{path: path, fw: fw, size: existSize}
 	if finished && exist {
 		fcb.finished = finished
 	}
@@ -70,6 +74,8 @@ truncWrite:
 }
 
 type fileCacheBuffer struct {
+	sync.RWMutex
+
 	path     string
 	fw       *os.File
 	finished bool
@@ -78,6 +84,9 @@ type fileCacheBuffer struct {
 }
 
 func (fcb *fileCacheBuffer) Write(p []byte) (int, error) {
+	fcb.Lock()
+	defer fcb.Unlock()
+
 	if fcb.finished || fcb.remove {
 		//todo: return the error
 		return 0, io.ErrClosedPipe
@@ -86,6 +95,9 @@ func (fcb *fileCacheBuffer) Write(p []byte) (int, error) {
 }
 
 func (fcb *fileCacheBuffer) Seek(offset int64, whence int) (int64, error) {
+	fcb.Lock()
+	defer fcb.Unlock()
+
 	if fcb.finished || fcb.remove {
 		//todo: return the error
 		return 0, io.ErrClosedPipe
@@ -94,6 +106,9 @@ func (fcb *fileCacheBuffer) Seek(offset int64, whence int) (int64, error) {
 }
 
 func (fcb *fileCacheBuffer) Close() error {
+	fcb.Lock()
+	defer fcb.Unlock()
+
 	if fcb.remove {
 		return io.ErrClosedPipe
 	}
@@ -119,6 +134,9 @@ func (fcb *fileCacheBuffer) Close() error {
 }
 
 func (fcb *fileCacheBuffer) Sync() error {
+	fcb.Lock()
+	defer fcb.Unlock()
+
 	if fcb.remove {
 		return io.ErrClosedPipe
 	}
@@ -130,6 +148,9 @@ func (fcb *fileCacheBuffer) Sync() error {
 }
 
 func (fcb *fileCacheBuffer) ReadStream(off int64, size int64) (io.ReadCloser, error) {
+	fcb.RLock()
+	defer fcb.RUnlock()
+
 	if fcb.remove {
 		return nil, io.ErrClosedPipe
 	}
@@ -142,12 +163,26 @@ func (fcb *fileCacheBuffer) ReadStream(off int64, size int64) (io.ReadCloser, er
 }
 
 func (fcb *fileCacheBuffer) Remove() error {
+	fcb.Lock()
+	defer fcb.Unlock()
+
 	if fcb.remove {
 		return nil
 	}
 
 	fcb.remove = true
 	return os.Remove(fcb.path)
+}
+
+func (fcb *fileCacheBuffer) Size() (int64, error) {
+	fcb.RLock()
+	defer fcb.RUnlock()
+
+	if ! fcb.finished {
+		return fcb.size, fmt.Errorf("not finished")
+	}
+
+	return fcb.size, nil
 }
 
 func (fcb *fileCacheBuffer) openReadCloser(off int64, size int64) (io.ReadCloser, error) {
@@ -197,6 +232,3 @@ func (lr *limitReadCloser) Read(p []byte) (n int, err error) {
 func (lr *limitReadCloser) Close() error {
 	return lr.fr.Close()
 }
-
-
-
