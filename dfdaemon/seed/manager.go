@@ -53,11 +53,11 @@ type SeedManager interface {
 	List() ([]Seed, error)
 }
 
-func NewSeedManager(metaDir string) SeedManager {
+func NewSeedManager(metaDir string, totalLimitOfSeeds int) SeedManager {
 	once.Do(func() {
 		var err error
 		// todo: config the total limit
-		localSeedManager, err = newSeedManager(filepath.Join(metaDir, "seed"), 0, 50, 0)
+		localSeedManager, err = newSeedManager(filepath.Join(metaDir, "seed"), 0, totalLimitOfSeeds, 0)
 		if err != nil {
 			panic(err)
 		}

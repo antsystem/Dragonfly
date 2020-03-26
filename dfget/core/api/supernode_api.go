@@ -307,9 +307,8 @@ func (api *supernodeAPI) ReportResourceDeleted(node string, taskID string, cid s
 		"url: %s, header: %v", node, taskID, cid, url, header)
 
 	resp = new(types.BaseResponse)
-	resp.Code = constants.Success
 
-	if err = api.get(url, resp); err != nil {
+	if err = api.getWithHeaders(url, header, resp); err != nil {
 		logrus.Errorf("failed to send resource deleted, err: %v", err)
 		return nil, err
 	}

@@ -86,7 +86,7 @@ func (sm *SchedulerManager) adjustPeerLoad() {
 }
 
 // if pieceRange == "" means all Pieces of file
-func (sm *SchedulerManager) SchedulerByTaskID(ctx context.Context, taskID string, url string, pieceRange string, pieceSize int32) ([]*Result, error) {
+func (sm *SchedulerManager) Scheduler(ctx context.Context, taskID string, url string, pieceRange string, pieceSize int32) ([]*Result, error) {
 	sm.Lock()
 	defer sm.Unlock()
 
@@ -94,19 +94,14 @@ func (sm *SchedulerManager) SchedulerByTaskID(ctx context.Context, taskID string
 
 	// get local task if
 	localRs := sm.scheduleLocalPeer(taskID, url)
-	if localRs != nil {
-		result = []*Result{localRs}
+	if len(localRs) > 0 {
+		result = append(result, localRs...)
 	}
 
 	remoteRs, err := sm.scheduleRemotePeer(ctx, taskID, url, pieceRange, pieceSize)
-	if err != nil {
-		if len(result) > 0 {
-			return result, nil
-		}
-		return result, err
+	if err == nil && len(remoteRs) > 0 {
+		result = append(result, remoteRs...)
 	}
-
-	result = append(result, remoteRs...)
 
 	return result, nil
 }
@@ -200,6 +195,14 @@ func (sm *SchedulerManager) AddLocalTaskInfo(task *types.TaskFetchInfo) {
 	sm.localTaskContainer.add(task.Task.ID, &localTaskState{task: task})
 }
 
+func (sm *SchedulerManager) AddLocalSeedInfo(task *types.TaskFetchInfo) {
+	sm.localSeedContainer.add(task.Task.TaskURL, &localTaskState{task: task})
+}
+
+func (sm *SchedulerManager) DeleteLocalSeedInfo(url string) {
+	sm.localSeedContainer.remove(url)
+}
+
 func (sm *SchedulerManager) syncTaskContainerPerNode(node *types.Node, taskContainer *dataMap, seedContainer *dataMap) {
 	for _, task := range node.Tasks {
 		if !task.Task.AsSeed {
@@ -260,26 +263,28 @@ func (sm *SchedulerManager) updateNodeLoad(peerID string, addLoad int) {
 	}
 }
 
-func (sm *SchedulerManager) scheduleLocalPeer(taskID string, url string) *Result {
+func (sm *SchedulerManager) scheduleLocalPeer(taskID string, url string) []*Result {
 	var(
 		lts *localTaskState
 		err error
 	)
 
+	result := []*Result{}
+
 	if url != "" {
 		// seed file has the priority
 		lts, err = sm.localSeedContainer.getAsLocalTaskState(url)
 		if err == nil {
-			return sm.covertLocalTaskStateToResult(lts)
+			result = append(result, sm.covertLocalTaskStateToResult(lts))
 		}
 	}
 
 	lts, err = sm.localTaskContainer.getAsLocalTaskState(taskID)
-	if err != nil {
-		return nil
+	if err == nil {
+		result = append(result, sm.covertLocalTaskStateToResult(lts))
 	}
 
-	return sm.covertLocalTaskStateToResult(lts)
+	return result
 }
 
 func (sm *SchedulerManager) covertLocalTaskStateToResult(lts *localTaskState) *Result {
@@ -291,8 +296,4 @@ func (sm *SchedulerManager) covertLocalTaskStateToResult(lts *localTaskState) *R
 		Generation: sm.generation,
 		Local: true,
 	}
-}
-
-func (sm *SchedulerManager) scheduleLocalSeed(url string)  {
-
 }

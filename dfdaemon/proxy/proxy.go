@@ -148,7 +148,7 @@ func NewFromConfig(c config.Properties) (*Proxy, error) {
 			return p2p.NewClient(c.DFGetConfig())
 		}),
 		WithExtremeDownloaderFactory(func() downloader.Stream {
-			return localManager.NewLocalManager(c.DFGetConfig())
+			return localManager.NewLocalManager(c.DFGetConfig(), 0)
 		}),
 		WithDownloaderFactory(func() downloader.Interface {
 			return dfget.NewGetter(c.DFGetConfig())

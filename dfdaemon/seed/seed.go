@@ -38,6 +38,7 @@ type Seed interface {
 
 	//
 	GetStatus() string
+	TaskID() string
 	Key() string
 	URL() string
 	Length() (int64, error)
@@ -54,6 +55,7 @@ type seed struct {
 	ContentPath    string `json:"contentPath"`
 	SeedKey        string `json:"seedKey"`
 	HttpFileLength int64  `json:"httpFileLength"`
+	TaskId		   string `json:"taskId"`
 
 	Status string 			   `json:"Status"`
 
@@ -84,6 +86,7 @@ func newSeed(sm *seedManager, key string, info *PreFetchInfo) (Seed, error) {
 		Url:         info.URL,
 		Header:      info.Header,
 		Size:        info.Length,
+		TaskId:      info.TaskID,
 		SeedKey:     key,
 		cache:       cache,
 		sm:          sm,
@@ -230,6 +233,13 @@ func (sd *seed) Length() (int64, error) {
 	}
 
 	return sd.Size, nil
+}
+
+func (sd *seed) TaskID() string {
+	sd.RLock()
+	defer sd.RUnlock()
+
+	return sd.TaskId
 }
 
 func (sd *seed) setStatus(status string) error {

@@ -443,5 +443,11 @@ type ExtremeConfig struct {
 	// SpecKeyOfExtremeTaskID defines the header key which represents the taskID
 	SpecKeyOfTaskID		string		`yaml:"specKeyOfTaskID" json:"specKeyOfTaskID"`
 
-	SpecKeyOfDirectRet string		`yaml:"specKeyOfDirectRet" json:"specKeyOfDirectRet"`
+	SpecKeyOfDirectRet  string		`yaml:"specKeyOfDirectRet" json:"specKeyOfDirectRet"`
+
+	// the expired time of seed file, unit is hour. default 7 * 24 hours.
+	SeedExpiredTimeOfHour  int	 `yaml:"seedExpiredTimeOfHour" json:"seedExpiredTimeOfHour"`
+
+	// total limit of seeds, default 50
+	TotalLimitOfSeeds	   int	`yaml:"totalLimitOfSeeds" json:"totalLimitOfSeeds"`
 }

@@ -168,6 +168,11 @@ func (ld *LocalDownloader) finishTask(piece *downloader.Piece, info *downloadNod
 }
 
 func (ld *LocalDownloader) reportResource(info *downloadNodeInfo) {
+	// if download from local seed file, do not report resource to super node
+	if info.local && info.seed {
+		return
+	}
+
 	// report to supernode
 	registerReq := &types.RegisterRequest{
 		RawURL: ld.url,

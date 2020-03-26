@@ -59,7 +59,7 @@ func newPeerServer(cfg *config.Config, port int) *peerServer {
 		port:     port,
 		api:      api.NewSupernodeAPI(),
 		//todo:
-		seedManager: seed.NewSeedManager(cfg.RV.MetaPath),
+		seedManager: seed.NewSeedManager(cfg.RV.MetaPath, 0),
 	}
 
 	s.syncTaskContainer = &taskContainer{
@@ -856,7 +856,6 @@ func (ps *peerServer) deleteExpiredFile(path string, info os.FileInfo,
 		}
 		// if the last access time is expireTime ago
 		if time.Since(lastAccessTime) > expireTime {
-			// ignore the gc
 			if ok {
 				if !task.Other.SpecReport {
 					ps.api.ServiceDown(task.SuperNode, task.TaskID, task.Cid)

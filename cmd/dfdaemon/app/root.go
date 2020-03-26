@@ -70,8 +70,8 @@ var rootCmd = &cobra.Command{
 		cfgJSON, _ := json.Marshal(cfg)
 		logrus.Infof("using config: %s", cfgJSON)
 
-		_ = seed.NewSeedManager(cfg.WorkHome)
-		_ = localManager.NewLocalManager(cfg.DFGetConfig())
+		_ = seed.NewSeedManager(cfg.WorkHome, cfg.Extreme.TotalLimitOfSeeds)
+		_ = localManager.NewLocalManager(cfg.DFGetConfig(), cfg.Extreme.SeedExpiredTimeOfHour)
 
 		s, err := dfdaemon.NewFromConfig(*cfg)
 		if err != nil {

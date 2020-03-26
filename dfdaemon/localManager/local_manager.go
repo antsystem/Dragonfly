@@ -13,6 +13,7 @@ import (
 	"github.com/dragonflyoss/Dragonfly/dfget/core/api"
 	"github.com/dragonflyoss/Dragonfly/dfget/core/helper"
 	"github.com/dragonflyoss/Dragonfly/dfget/types"
+	"github.com/dragonflyoss/Dragonfly/pkg/constants"
 	"github.com/dragonflyoss/Dragonfly/pkg/errortypes"
 	"github.com/dragonflyoss/Dragonfly/pkg/httputils"
 	"github.com/dragonflyoss/Dragonfly/pkg/ratelimiter"
@@ -59,7 +60,7 @@ type LocalManager struct {
 	seedExpiredTime		time.Duration
 }
 
-func NewLocalManager(cfg config.DFGetConfig) *LocalManager {
+func NewLocalManager(cfg config.DFGetConfig, seedExpireTimeOfHours int) *LocalManager {
 	once.Do(func() {
 		dfcfg := convertToDFGetConfig(cfg, nil)
 		localPeer := &types2.PeerInfo{
@@ -80,7 +81,11 @@ func NewLocalManager(cfg config.DFGetConfig) *LocalManager {
 			syncTime: time.Now(),
 			syncP2PNetworkCh: make(chan string, 2),
 			seedExpiredTime: time.Hour * 24 * 7,
-			seedManager: seed.NewSeedManager(""),
+			seedManager: seed.NewSeedManager("", 0),
+		}
+
+		if seedExpireTimeOfHours != 0 {
+			localManager.seedExpiredTime = time.Hour * time.Duration(seedExpireTimeOfHours)
 		}
 
 		go localManager.fetchLoop(context.Background())
@@ -207,7 +212,7 @@ func (lm *LocalManager) DownloadStreamContext(ctx context.Context, url string, h
 
 
 	// try to download from peer by internal schedule
-	result, err := lm.sm.SchedulerByTaskID(ctx, taskID, url, "", 0)
+	result, err := lm.sm.Scheduler(ctx, taskID, url, "", 0)
 	if nWare != nil {
 		nWare.Add(key, transport.ScheduleName, time.Since(startTime).Nanoseconds())
 		startTime = time.Now()
@@ -269,7 +274,7 @@ func (lm *LocalManager) DownloadStreamContext(ctx context.Context, url string, h
 		// delete the range of headers
 		delete(header, dfgetcfg.StrRange)
 
-		go lm.tryToPrefetchSeedFile(resp.SeedTaskID, &seed.PreFetchInfo{URL: req.TaskURL, Header: header, TaskID: resp.SeedTaskID})
+		go lm.tryToPrefetchSeedFile(context.Background(), resp.SeedTaskID, &seed.PreFetchInfo{URL: req.TaskURL, Header: header, TaskID: resp.SeedTaskID})
 	}
 
 	rd, err = localDownloader.RunStream(ctx)
@@ -486,7 +491,7 @@ func (lm *LocalManager) heartbeat() {
 }
 
 // tryToPrefetchSeedFile will try to prefetch the seed file
-func (lm *LocalManager) tryToPrefetchSeedFile(taskID string, info *seed.PreFetchInfo) {
+func (lm *LocalManager) tryToPrefetchSeedFile(ctx context.Context, taskID string, info *seed.PreFetchInfo) {
 	key := seed.GenerateKeyByUrl(info.URL)
 	sd, err := lm.seedManager.Register(key, info)
 	if err != nil {
@@ -524,6 +529,9 @@ func (lm *LocalManager) tryToPrefetchSeedFile(taskID string, info *seed.PreFetch
 		return
 	}
 
+	go lm.addSeedToLocalScheduler(sd)
+	go lm.monitorExpiredSeed(ctx, sd)
+
 	// todo: report the seed info to super node and wait for expired time
 	resp, err := lm.spProxy.ReportResource(&types.RegisterRequest{
 		TaskId: taskID,
@@ -545,4 +553,60 @@ func (lm *LocalManager) tryToPrefetchSeedFile(taskID string, info *seed.PreFetch
 	}
 
 	logrus.Infof("success to report seed file %s, resp %v", taskID, resp)
+}
+
+// add seed to local scheduler
+func (lm *LocalManager) addSeedToLocalScheduler(sd seed.Seed) {
+	length, err := sd.Length()
+	if err != nil {
+		logrus.Errorf("failed to get length of seed, url:%s, key: %s: %v", sd.URL(), sd.Key(), err)
+		return
+	}
+
+	task := &types2.TaskFetchInfo{
+		Task: &types2.TaskInfo{
+			ID: sd.TaskID(),
+			FileLength: length,
+			RawURL: sd.URL(),
+			TaskURL: sd.URL(),
+			PieceSize: int32(length),
+			PieceTotal: 1,
+			AsSeed: true,
+		},
+		Pieces: []*types2.PieceInfo{
+			{
+				Path: sd.Key(),
+			},
+		},
+	}
+
+	lm.sm.AddLocalSeedInfo(task)
+}
+
+// monitor the expired event of seed
+func (lm *LocalManager) monitorExpiredSeed(ctx context.Context, sd seed.Seed) {
+	expiredCh, err := sd.NotifyExpired()
+	if err != nil {
+		logrus.Errorf("failed to get expired chan of seed, url:%s, key: %s: %v", sd.URL(), sd.Key(), err)
+		return
+	}
+
+	select {
+		case <- ctx.Done():
+			return
+		case <- expiredCh:
+			logrus.Infof("seed url: %s, key: %s, has been expired, try to clear resource of it", sd.URL(), sd.Key())
+			break
+	}
+
+	// try to clear resource and report to super node
+	lm.sm.DeleteLocalSeedInfo(sd.URL())
+
+	// report super node seed has been deleted
+	resp, err := lm.spProxy.ReportResourceDeleted(sd.TaskID(), lm.dfGetConfig.RV.Cid)
+	if err != nil || resp.Code != constants.CodeGetPeerDown {
+		logrus.Errorf("failed to report resource %s deleted, resp: %v, err: %v", sd.TaskID(), resp, err)
+	}else {
+		logrus.Infof("success to report resource %s deleted", sd.TaskID())
+	}
 }
