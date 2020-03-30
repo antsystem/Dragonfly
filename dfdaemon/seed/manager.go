@@ -3,13 +3,6 @@ package seed
 import (
 	"context"
 	"fmt"
-	"github.com/dragonflyoss/Dragonfly/dfget/config"
-	"github.com/dragonflyoss/Dragonfly/pkg/errortypes"
-	"github.com/dragonflyoss/Dragonfly/pkg/httputils"
-	"github.com/dragonflyoss/Dragonfly/pkg/netutils"
-	"github.com/dragonflyoss/Dragonfly/pkg/queue"
-	"github.com/dragonflyoss/Dragonfly/supernode/httpclient"
-	"io"
 	"io/ioutil"
 	"net/http"
 	"os"
@@ -19,19 +12,26 @@ import (
 	"sync"
 	"time"
 
-	"github.com/sirupsen/logrus"
+	"github.com/dragonflyoss/Dragonfly/dfget/config"
+	"github.com/dragonflyoss/Dragonfly/pkg/errortypes"
+	"github.com/dragonflyoss/Dragonfly/pkg/httputils"
+	"github.com/dragonflyoss/Dragonfly/pkg/netutils"
+	"github.com/dragonflyoss/Dragonfly/pkg/queue"
+	"github.com/dragonflyoss/Dragonfly/supernode/httpclient"
+
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 )
 
-var(
+var (
 	localSeedManager SeedManager
-	once 		sync.Once
+	once             sync.Once
 )
 
-const(
+const (
 	DefaultDownloadConcurrency = 4
-	MaxDownloadConcurrency = 8
-	MinTotalLimit = 2
+	MaxDownloadConcurrency     = 8
+	MinTotalLimit              = 2
 	// 50MB
 	DefaultBlockSize = 1024 * 1024 * 50
 
@@ -49,7 +49,7 @@ type SeedManager interface {
 
 	// SetPrefetchLimit limits the concurrency of downloading seed.
 	// default is DefaultDownloadConcurrency.
-	SetConcurrentLimit(limit int)  (validLimit int)
+	SetConcurrentLimit(limit int) (validLimit int)
 
 	Get(key string) (Seed, error)
 
@@ -92,7 +92,7 @@ func newSeedManager(cacheDir string, concurrentLimit int, totalLimit int, downlo
 	}
 
 	downloadCh := make(chan struct{}, concurrentLimit)
-	for i:= 0; i < concurrentLimit; i ++ {
+	for i := 0; i < concurrentLimit; i++ {
 		downloadCh <- struct{}{}
 	}
 
@@ -111,17 +111,17 @@ func newSeedManager(cacheDir string, concurrentLimit int, totalLimit int, downlo
 	ctx, cancelFn := context.WithCancel(context.Background())
 
 	sr := &seedManager{
-		ctx: ctx,
-		cancelFn: cancelFn,
-		cacheDir: cacheDir,
-		concurrentLimit: concurrentLimit,
-		totalLimit: totalLimit,
-		seedContainer: make(map[string]Seed),
-		lru: queue.NewLRUQueue(totalLimit),
-		waitQueue: queue.NewQueue(0),
-		downloadCh: downloadCh,
+		ctx:               ctx,
+		cancelFn:          cancelFn,
+		cacheDir:          cacheDir,
+		concurrentLimit:   concurrentLimit,
+		totalLimit:        totalLimit,
+		seedContainer:     make(map[string]Seed),
+		lru:               queue.NewLRUQueue(totalLimit),
+		waitQueue:         queue.NewQueue(0),
+		downloadCh:        downloadCh,
 		downloadBlockSize: downloadBlock,
-		originClient: httpclient.NewOriginClient(),
+		originClient:      httpclient.NewOriginClient(),
 	}
 
 	sr.restore(ctx)
@@ -136,26 +136,26 @@ type seedManager struct {
 	sync.Mutex
 
 	// the context which is monitor by all loop
-	ctx				context.Context
+	ctx context.Context
 	// call cancelFn to stop all loop
-	cancelFn		func()
+	cancelFn func()
 
-	cacheDir    	string
+	cacheDir        string
 	concurrentLimit int
-	totalLimit  	int
+	totalLimit      int
 	// when download seed file, it download by block which of size will set this.
 	downloadBlockSize int64
 
-	seedContainer 	map[string]Seed
+	seedContainer map[string]Seed
 	// lru queue which wide out the seed file, it is thread safe
-	lru			  	*queue.LRUQueue
+	lru *queue.LRUQueue
 	// the queue wait for prefetch, it is thread safe
-	waitQueue		queue.Queue
+	waitQueue queue.Queue
 
 	// downloadCh notify the seed to prefetch
-	downloadCh		chan struct{}
+	downloadCh chan struct{}
 
-	originClient    httpclient.OriginHTTPClient
+	originClient httpclient.OriginHTTPClient
 }
 
 func (sr *seedManager) Register(key string, info *PreFetchInfo) (Seed, error) {
@@ -189,7 +189,7 @@ func (sr *seedManager) UnRegister(taskID string) error {
 
 // SetPrefetchLimit limit the concurrency of downloading seed.
 // default is DefaultDownloadConcurrency.
-func (sr *seedManager) SetConcurrentLimit(limit int)  (validLimit int) {
+func (sr *seedManager) SetConcurrentLimit(limit int) (validLimit int) {
 	return 0
 }
 
@@ -213,7 +213,7 @@ func (sr *seedManager) List() ([]Seed, error) {
 	i := 0
 	for _, s := range sr.seedContainer {
 		ret[i] = s
-		i ++
+		i++
 	}
 
 	return ret, nil
@@ -244,7 +244,7 @@ func (sr *seedManager) restore(ctx context.Context) {
 			continue
 		}
 
-		key := strings.TrimSuffix( name, ".meta")
+		key := strings.TrimSuffix(name, ".meta")
 		data, err := ioutil.ReadFile(filepath.Join(metaDir, name))
 		if err != nil {
 			logrus.Errorf("failed to read file %s: %v", name, err)
@@ -315,9 +315,9 @@ func (sr *seedManager) gcSeed(key string, sd *seed) {
 
 // prefetchLoop handle the seed file
 func (sr *seedManager) prefetchLoop(ctx context.Context) {
-	for{
+	for {
 		ob, exist := sr.waitQueue.PollTimeout(2 * time.Second)
-		if ! exist {
+		if !exist {
 			continue
 		}
 
@@ -327,10 +327,10 @@ func (sr *seedManager) prefetchLoop(ctx context.Context) {
 		}
 
 		select {
-			case <- ctx.Done():
-				return
-			case <- sr.downloadCh:
-				break
+		case <-ctx.Done():
+			return
+		case <-sr.downloadCh:
+			break
 		}
 
 		go sr.downloadSeed(ctx, st.sd, st.ch)
@@ -342,13 +342,13 @@ func (sr *seedManager) gcLoop(ctx context.Context) {
 	ticker := time.NewTicker(defaultGcInterval)
 	defer ticker.Stop()
 
-	for{
+	for {
 		select {
-		case <- ctx.Done():
+		case <-ctx.Done():
 			logrus.Infof("context done, return gcLoop")
 			return
 
-		case <- ticker.C:
+		case <-ticker.C:
 			logrus.Infof("start to  gc loop")
 			sr.gcExpiredSeed()
 		}
@@ -380,7 +380,7 @@ func (sr *seedManager) addToDownloadQueue(st prefetchSt) {
 // downloadSeed download the seed file, if success or failed, it will send to sr.downloadCh to notify
 // the next seed to download.
 func (sr *seedManager) downloadSeed(ctx context.Context, sd *seed, ch chan PreFetchResult) {
-	var(
+	var (
 		start int64
 		end   int64
 		err   error
@@ -389,36 +389,33 @@ func (sr *seedManager) downloadSeed(ctx context.Context, sd *seed, ch chan PreFe
 	dn := newLocalDownloader(sd.Url, sd.Header, sd.rate)
 	// download 50MB per request
 	downloadBlock := sr.downloadBlockSize
-	defaultTimeout := netutils.CalculateTimeout(int64(downloadBlock), 0, config.DefaultMinRate, 10*time.Second)
+	defaultTimeout := netutils.CalculateTimeout(int64(downloadBlock), 0, config.DefaultMinRate, 10 * time.Second)
 	retryTimeout := defaultTimeout * 2
 	retry := 0
+	downloaderLength := int64(0)
+	httpFileLength := int64(0)
 
-	if sd.getHttpFileLength() == 0 {
+	if sd.GetHttpFileLength() == 0 {
 		header := map[string]string{}
 		for k, v := range sd.Header {
 			header[k] = v[0]
 		}
 
 		length, err := sr.getHTTPFileLength(sd.SeedKey, sd.Url, header)
-		if  err != nil {
-			// todo: handle the error
+		if err != nil {
 			goto handleErr
 		}
 
-		sd.setHttpFileLength(length)
+		sd.SetHttpFileLength(length)
 	}
 
-	start = sd.currentSize()
-	for{
-		end = start + downloadBlock - 1
-		if end >= sd.HttpFileLength - 1 {
-			end = sd.HttpFileLength - 1
-		}
+	start = sd.CurrentSize()
+	httpFileLength = sd.GetHttpFileLength()
 
-		_, err = sd.cache.Seek(start, io.SeekStart)
-		if err != nil {
-			//todo: handle the error
-			goto handleErr
+	for {
+		end = start + downloadBlock - 1
+		if end > httpFileLength - 1 {
+			end = httpFileLength - 1
 		}
 
 		timeout := defaultTimeout
@@ -426,16 +423,15 @@ func (sr *seedManager) downloadSeed(ctx context.Context, sd *seed, ch chan PreFe
 			timeout = retryTimeout
 		}
 
-		length, err := dn.Download(ctx, httputils.RangeStruct{StartIndex: start, EndIndex: end}, timeout, sd.cache)
+		downloaderLength, err = dn.DownloadToWriterAt(ctx, httputils.RangeStruct{StartIndex: start, EndIndex: end}, timeout, start, sd.cache)
 		if err != nil {
-			// todo: handle the error
 			code, _, ok := isHttpError(err)
 			if ok {
-				if code != http.StatusRequestTimeout &&  code != http.StatusTooManyRequests &&
+				if code != http.StatusRequestTimeout && code != http.StatusTooManyRequests &&
 					code != http.StatusResetContent {
 					goto handleErr
 				}
-			}else if !isTimeoutError(err) {
+			} else if !isTimeoutError(err) {
 				goto handleErr
 			}
 
@@ -445,19 +441,20 @@ func (sr *seedManager) downloadSeed(ctx context.Context, sd *seed, ch chan PreFe
 				goto handleErr
 			}
 
-			retry ++
+			retry++
 			continue
 		}
 
 		retry = 0
 
 		sd.cache.Sync()
-		err = sd.updateSize(start + length)
+		err = sd.updateSize(start + downloaderLength)
 		if err != nil {
-			// todo: handle the error
+			goto handleErr
 		}
+		sd.cache.LockSize(sd.cache.Size())
 
-		if end == sd.HttpFileLength - 1 {
+		if end == httpFileLength - 1 {
 			// download finished
 			goto finished
 		}
@@ -471,7 +468,10 @@ handleErr:
 	go func() {
 		sr.downloadCh <- struct{}{}
 	}()
-	ch <- PreFetchResult{Success: false, Canceled: true, Err: err}
+
+	ch <- NewPreFetchResult(false, true, fmt.Errorf("download failed: %v", err), func() {
+		close(ch)
+	})
 
 	return
 
@@ -482,9 +482,10 @@ finished:
 	go func() {
 		sr.downloadCh <- struct{}{}
 	}()
-	ch <- PreFetchResult{Success: true, Canceled: false}
+	ch <- NewPreFetchResult(true, false, nil, func() {
+		close(ch)
+	})
 }
-
 
 func (sr *seedManager) getHTTPFileLength(taskID, url string, headers map[string]string) (int64, error) {
 	fileLength, code, err := sr.originClient.GetContentLength(url, headers)
@@ -505,4 +506,3 @@ func (sr *seedManager) getHTTPFileLength(taskID, url string, headers map[string]
 
 	return fileLength, nil
 }
-

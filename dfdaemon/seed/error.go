@@ -1,8 +1,9 @@
 package seed
 
 import (
-	"github.com/dragonflyoss/Dragonfly/pkg/errortypes"
 	"strings"
+
+	"github.com/dragonflyoss/Dragonfly/pkg/errortypes"
 )
 
 func isTimeoutError(err error) bool {

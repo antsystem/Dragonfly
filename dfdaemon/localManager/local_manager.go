@@ -89,7 +89,6 @@ func NewLocalManager(cfg config.DFGetConfig, seedExpireTimeOfHours int) *LocalMa
 
 		localManager.restoreSeed(context.Background())
 		go localManager.fetchLoop(context.Background())
-		go localManager.syncLocalTaskLoop(context.Background())
 		go localManager.heartBeatLoop(context.Background())
 	})
 
@@ -191,11 +190,6 @@ func (lm *LocalManager) DownloadStreamContext(ctx context.Context, url string, h
 		key			string
 	)
 
-	taskID := httputils.GetTaskIDFromHeader(url, header, lm.cfg.SpecKeyOfExtremeTaskID)
-	if taskID == "" {
-		return nil, fmt.Errorf("in extreme mode, taskID should be set")
-	}
-
 	nWareOb := ctx.Value("numericalWare")
 	ware, ok := nWareOb.(transport.NumericalWare)
 	if ok {
@@ -221,25 +215,24 @@ func (lm *LocalManager) DownloadStreamContext(ctx context.Context, url string, h
 
 	length := lm.getLengthFromHeader(url, header)
 
-	logrus.Infof("start to download, url: %s, header: %v, taskID: %s, length: %d", url,
-		header, taskID, length)
-
+	logrus.Infof("start to download, url: %s, header: %v, length: %d", url,
+		header, length)
 
 	// try to download from peer by internal schedule
-	result, err := lm.sm.Scheduler(ctx, taskID, url, "", 0)
+	result, err := lm.sm.Scheduler(ctx, url, "", 0)
 	if nWare != nil {
 		nWare.Add(key, transport.ScheduleName, time.Since(startTime).Nanoseconds())
 		startTime = time.Now()
 	}
 	if err != nil || len(result) == 0 {
-		go lm.scheduleBySuperNode(ctx, url, header, name, taskID, length)
+		go lm.scheduleBySuperNode(ctx, url, header, name, length)
 	}else{
 		tmpInfos := make([]*downloadNodeInfo, len(result))
 		for i, r := range result {
 			tmpInfos[i] = &downloadNodeInfo{
 				ip: r.PeerInfo.IP.String(),
 				port: int(r.PeerInfo.Port),
-				path: r.Pieces[0].Path,
+				path: r.Path,
 				peerID: r.PeerInfo.ID,
 				local: r.Local,
 				seed: r.Task.AsSeed,
@@ -253,7 +246,7 @@ func (lm *LocalManager) DownloadStreamContext(ctx context.Context, url string, h
 	localDownloader = NewLocalDownloader()
 	localDownloader.selectNodes = infos
 	localDownloader.length = length
-	localDownloader.taskID = taskID
+	//localDownloader.taskID = taskID
 	localDownloader.systemDataDir = lm.dfGetConfig.RV.SystemDataDir
 	localDownloader.outPath = helper.GetServiceFile(name, lm.dfGetConfig.RV.SystemDataDir)
 	localDownloader.downloadAPI = lm.downloadAPI
@@ -264,24 +257,23 @@ func (lm *LocalManager) DownloadStreamContext(ctx context.Context, url string, h
 	localDownloader.url = url
 	localDownloader.taskFileName = name
 	localDownloader.postNotifyUploader = func(req *api.FinishTaskRequest) {
-		localTask := &types2.TaskFetchInfo{
-			Task: &types2.TaskInfo{
-				ID: req.TaskID,
-				FileLength: req.Other.FileLength,
-				HTTPFileLength: req.Other.FileLength,
-				//Headers: req.Other.Headers,
-				PieceSize: int32(req.Other.FileLength),
-				PieceTotal: 1,
-				TaskURL: req.Other.TaskURL,
-				RawURL: req.Other.RawURL,
-			},
-			Pieces: []*types2.PieceInfo{
-					{
-						Path: req.TaskFileName,
-					},
-			},
-		}
-		lm.sm.AddLocalTaskInfo(localTask)
+		//localTask := &types2.TaskFetchInfo{
+		//	Task: &types2.TaskInfo{
+		//		ID: req.TaskID,
+		//		FileLength: req.Other.FileLength,
+		//		HTTPFileLength: req.Other.FileLength,
+		//		//Headers: req.Other.Headers,
+		//		PieceSize: int32(req.Other.FileLength),
+		//		PieceTotal: 1,
+		//		TaskURL: req.Other.TaskURL,
+		//		RawURL: req.Other.RawURL,
+		//	},
+		//	Pieces: []*types2.PieceInfo{
+		//			{
+		//				Path: req.TaskFileName,
+		//			},
+		//	},
+		//}
 	}
 	localDownloader.postNotifySeedPrefetch = func(ld *LocalDownloader, req *types.RegisterRequest, resp *types.RegisterResponseData) {
 		header := ld.header
@@ -296,7 +288,7 @@ func (lm *LocalManager) DownloadStreamContext(ctx context.Context, url string, h
 	return rd, err
 }
 
-func (lm *LocalManager) scheduleBySuperNode(ctx context.Context, url string, header map[string][]string, name string, taskID string, length int64)  {
+func (lm *LocalManager) scheduleBySuperNode(ctx context.Context, url string, header map[string][]string, name string, length int64)  {
 	lm.rm.addRequest(url, false)
 	lm.notifyFetchP2PNetwork(url)
 }
@@ -406,34 +398,6 @@ func (lm *LocalManager) fetchP2PNetworkFromSupernode(node string, req *types.Fet
 	return result, nil
 }
 
-// syncLocalTaskLoop fetch local tasks to add to local schedule
-func (lm *LocalManager) syncLocalTaskLoop(ctx context.Context) {
-	for {
-		check := lm.checkUploader(ctx, 30 * time.Second)
-		if !check {
-			time.Sleep(time.Minute)
-			continue
-		}
-
-		break
-	}
-
-	// call it firstly
-	lm.fetchAndSyncLocalTask()
-
-	ticker := time.NewTicker(time.Minute)
-	defer ticker.Stop()
-
-	for{
-		select {
-		    case <- ctx.Done():
-				return
-			case <- ticker.C:
-				lm.fetchAndSyncLocalTask()
-		}
-	}
-}
-
 func (lm *LocalManager) checkUploader(ctx context.Context, timeout time.Duration) bool {
 	ticker := time.NewTicker(time.Second * 1)
 	t := time.NewTimer(timeout)
@@ -455,16 +419,6 @@ func (lm *LocalManager) checkUploader(ctx context.Context, timeout time.Duration
 	}
 
 	return false
-}
-
-func (lm *LocalManager) fetchAndSyncLocalTask() {
-	result, err := lm.uploaderAPI.FetchLocalTask(lm.cfg.LocalIP, lm.cfg.PeerPort)
-	if err != nil {
-		logrus.Errorf("failed to fetch local task: %v", err)
-		return
-	}
-
-	lm.sm.SyncLocalTaskInfo(result)
 }
 
 func (lm *LocalManager) heartBeatLoop(ctx context.Context) {
@@ -530,11 +484,7 @@ func (lm *LocalManager) tryToPrefetchSeedFile(ctx context.Context, taskID string
 }
 
 func (lm *LocalManager) reportSeedToSuperNode(sd seed.Seed) {
-	fileLength, err := sd.Length()
-	if err != nil {
-		logrus.Errorf("failed to get length: %v", err)
-		return
-	}
+	fileLength := sd.CurrentSize()
 
 	resp, err := lm.spProxy.ReportResource(&types.RegisterRequest{
 		TaskId: sd.TaskID(),
@@ -560,11 +510,7 @@ func (lm *LocalManager) reportSeedToSuperNode(sd seed.Seed) {
 
 // add seed to local scheduler
 func (lm *LocalManager) addSeedToLocalScheduler(sd seed.Seed) {
-	length, err := sd.Length()
-	if err != nil {
-		logrus.Errorf("failed to get length of seed, url:%s, key: %s: %v", sd.URL(), sd.Key(), err)
-		return
-	}
+	length := sd.CurrentSize()
 
 	task := &types2.TaskFetchInfo{
 		Task: &types2.TaskInfo{

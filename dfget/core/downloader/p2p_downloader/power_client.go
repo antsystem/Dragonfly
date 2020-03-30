@@ -19,7 +19,6 @@ package downloader
 import (
 	"bytes"
 	"crypto/md5"
-	"encoding/binary"
 	"fmt"
 	"hash"
 	"io"
@@ -160,7 +159,7 @@ func (pc *PowerClient) downloadPiece() (content *bytes.Buffer, e error) {
 	peerPort := pc.pieceTask.PeerPort
 
 	// check that the target download peer is available
-	if !pc.pieceTask.DirectSource && dstIP != pc.node {
+	if dstIP != pc.node {
 		if _, e = httputils.CheckConnect(dstIP, peerPort, -1); e != nil {
 			return nil, e
 		}
@@ -169,19 +168,9 @@ func (pc *PowerClient) downloadPiece() (content *bytes.Buffer, e error) {
 	// send download request
 	startTime := time.Now()
 	timeout := netutils.CalculateTimeout(int64(pc.pieceTask.PieceSize), pc.cfg.MinRate, config.DefaultMinRate, 10*time.Second)
-	if pc.pieceTask.DirectSource {
-		header := map[string]string{}
-		h := http.Header(pc.pieceTask.Header)
-		for k, _ := range pc.pieceTask.Header {
-			header[k] = h.Get(k)
-		}
-		resp, err = httputils.HTTPGetTimeout(pc.pieceTask.Url, header, timeout)
-		logrus.Debugf("in downloadPiece by returnSrc, url: %s, header: %v, err: %d", pc.pieceTask.Url, header, err)
-	}else{
-		createReq := pc.createDownloadRequest()
-		resp, err = pc.downloadAPI.Download(dstIP, peerPort, createReq, timeout)
-		logrus.Debugf("in downloadPiece by p2p, dstIP: %s, peerPort: %d, req: %v, err: %v", dstIP, peerPort, pc.createDownloadRequest(), err)
-	}
+	createReq := pc.createDownloadRequest()
+	resp, err = pc.downloadAPI.Download(dstIP, peerPort, createReq, timeout)
+	logrus.Debugf("in downloadPiece by p2p, dstIP: %s, peerPort: %d, req: %v, err: %v", dstIP, peerPort, pc.createDownloadRequest(), err)
 
 	if err != nil {
 		return nil, err
@@ -203,17 +192,17 @@ func (pc *PowerClient) downloadPiece() (content *bytes.Buffer, e error) {
 		md5HashReader = md5.New()
 	}
 
-	if pc.pieceTask.DirectSource {
-		// add pad if download from src url
-		//padSize := config.PieceMetaSize
-		pieceSize := pc.pieceTask.PieceSize
-		buf := make([]byte, 128)
-		binary.BigEndian.PutUint32(buf, uint32((pieceSize)|(pieceSize)<<4))
-		content.Write(buf[:config.PieceHeadSize])
-		if md5HashReader != nil {
-			md5HashReader.Write(buf[:config.PieceHeadSize])
-		}
-	}
+	//if pc.pieceTask.DirectSource {
+	//	// add pad if download from src url
+	//	//padSize := config.PieceMetaSize
+	//	pieceSize := pc.pieceTask.PieceSize
+	//	buf := make([]byte, 128)
+	//	binary.BigEndian.PutUint32(buf, uint32((pieceSize)|(pieceSize)<<4))
+	//	content.Write(buf[:config.PieceHeadSize])
+	//	if md5HashReader != nil {
+	//		md5HashReader.Write(buf[:config.PieceHeadSize])
+	//	}
+	//}
 
 	// start to read data from resp
 	// use limitReader to limit the download speed
@@ -224,12 +213,12 @@ func (pc *PowerClient) downloadPiece() (content *bytes.Buffer, e error) {
 	}
 	pc.readCost = time.Since(startTime)
 
-	if pc.pieceTask.DirectSource {
-		if md5HashReader != nil {
-			md5HashReader.Write([]byte{config.PieceTailChar})
-		}
-		content.Write([]byte{config.PieceTailChar})
-	}
+	//if pc.pieceTask.DirectSource {
+	//	if md5HashReader != nil {
+	//		md5HashReader.Write([]byte{config.PieceTailChar})
+	//	}
+	//	content.Write([]byte{config.PieceTailChar})
+	//}
 
 	// Verify md5 code
 	if realMd5 := limitReader.Md5(); realMd5 != pieceMD5 {

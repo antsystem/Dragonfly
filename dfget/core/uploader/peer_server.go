@@ -28,7 +28,6 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -40,7 +39,6 @@ import (
 	"github.com/dragonflyoss/Dragonfly/dfget/core/api"
 	"github.com/dragonflyoss/Dragonfly/dfget/core/helper"
 	"github.com/dragonflyoss/Dragonfly/dfget/types"
-	"github.com/dragonflyoss/Dragonfly/pkg/constants"
 	"github.com/dragonflyoss/Dragonfly/pkg/errortypes"
 	"github.com/dragonflyoss/Dragonfly/pkg/limitreader"
 	"github.com/dragonflyoss/Dragonfly/pkg/ratelimiter"
@@ -186,148 +184,6 @@ type uploadParam struct {
 	pieceNum  int64
 }
 
-const(
-	taskMetaDir = "task-meta"
-)
-
-// reload the resource which read from local file system
-func (ps *peerServer) reload() {
-	var(
-		localTaskConfig = map[string]*taskConfig{}
-		err error
-	)
-
-	taskMetaPath := filepath.Join(ps.cfg.RV.MetaPath, taskMetaDir)
-	err = os.MkdirAll(taskMetaPath, 0744)
-	if err != nil {
-		panic(fmt.Sprintf("failed to init dir %s", taskMetaPath))
-	}
-
-	localTaskConfig, err = ps.readTaskInfoFromDir(filepath.Join(ps.cfg.RV.MetaPath, taskMetaDir))
-	if err != nil {
-		logrus.Warnf("failed to read task from local: %v", err)
-		return
-	}
-
-	logrus.Infof("try to reload task file")
-	ps.initLocalTask(localTaskConfig)
-	ps.registerTaskToSuperNode()
-}
-
-func (ps *peerServer) registerTaskToSuperNode() {
-	ps.syncTaskContainer.Range(func(key, value interface{}) bool {
-		taskFileName := key.(string)
-		tc := value.(*taskConfig)
-		ps.reportResource(taskFileName, tc)
-		return true
-	})
-}
-
-func (ps *peerServer) reportResource(taskFileName string, tc *taskConfig) {
-	req := &types.RegisterRequest{
-		RawURL: tc.Other.RawURL,
-		TaskURL: tc.Other.TaskURL,
-		Cid: ps.cfg.RV.Cid,
-		IP: ps.cfg.RV.LocalIP,
-		Port: ps.cfg.RV.PeerPort,
-		Path: taskFileName,
-		Md5: ps.cfg.Md5,
-		Identifier: ps.cfg.Identifier,
-		Headers: tc.Other.Headers,
-		Dfdaemon: ps.cfg.DFDaemon,
-		Insecure: ps.cfg.Insecure,
-		TaskId: tc.TaskID,
-		FileLength: tc.Other.FileLength,
-	}
-
-	for _,node := range ps.cfg.Nodes {
-		resp, err := ps.api.ReportResource(node, req)
-		if err == nil && resp.Code == constants.Success {
-			logrus.Infof("success to report resource %v to supernode", req)
-			break
-		}else{
-			logrus.Errorf("failed to report resource %v tp supernode, resp: %v, err: %v", req, resp, err)
-		}
-	}
-}
-
-func (ps *peerServer) readTaskInfoFromDir(dir string) (map[string]*taskConfig, error) {
-	result := map[string]*taskConfig{}
-
-	fin, err := ioutil.ReadDir(dir)
-	if err != nil {
-		return nil, err
-	}
-
-	for _, fi := range fin {
-		taskFileName := ""
-		isBak := false
-
-		if strings.HasSuffix(fi.Name(), ".meta") {
-			taskFileName = strings.TrimSuffix(fi.Name(), ".meta")
-		}else if strings.HasSuffix(fi.Name(), ".meta.bak") {
-			taskFileName = strings.TrimSuffix(fi.Name(), ".meta.bak")
-			isBak = true
-		}else{
-			continue
-		}
-
-		fp  := filepath.Join(dir, fi.Name())
-		meta, err := ioutil.ReadFile(fp)
-		if err != nil {
-			logrus.Errorf("failed to read meta data of task %s: %v", fi.Name(), err)
-			continue
-		}
-
-		tc := &taskConfig{}
-
-		err = json.Unmarshal(meta, tc)
-		if err != nil {
-			logrus.Errorf("failed to read meta data of task %s: %v", fi.Name(), err)
-			continue
-		}
-
-		if !isBak {
-			result[taskFileName] = tc
-		}else{
-			if _, exist := result[taskFileName]; !exist {
-				result[taskFileName] = tc
-			}
-		}
-	}
-
-	return result, nil
-}
-
-func (ps *peerServer) initLocalTask(m map[string]*taskConfig) {
-	for taskFileName, tc := range m {
-		tc.AccessTime = time.Now()
-
-		taskPath := helper.GetServiceFile(taskFileName, tc.DataDir)
-
-		_, err := os.Stat(taskPath)
-		if err != nil {
-			logrus.Warnf("failed to stat taskFile %s for task %s: %v", taskPath, tc.TaskID, err)
-			continue
-		}
-
-		tc.cache = newCacheBuffer()
-		ps.syncTaskContainer.Store(taskFileName, tc)
-		if ps.cfg.RV.CacheMode == config.SysPageCache {
-			ps.syncSysCache(taskFileName)
-		}
-		// todo: notify the supernode to register task
-	}
-}
-
-func (ps *peerServer) taskMetaFilePath(taskFileName string) string {
-	return filepath.Join(ps.cfg.RV.MetaPath, taskMetaDir, fmt.Sprintf("%s.meta", taskFileName))
-}
-
-func (ps *peerServer) taskMetaFileBakPath(taskFileName string) string {
-	return filepath.Join(ps.cfg.RV.MetaPath, taskMetaDir, fmt.Sprintf("%s.meta.bak", taskFileName))
-}
-
 // ----------------------------------------------------------------------------
 // reload method of peerServer
 
@@ -421,12 +277,7 @@ func (ps *peerServer) prepareReadStreamFromSeed(up *uploadParam, path string) (r
 		return nil, 0, false
 	}
 
-	size, err = sd.Length()
-	if err != nil {
-		return nil, 0, false
-	}
-
-	rc, err = sd.Download(up.start, up.length - up.padSize)
+	rc, err = sd.Download(up.start, up.length - up.padSize, true)
 	if err != nil {
 		return nil, 0, false
 	}

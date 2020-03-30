@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"github.com/dragonflyoss/Dragonfly/apis/types"
-	dtypes "github.com/dragonflyoss/Dragonfly/dfget/types"
 	"github.com/dragonflyoss/Dragonfly/pkg/errortypes"
 	"sync"
 
@@ -23,11 +22,11 @@ type SchedulerManager struct {
 	// generation
 	generation     int64
 
-	// key is taskID, value is taskState
-	taskContainer  *dataMap
-
-	// key is taskID, value is localTaskState
-	localTaskContainer *dataMap
+	//// key is taskID, value is taskState
+	//taskContainer  *dataMap
+	//
+	//// key is taskID, value is localTaskState
+	//localTaskContainer *dataMap
 
 	// key is peerID, value is Node
 	nodeContainer  *dataMap
@@ -47,8 +46,8 @@ type SchedulerManager struct {
 
 func NewScheduler(localPeer *types.PeerInfo) *SchedulerManager {
 	sm := &SchedulerManager{
-		taskContainer: newDataMap(),
-		localTaskContainer: newDataMap(),
+		//taskContainer: newDataMap(),
+		//localTaskContainer: newDataMap(),
 		localSeedContainer: newDataMap(),
 		nodeContainer: newDataMap(),
 		urlContainer: newDataMap(),
@@ -86,19 +85,19 @@ func (sm *SchedulerManager) adjustPeerLoad() {
 }
 
 // if pieceRange == "" means all Pieces of file
-func (sm *SchedulerManager) Scheduler(ctx context.Context, taskID string, url string, pieceRange string, pieceSize int32) ([]*Result, error) {
+func (sm *SchedulerManager) Scheduler(ctx context.Context, url string, pieceRange string, pieceSize int32) ([]*Result, error) {
 	sm.Lock()
 	defer sm.Unlock()
 
 	result := []*Result{}
 
 	// get local task if
-	localRs := sm.scheduleLocalPeer(taskID, url)
+	localRs := sm.scheduleLocalPeer(url)
 	if len(localRs) > 0 {
 		result = append(result, localRs...)
 	}
 
-	remoteRs, err := sm.scheduleRemotePeer(ctx, taskID, url, pieceRange, pieceSize)
+	remoteRs, err := sm.scheduleRemotePeer(ctx, url, pieceRange, pieceSize)
 	if err == nil && len(remoteRs) > 0 {
 		result = append(result, remoteRs...)
 	}
@@ -106,7 +105,7 @@ func (sm *SchedulerManager) Scheduler(ctx context.Context, taskID string, url st
 	return result, nil
 }
 
-func (sm *SchedulerManager) scheduleRemotePeer(ctx context.Context, taskID string, url string, pieceRange string, pieceSize int32) ([]*Result, error)  {
+func (sm *SchedulerManager) scheduleRemotePeer(ctx context.Context, url string, pieceRange string, pieceSize int32) ([]*Result, error)  {
 	var(
 		state *taskState
 		err error
@@ -116,13 +115,6 @@ func (sm *SchedulerManager) scheduleRemotePeer(ctx context.Context, taskID strin
 		state, err = sm.seedContainer.getAsTaskState(url)
 		if err == nil {
 			goto next
-		}
-	}
-
-	if taskID != "" {
-		state, err = sm.taskContainer.getAsTaskState(taskID)
-		if err != nil {
-			return nil, err
 		}
 	}
 
@@ -142,7 +134,7 @@ next:
 
 		result[i] = &Result{
 			DstCid: pn.peerID,
-			Pieces: pn.pieces,
+			Path: pn.path,
 			Task:  pn.info,
 			PeerInfo: node.Basic,
 			Generation: sm.generation,
@@ -173,26 +165,8 @@ func (sm *SchedulerManager) SyncSchedulerInfo(nodes []*types.Node) {
 	sm.Lock()
 	defer sm.Unlock()
 
-	sm.taskContainer = newTaskContainer
 	sm.nodeContainer = newNodeContainer
 	sm.seedContainer = seedContainer
-}
-
-func (sm *SchedulerManager) SyncLocalTaskInfo(tasks *dtypes.FetchLocalTaskInfo) {
-	newLocalTaskContainer := newDataMap()
-	for _, task := range tasks.Tasks {
-		newLocalTaskContainer.add(task.Task.ID, &localTaskState{task: task})
-	}
-
-	// replace the localTaskContainer
-	sm.Lock()
-	defer sm.Unlock()
-
-	sm.localTaskContainer = newLocalTaskContainer
-}
-
-func (sm *SchedulerManager) AddLocalTaskInfo(task *types.TaskFetchInfo) {
-	sm.localTaskContainer.add(task.Task.ID, &localTaskState{task: task})
 }
 
 func (sm *SchedulerManager) AddLocalSeedInfo(task *types.TaskFetchInfo) {
@@ -206,43 +180,26 @@ func (sm *SchedulerManager) DeleteLocalSeedInfo(url string) {
 func (sm *SchedulerManager) syncTaskContainerPerNode(node *types.Node, taskContainer *dataMap, seedContainer *dataMap) {
 	for _, task := range node.Tasks {
 		if !task.Task.AsSeed {
-			ts, err := taskContainer.getAsTaskState(task.Task.ID)
-			if err != nil && !errortypes.IsDataNotFound(err) {
-				logrus.Errorf("syncTaskContainerPerNode error: %v", err)
+			continue
+		}
+
+		ts, err := seedContainer.getAsTaskState(task.Task.TaskURL)
+		if err != nil && !errortypes.IsDataNotFound(err) {
+			logrus.Errorf("syncTaskContainerPerNode error: %v", err)
+			continue
+		}
+
+		if ts == nil {
+			ts = newTaskState()
+			if err := seedContainer.add(task.Task.TaskURL, ts); err != nil {
+				logrus.Errorf("syncTaskContainerPerNode add taskstate %v to taskContainer error: %v", ts, err)
 				continue
 			}
+		}
 
-			if ts == nil {
-				ts = newTaskState()
-				if err := taskContainer.add(task.Task.ID, ts); err != nil {
-					logrus.Errorf("syncTaskContainerPerNode add taskstate %v to taskContainer error: %v", ts, err)
-					continue
-				}
-			}
-
-			err = ts.add(node.Basic.ID, &node.Load, task.Pieces, task.Task)
-			if err != nil {
-				logrus.Errorf("syncTaskContainerPerNode error: %v", err)
-			}
-		}else{
-			ts, err := seedContainer.getAsTaskState(task.Task.TaskURL)
-			if err != nil && !errortypes.IsDataNotFound(err) {
-				logrus.Errorf("syncTaskContainerPerNode error: %v", err)
-				continue
-			}
-
-			if ts == nil {
-				ts = newTaskState()
-				if err := seedContainer.add(task.Task.TaskURL, ts); err != nil {
-					logrus.Errorf("syncTaskContainerPerNode add taskstate %v to taskContainer error: %v", ts, err)
-					continue
-				}
-			}
-
-			err = ts.add(node.Basic.ID, &node.Load, task.Pieces, task.Task)
-			if err != nil {
-				logrus.Errorf("syncTaskContainerPerNode error: %v", err)
-			}
+		err = ts.add(node.Basic.ID, &node.Load, task.Pieces[0].Path, task.Task)
+		if err != nil {
+			logrus.Errorf("syncTaskContainerPerNode error: %v", err)
 		}
 	}
 }
@@ -263,7 +220,7 @@ func (sm *SchedulerManager) updateNodeLoad(peerID string, addLoad int) {
 	}
 }
 
-func (sm *SchedulerManager) scheduleLocalPeer(taskID string, url string) []*Result {
+func (sm *SchedulerManager) scheduleLocalPeer(url string) []*Result {
 	var(
 		lts *localTaskState
 		err error
@@ -279,11 +236,6 @@ func (sm *SchedulerManager) scheduleLocalPeer(taskID string, url string) []*Resu
 		}
 	}
 
-	lts, err = sm.localTaskContainer.getAsLocalTaskState(taskID)
-	if err == nil {
-		result = append(result, sm.covertLocalTaskStateToResult(lts))
-	}
-
 	return result
 }
 
@@ -292,7 +244,7 @@ func (sm *SchedulerManager) covertLocalTaskStateToResult(lts *localTaskState) *R
 		DstCid: sm.localPeerInfo.ID,
 		PeerInfo: sm.localPeerInfo,
 		Task: lts.task.Task,
-		Pieces: lts.task.Pieces,
+		Path: lts.path,
 		Generation: sm.generation,
 		Local: true,
 	}

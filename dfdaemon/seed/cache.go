@@ -1,7 +1,6 @@
 package seed
 
 import (
-	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -12,15 +11,17 @@ import (
 
 // cacheBuffer interface caches the seed file
 type cacheBuffer interface {
-	io.WriteSeeker
+	io.WriterAt
 	io.Closer
+	// lock the range [0, size-1], it don't allow to alter the range.
+	LockSize(int64)
 	Sync() error
 	ReadStream(off int64, size int64) (io.ReadCloser, error)
 	// remove the cache
 	Remove() error
 
 	// cache size
-	Size() (int64, error)
+	Size() int64
 }
 
 // if file size is shorter than existSize, exist return false and write from 0;
@@ -28,9 +29,9 @@ type cacheBuffer interface {
 // if finished set true and file Size is longer or equal than existSize, exist return true. It will
 // no need to write again.
 func newFileCacheBuffer(path string, existSize int64, finished bool) (cb cacheBuffer, exist bool, err error) {
-	var(
-		fw *os.File
-		trunc  bool = true
+	var (
+		fw    *os.File
+		trunc bool = true
 	)
 
 	if existSize > 0 {
@@ -49,7 +50,7 @@ func newFileCacheBuffer(path string, existSize int64, finished bool) (cb cacheBu
 
 		trunc = false
 		exist = true
-		fw, err = os.OpenFile(path, os.O_CREATE | os.O_WRONLY | os.O_APPEND, 0644)
+		fw, err = os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 		if err != nil {
 			return nil, false, err
 		}
@@ -65,7 +66,7 @@ truncWrite:
 		}
 	}
 
-	fcb := &fileCacheBuffer{path: path, fw: fw, size: existSize}
+	fcb := &fileCacheBuffer{path: path, fw: fw, size: existSize, lockSize: existSize}
 	if finished && exist {
 		fcb.finished = finished
 	}
@@ -80,29 +81,27 @@ type fileCacheBuffer struct {
 	fw       *os.File
 	finished bool
 	remove   bool
-	size	 int64
+	size     int64
+	lockSize int64
 }
 
-func (fcb *fileCacheBuffer) Write(p []byte) (int, error) {
+func (fcb *fileCacheBuffer) WriteAt(p []byte, off int64) (n int, err error) {
+	fcb.Lock()
+	if fcb.finished || fcb.remove {
+		//todo: return the error
+		fcb.Unlock()
+		return 0, io.ErrClosedPipe
+	}
+	fcb.size = off
+	fcb.Unlock()
+
+	n, err = fcb.fw.WriteAt(p, off)
+
 	fcb.Lock()
 	defer fcb.Unlock()
 
-	if fcb.finished || fcb.remove {
-		//todo: return the error
-		return 0, io.ErrClosedPipe
-	}
-	return fcb.fw.Write(p)
-}
-
-func (fcb *fileCacheBuffer) Seek(offset int64, whence int) (int64, error) {
-	fcb.Lock()
-	defer fcb.Unlock()
-
-	if fcb.finished || fcb.remove {
-		//todo: return the error
-		return 0, io.ErrClosedPipe
-	}
-	return fcb.fw.Seek(offset, whence)
+	fcb.size = off + int64(n)
+	return n, err
 }
 
 func (fcb *fileCacheBuffer) Close() error {
@@ -129,6 +128,7 @@ func (fcb *fileCacheBuffer) Close() error {
 	}
 
 	fcb.size = fi.Size()
+	fcb.lockSize = fcb.size
 	fcb.finished = true
 	return nil
 }
@@ -144,6 +144,7 @@ func (fcb *fileCacheBuffer) Sync() error {
 	if fcb.finished {
 		return nil
 	}
+
 	return fcb.fw.Sync()
 }
 
@@ -153,10 +154,6 @@ func (fcb *fileCacheBuffer) ReadStream(off int64, size int64) (io.ReadCloser, er
 
 	if fcb.remove {
 		return nil, io.ErrClosedPipe
-	}
-
-	if !fcb.finished {
-		return nil, fmt.Errorf("not finished")
 	}
 
 	return fcb.openReadCloser(off, size)
@@ -174,15 +171,18 @@ func (fcb *fileCacheBuffer) Remove() error {
 	return os.Remove(fcb.path)
 }
 
-func (fcb *fileCacheBuffer) Size() (int64, error) {
+func (fcb *fileCacheBuffer) Size() int64 {
 	fcb.RLock()
 	defer fcb.RUnlock()
 
-	if ! fcb.finished {
-		return fcb.size, fmt.Errorf("not finished")
-	}
+	return fcb.size
+}
 
-	return fcb.size, nil
+func (fcb *fileCacheBuffer) LockSize(size int64) {
+	fcb.Lock()
+	defer fcb.Unlock()
+
+	fcb.lockSize = size
 }
 
 func (fcb *fileCacheBuffer) openReadCloser(off int64, size int64) (io.ReadCloser, error) {
@@ -195,17 +195,12 @@ func (fcb *fileCacheBuffer) openReadCloser(off int64, size int64) (io.ReadCloser
 		off = 0
 	}
 
-	// if size <= 0, direct return the fr.
+	// if size <= 0, set range to [off, lockSize-1]
 	if size <= 0 {
-		_, err = fr.Seek(off, io.SeekStart)
-		if err != nil {
-			return nil, err
-		}
-
-		return fr, nil
+		size = fcb.lockSize - off
 	}
 
-	if off + size > fcb.size {
+	if off + size > fcb.lockSize {
 		return nil, errortypes.NewHttpError(http.StatusRequestedRangeNotSatisfiable, "out of range")
 	}
 
@@ -213,14 +208,14 @@ func (fcb *fileCacheBuffer) openReadCloser(off int64, size int64) (io.ReadCloser
 }
 
 type limitReadCloser struct {
-	sr 		*io.SectionReader
-	fr		*os.File
+	sr *io.SectionReader
+	fr *os.File
 }
 
 func newLimitReadCloser(fr *os.File, off int64, size int64) (io.ReadCloser, error) {
 	sr := io.NewSectionReader(fr, off, size)
 	return &limitReadCloser{
-		sr:  sr,
+		sr: sr,
 		fr: fr,
 	}, nil
 }

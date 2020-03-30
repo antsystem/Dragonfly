@@ -1,16 +1,14 @@
 package seed
 
-import(
-	"bytes"
-	"io"
+import (
 	"io/ioutil"
 	"net/http"
 	"path/filepath"
 
 	"github.com/dragonflyoss/Dragonfly/pkg/errortypes"
+
 	"github.com/go-check/check"
 )
-
 
 func (s *SeedTestSuite) TestFileCacheBufferWithNoFile(c *check.C) {
 	testDir := s.tmpDir
@@ -19,30 +17,42 @@ func (s *SeedTestSuite) TestFileCacheBufferWithNoFile(c *check.C) {
 	c.Assert(exist, check.Equals, false)
 	c.Assert(err, check.IsNil)
 
-	_, err = cb.ReadStream(0, -1)
-	c.Assert(err, check.NotNil)
-
 	data := []byte("0123456789")
 	// write data
-	n, err := io.Copy(cb, bytes.NewBuffer(data))
+	n, err := cb.WriteAt(data, 0)
+	c.Assert(int(n), check.Equals, len(data))
+	c.Assert(err, check.IsNil)
+	cb.LockSize(cb.Size())
+
+	// write data
+	n, err =  cb.WriteAt(data, 20)
 	c.Assert(int(n), check.Equals, len(data))
 	c.Assert(err, check.IsNil)
 
-	// write data
-	_, err = cb.Seek(10, io.SeekStart)
+	// read stream
+	rc, err := cb.ReadStream(0, -1)
 	c.Assert(err, check.IsNil)
-	n, err = io.Copy(cb, bytes.NewBuffer(data))
-	c.Assert(int(n), check.Equals, len(data))
+	data0, err := ioutil.ReadAll(rc)
+	c.Assert(err, check.IsNil)
+	c.Assert(len(data0), check.Equals, 10)
+	expectAllData := []byte("0123456789")
+	c.Assert(string(data0), check.Equals, string(expectAllData))
+	err = rc.Close()
 	c.Assert(err, check.IsNil)
 
-	// read stream, expected failed
-	_, err = cb.ReadStream(0, -1)
-	c.Assert(err, check.NotNil)
+	cb.LockSize(cb.Size())
+	rc, err = cb.ReadStream(0, -1)
+	c.Assert(err, check.IsNil)
+	data0, err = ioutil.ReadAll(rc)
+	c.Assert(err, check.IsNil)
+	c.Assert(len(data0), check.Equals, 20)
+	expectAllData = []byte("01234567890123456789")
+	c.Assert(string(data0), check.Equals, string(expectAllData))
+	err = rc.Close()
+	c.Assert(err, check.IsNil)
 
 	// write data
-	_, err = cb.Seek(20, io.SeekStart)
-	c.Assert(err, check.IsNil)
-	n, err = io.Copy(cb, bytes.NewBuffer(data))
+	n, err = cb.WriteAt(data, 20)
 	c.Assert(int(n), check.Equals, len(data))
 	c.Assert(err, check.IsNil)
 	err = cb.Sync()
@@ -53,12 +63,12 @@ func (s *SeedTestSuite) TestFileCacheBufferWithNoFile(c *check.C) {
 	c.Assert(err, check.IsNil)
 
 	// read all
-	rc, err := cb.ReadStream(0, -1)
+	rc, err = cb.ReadStream(0, -1)
 	c.Assert(err, check.IsNil)
 	data1, err := ioutil.ReadAll(rc)
 	c.Assert(err, check.IsNil)
-	c.Assert(len(data1), check.Equals, len(data) * 3)
-	expectAllData := []byte("012345678901234567890123456789")
+	c.Assert(len(data1), check.Equals, len(data)*3)
+	expectAllData = []byte("012345678901234567890123456789")
 	c.Assert(string(data1), check.Equals, string(expectAllData))
 	err = rc.Close()
 	c.Assert(err, check.IsNil)
@@ -100,7 +110,6 @@ func (s *SeedTestSuite) TestFileCacheBufferWithNoFile(c *check.C) {
 	c.Assert(err, check.NotNil)
 }
 
-
 func (s *SeedTestSuite) TestFileCacheBufferWithExistFile(c *check.C) {
 	testDir := s.tmpDir
 
@@ -113,15 +122,15 @@ func (s *SeedTestSuite) TestFileCacheBufferWithExistFile(c *check.C) {
 	inputData2 := []byte("abcde")
 
 	// write data inputData1 * 3
-	n, err := io.Copy(cb, bytes.NewBuffer(inputData1))
+	n, err := cb.WriteAt(inputData1, 0)
 	c.Assert(int(n), check.Equals, len(inputData1))
 	c.Assert(err, check.IsNil)
 
-	n, err = io.Copy(cb, bytes.NewBuffer(inputData1))
+	n, err = cb.WriteAt(inputData1, 10)
 	c.Assert(int(n), check.Equals, len(inputData1))
 	c.Assert(err, check.IsNil)
 
-	n, err = io.Copy(cb, bytes.NewBuffer(inputData1))
+	n, err = cb.WriteAt(inputData1, 20)
 	c.Assert(int(n), check.Equals, len(inputData1))
 	c.Assert(err, check.IsNil)
 
@@ -133,25 +142,35 @@ func (s *SeedTestSuite) TestFileCacheBufferWithExistFile(c *check.C) {
 	c.Assert(err, check.IsNil)
 	c.Assert(exist, check.Equals, true)
 
+	rc, err := cb.ReadStream(0, -1)
+	c.Assert(err, check.IsNil)
+	data0, err := ioutil.ReadAll(rc)
+	c.Assert(err, check.IsNil)
+	c.Assert(len(data0), check.Equals, 30)
+	expectAllData := []byte("012345678901234567890123456789")
+	c.Assert(string(data0), check.Equals, string(expectAllData))
+	err = rc.Close()
+	c.Assert(err, check.IsNil)
+
 	// write  data inputData2
-	n, err = io.Copy(cb, bytes.NewBuffer(inputData2))
+	n, err = cb.WriteAt(inputData2, 30)
 	c.Assert(int(n), check.Equals, len(inputData2))
 	c.Assert(err, check.IsNil)
 
 	// close
 	err = cb.Close()
 	c.Assert(err, check.IsNil)
-	size, err := cb.Size()
+	size := cb.Size()
 	c.Assert(err, check.IsNil)
 	c.Assert(int(size), check.Equals, 35)
 
 	// read all
-	rc, err := cb.ReadStream(0, -1)
+	rc, err = cb.ReadStream(0, -1)
 	c.Assert(err, check.IsNil)
 	data1, err := ioutil.ReadAll(rc)
 	c.Assert(err, check.IsNil)
 	c.Assert(len(data1), check.Equals, 35)
-	expectAllData := []byte("012345678901234567890123456789abcde")
+	expectAllData = []byte("012345678901234567890123456789abcde")
 	c.Assert(string(data1), check.Equals, string(expectAllData))
 	err = rc.Close()
 	c.Assert(err, check.IsNil)

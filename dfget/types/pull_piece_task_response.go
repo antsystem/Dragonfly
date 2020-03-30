@@ -93,7 +93,6 @@ type PullPieceTaskResponseContinueData struct {
 
 	Url		  string  `json:"url"`
 	Header    map[string][]string `json:"header"`
-	DirectSource bool
 }
 
 func (data *PullPieceTaskResponseContinueData) String() string {

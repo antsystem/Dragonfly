@@ -14,7 +14,7 @@ type taskStatePerNode struct {
 	peerID		string
 	load		*int64
 	info		*types.TaskInfo
-	pieces		[]*types.PieceInfo
+	path		string
 }
 
 type loadSorter struct {
@@ -47,7 +47,7 @@ func newTaskState() *taskState {
 	}
 }
 
-func (ts *taskState) add(peerID string, load *int64, pieces []*types.PieceInfo, info *types.TaskInfo) error {
+func (ts *taskState) add(peerID string, load *int64, path string, info *types.TaskInfo) error {
 	if stringutils.IsEmptyStr(peerID) {
 		return errors.Wrap(errortypes.ErrEmptyValue, "peerID")
 	}
@@ -60,7 +60,7 @@ func (ts *taskState) add(peerID string, load *int64, pieces []*types.PieceInfo, 
 	item := &taskStatePerNode{
 		peerID: peerID,
 		load: load,
-		pieces: pieces,
+		path: path,
 		info: info,
 	}
 

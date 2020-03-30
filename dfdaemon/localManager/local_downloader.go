@@ -3,7 +3,6 @@ package localManager
 import (
 	"context"
 	"fmt"
-	"github.com/dragonflyoss/Dragonfly/dfdaemon/downloader/p2p"
 	"github.com/dragonflyoss/Dragonfly/dfdaemon/transport"
 	"github.com/dragonflyoss/Dragonfly/dfget/config"
 	"github.com/dragonflyoss/Dragonfly/dfget/core/api"
@@ -15,11 +14,8 @@ import (
 	"github.com/dragonflyoss/Dragonfly/pkg/ratelimiter"
 	"io"
 	"math"
-	"os"
-	"path/filepath"
 	"time"
 
-	"github.com/pborman/uuid"
 	"github.com/sirupsen/logrus"
 )
 
@@ -45,7 +41,7 @@ type LocalDownloader struct {
 	queue			queue.Queue
 	clientQueue     queue.Queue
 
-	taskID			string
+	//taskID			string
 	length			int64
 
 	// super node ip, may be ""
@@ -118,7 +114,6 @@ func (ld *LocalDownloader) run(ctx context.Context, pieceWriter downloader.Piece
 	return lastErr
 }
 
-//
 func (ld *LocalDownloader) processItem(ctx context.Context, info *downloadNodeInfo) (success bool, err error) {
 	for {
 		v, ok := ld.queue.PollTimeout(2 * time.Second)
@@ -132,121 +127,9 @@ func (ld *LocalDownloader) processItem(ctx context.Context, info *downloadNodeIn
 			return false, fmt.Errorf("failed to download from %s", item.DstCid)
 		}
 
-		go ld.finishTask(item, info)
 		return true, nil
 	}
 
-}
-
-// task is finished, try to download to local file system and report to super node
-func (ld *LocalDownloader) finishTask(piece *downloader.Piece, info *downloadNodeInfo) {
-	if !info.local {
-		tmpPath := filepath.Join(ld.systemDataDir, uuid.New())
-		f, err := os.OpenFile(tmpPath, os.O_TRUNC | os.O_WRONLY | os.O_CREATE, 0664)
-		if err != nil {
-			logrus.Warnf("failed to open tmp path: %v", err)
-			return
-		}
-
-		_, err = io.Copy(f, piece.RawContent())
-		if err != nil {
-			f.Close()
-			logrus.Warnf("failed to write tmp path: %v", err)
-			return
-		}
-
-		f.Close()
-
-		err = os.Rename(tmpPath, ld.outPath)
-		if err != nil {
-			logrus.Warnf("failed to rename: %v", err)
-			return
-		}
-	}
-
-	ld.reportResource(info)
-}
-
-func (ld *LocalDownloader) reportResource(info *downloadNodeInfo) {
-	// if download from local seed file, do not report resource to super node
-	if info.local && info.seed {
-		return
-	}
-
-	// report to supernode
-	registerReq := &types.RegisterRequest{
-		RawURL: ld.url,
-		TaskURL: ld.url,
-		TaskId:  ld.taskID,
-		FileLength: ld.length,
-		Insecure: ld.config.Insecure,
-		Dfdaemon: ld.config.DFDaemon,
-		Path: ld.taskFileName,
-		IP: ld.config.RV.LocalIP,
-		Port: ld.config.RV.PeerPort,
-		Cid: ld.config.RV.Cid,
-		Headers: p2p.FlattenHeader(ld.header),
-		Md5: ld.config.Md5,
-		Identifier: ld.config.Identifier,
-	}
-
-	if info.local {
-		registerReq.Path = info.path
-	}
-
-	reportSuperNode := ""
-
-	for _, node := range ld.config.Nodes {
-		registerReq.SupernodeIP = node
-		resp, err := ld.superAPI.ReportResource(node, registerReq)
-		if err != nil {
-			logrus.Error(err)
-		}
-
-		if err == nil && resp.Code == constants.Success {
-			logrus.Debugf("success to report resource %v to supernode, resp: %v", registerReq, resp.Data)
-			reportSuperNode = node
-			if resp.Data.AsSeed {
-				// notify as the seed
-				ld.postNotifySeedPrefetch(ld, registerReq, resp.Data)
-			}
-
-			break
-		}
-	}
-
-	if reportSuperNode == "" {
-		return
-	}
-
-	if info.local {
-		logrus.Infof("success to download task %s from local", ld.taskID)
-		return
-	}
-
-	// notify local uploader
-	finishTaskReq := &api.FinishTaskRequest{
-		TaskFileName: ld.taskFileName,
-		TaskID: ld.taskID,
-		Node: reportSuperNode,
-		ClientID: ld.config.RV.Cid,
-		Other: api.FinishTaskOther{
-			RawURL: registerReq.RawURL,
-			TaskURL: registerReq.TaskURL,
-			FileLength: registerReq.FileLength,
-			Headers: registerReq.Headers,
-			SpecReport: true,
-		},
-	}
-	err := ld.uploaderAPI.FinishTask(ld.config.RV.LocalIP, ld.config.RV.PeerPort, finishTaskReq)
-	if err != nil {
-		logrus.Errorf("failed to finish task %v for uploader: %v", finishTaskReq, err)
-	}else{
-		logrus.Infof("success to finish task %v for uploader", finishTaskReq)
-		if ld.postNotifyUploader != nil {
-			ld.postNotifyUploader(finishTaskReq)
-		}
-	}
 }
 
 func (ld *LocalDownloader) processPiece(ctx context.Context, info* downloadNodeInfo) {
@@ -261,7 +144,7 @@ func (ld *LocalDownloader) processPiece(ctx context.Context, info* downloadNodeI
 		Path: fmt.Sprintf("%s%s", config.PeerHTTPPathPrefix, info.path),
 		Url: info.url,
 		Header: info.header,
-		DirectSource: info.directSource,
+		//DirectSource: info.directSource,
 	}
 
 	// if target is seed, construct the range by header
@@ -300,7 +183,7 @@ func (ld *LocalDownloader) startTask(ctx context.Context, data *types.PullPieceT
 	}
 
 	powerClientConfig := &downloader.PowerClientConfig{
-		TaskID:  ld.taskID,
+		//TaskID:  ld.taskID,
 		Node: ld.node,
 		PieceTask: data,
 		Cfg: ld.config,
@@ -321,5 +204,3 @@ func (ld *LocalDownloader) startTask(ctx context.Context, data *types.PullPieceT
 		}
 	}
 }
-
-

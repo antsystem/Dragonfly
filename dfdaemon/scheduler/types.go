@@ -7,7 +7,7 @@ type Result struct {
 	Local  bool
 	PeerInfo *types.PeerInfo
 	Task     *types.TaskInfo
-	Pieces []*types.PieceInfo
+	Path	 string
 
 	Generation int64
 	// before download, it should be called
