@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/dragonflyoss/Dragonfly/pkg/limitreader"
 	"io"
 	"io/ioutil"
 	"net/http"
@@ -76,6 +77,7 @@ type seed struct {
 	cache cacheBuffer
 
 	rate          *ratelimiter.RateLimiter
+	uploadRate    *ratelimiter.RateLimiter
 	ExpireTimeDur time.Duration `json:"expireTimeDur"`
 	expireTime    time.Time     `json:"-"`
 	DeadLineTime  string        `json:"deadLineTime"`
@@ -108,6 +110,7 @@ func newSeed(sm *seedManager, key string, info *PreFetchInfo) (Seed, error) {
 		ContentPath: contentPath,
 		// if expired, close expireCh
 		expireCh: make(chan struct{}),
+		uploadRate: sm.uploadRate,
 	}, nil
 }
 
@@ -146,6 +149,7 @@ func restoreFromMeta(sm *seedManager, key string, data []byte) (Seed, error) {
 	sd.metaBakPath = sm.seedMetaBakPath(key)
 	sd.metaPath = sm.seedMetaPath(key)
 	sd.expireCh = make(chan struct{})
+	sd.uploadRate = sm.uploadRate
 
 	return sd, nil
 }
@@ -233,8 +237,12 @@ func (sd *seed) Download(off int64, size int64, directSource bool) (io.ReadClose
 	}
 
 	rc, err := sd.cache.ReadStream(off, size)
-	if err == nil || !directSource {
-		return rc, err
+	if err == nil {
+		return newRateLimitReadCloser(rc, sd.uploadRate), nil
+	}
+
+	if !directSource {
+		return nil, err
 	}
 
 	if httpErr, ok := err.(*errortypes.HttpError); !ok || httpErr.HttpCode() != http.StatusRequestedRangeNotSatisfiable {
@@ -378,11 +386,31 @@ func (sd *seed) proxyToSource(off int64, size int64) (io.ReadCloser, error) {
 	pr, pw := io.Pipe()
 	logrus.Infof("seed %s, start to proxy to source range(%d, %d)", sd.Url, off, off + size - 1)
 	go func(writer *io.PipeWriter) {
-		downloader := newLocalDownloader(sd.Url, sd.Header, sd.rate)
+		downloader := newLocalDownloader(sd.Url, sd.Header, sd.uploadRate)
 		timeout := netutils.CalculateTimeout(size, 0, config.DefaultMinRate, 10 * time.Second)
 		_, err := downloader.Download(context.Background(), httputils.RangeStruct{StartIndex: off, EndIndex: off + size - 1}, timeout, writer)
 		writer.CloseWithError(err)
 	}(pw)
 
 	return pr, nil
+}
+
+type rateLimitReadCloser struct {
+	rc   io.ReadCloser
+	lr	*limitreader.LimitReader
+}
+
+func newRateLimitReadCloser(rc io.ReadCloser, rate *ratelimiter.RateLimiter) *rateLimitReadCloser {
+	return &rateLimitReadCloser{
+		rc: rc,
+		lr: limitreader.NewLimitReaderWithLimiter(rate, rc, false),
+	}
+}
+
+func (rl *rateLimitReadCloser) Read(p []byte) (n int, err error) {
+	return rl.lr.Read(p)
+}
+
+func (rl *rateLimitReadCloser) Close() error {
+	return rl.rc.Close()
 }

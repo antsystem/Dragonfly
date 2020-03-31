@@ -207,23 +207,23 @@ func (fcb *fileCacheBuffer) openReadCloser(off int64, size int64) (io.ReadCloser
 	return newLimitReadCloser(fr, off, size)
 }
 
-type limitReadCloser struct {
+type fileReadCloser struct {
 	sr *io.SectionReader
 	fr *os.File
 }
 
 func newLimitReadCloser(fr *os.File, off int64, size int64) (io.ReadCloser, error) {
 	sr := io.NewSectionReader(fr, off, size)
-	return &limitReadCloser{
+	return &fileReadCloser{
 		sr: sr,
 		fr: fr,
 	}, nil
 }
 
-func (lr *limitReadCloser) Read(p []byte) (n int, err error) {
+func (lr *fileReadCloser) Read(p []byte) (n int, err error) {
 	return lr.sr.Read(p)
 }
 
-func (lr *limitReadCloser) Close() error {
+func (lr *fileReadCloser) Close() error {
 	return lr.fr.Close()
 }

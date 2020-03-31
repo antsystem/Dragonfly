@@ -3,6 +3,7 @@ package seed
 import (
 	"context"
 	"fmt"
+	"github.com/dragonflyoss/Dragonfly/pkg/ratelimiter"
 	"io/ioutil"
 	"net/http"
 	"os"
@@ -37,6 +38,8 @@ const (
 
 	defaultGcInterval = 2 * time.Minute
 	defaultRetryTimes = 3
+
+	defaultUploadRate = 10 * 1024 * 1024
 )
 
 // SeedManager is an interface which manages the seeds
@@ -122,6 +125,7 @@ func newSeedManager(cacheDir string, concurrentLimit int, totalLimit int, downlo
 		downloadCh:        downloadCh,
 		downloadBlockSize: downloadBlock,
 		originClient:      httpclient.NewOriginClient(),
+		uploadRate: 	   ratelimiter.NewRateLimiter(defaultUploadRate/100, 100),
 	}
 
 	sr.restore(ctx)
@@ -156,6 +160,8 @@ type seedManager struct {
 	downloadCh chan struct{}
 
 	originClient httpclient.OriginHTTPClient
+
+	uploadRate *ratelimiter.RateLimiter
 }
 
 func (sr *seedManager) Register(key string, info *PreFetchInfo) (Seed, error) {
