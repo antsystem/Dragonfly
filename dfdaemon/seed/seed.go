@@ -376,7 +376,7 @@ func (sd *seed) SetHttpFileLength(length int64) {
 
 func (sd *seed) proxyToSource(off int64, size int64) (io.ReadCloser, error) {
 	pr, pw := io.Pipe()
-	logrus.Debugf("seed %s, start to proxy to source range(%d, %d)", sd.Url, off, off + size - 1)
+	logrus.Infof("seed %s, start to proxy to source range(%d, %d)", sd.Url, off, off + size - 1)
 	go func(writer *io.PipeWriter) {
 		downloader := newLocalDownloader(sd.Url, sd.Header, sd.rate)
 		timeout := netutils.CalculateTimeout(size, 0, config.DefaultMinRate, 10 * time.Second)

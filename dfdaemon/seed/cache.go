@@ -186,11 +186,6 @@ func (fcb *fileCacheBuffer) LockSize(size int64) {
 }
 
 func (fcb *fileCacheBuffer) openReadCloser(off int64, size int64) (io.ReadCloser, error) {
-	fr, err := os.Open(fcb.path)
-	if err != nil {
-		return nil, err
-	}
-
 	if off < 0 {
 		off = 0
 	}
@@ -202,6 +197,11 @@ func (fcb *fileCacheBuffer) openReadCloser(off int64, size int64) (io.ReadCloser
 
 	if off + size > fcb.lockSize {
 		return nil, errortypes.NewHttpError(http.StatusRequestedRangeNotSatisfiable, "out of range")
+	}
+
+	fr, err := os.Open(fcb.path)
+	if err != nil {
+		return nil, err
 	}
 
 	return newLimitReadCloser(fr, off, size)
