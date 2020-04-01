@@ -67,7 +67,6 @@ func newPeerServer(cfg *config.Config, port int) *peerServer {
 
 	logrus.Infof("peer server config: %v, supernodes: %v", cfg, cfg.Nodes)
 
-	s.reload()
 	r := s.initRouter()
 	s.Server = &http.Server{
 		Addr:    net.JoinHostPort(s.host, strconv.Itoa(port)),
@@ -112,7 +111,6 @@ type taskContainer struct {
 
 func (t *taskContainer) Store(taskFileName string, tc *taskConfig) {
 	t.syncTaskMap.Store(taskFileName, tc)
-	t.syncToLocalFs(taskFileName, tc)
 }
 
 func (t *taskContainer) Load(taskFileName string) (interface{}, bool) {
@@ -133,32 +131,6 @@ func (t *taskContainer) Delete(taskFileName string) {
 	tc.cache.close()
 
 	t.syncTaskMap.Delete(taskFileName)
-	fp := t.ps.taskMetaFilePath(taskFileName)
-	fpBak := t.ps.taskMetaFileBakPath(taskFileName)
-
-	os.Remove(fp)
-	os.Remove(fpBak)
-}
-
-func (t *taskContainer) syncToLocalFs(key string, tc *taskConfig) {
-	fpBak := t.ps.taskMetaFileBakPath(key)
-	data, err := json.Marshal(tc)
-	if err != nil {
-		logrus.Warnf("failed to sync task %s to local fs: %v", key, err)
-		return
-	}
-
-	err = ioutil.WriteFile(fpBak, data, 0664)
-	if err != nil {
-		logrus.Warnf("failed to sync task %s to local fs: %v", key, err)
-		return
-	}
-
-	fp := t.ps.taskMetaFilePath(key)
-	err = os.Rename(fpBak, fp)
-	if err != nil {
-		logrus.Warnf("failed to sync task %s to local fs: %v", key, err)
-	}
 }
 
 // taskConfig refers to some name about peer task.
