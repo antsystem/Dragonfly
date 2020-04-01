@@ -41,4 +41,8 @@ type RegisterResponseData struct {
 	FileLength int64              `json:"fileLength"`
 	PieceSize  int32              `json:"pieceSize"`
 	CDNSource  apiTypes.CdnSource `json:"cdnSource"`
+	// seed resp
+	AsSeed	   bool    `json:"asSeed"`
+	// if as seed, SeedTaskID is the taskID of seed file.
+	SeedTaskID string	`json:"seedTaskID"`
 }
