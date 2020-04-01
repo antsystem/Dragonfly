@@ -132,3 +132,24 @@ func checkError(err error, code int) bool {
 	e, ok := errors.Cause(err).(DfError)
 	return ok && e.Code == code
 }
+
+type HttpError struct {
+	Code int
+	Msg  string
+}
+
+// New function creates a DfError.
+func NewHttpError(code int, msg string) *HttpError {
+	return &HttpError{
+		Code: code,
+		Msg:  msg,
+	}
+}
+
+func (s HttpError) Error() string {
+	return fmt.Sprintf("{\"Code\":%d,\"Msg\":\"%s\"}", s.Code, s.Msg)
+}
+
+func (s HttpError) HttpCode() int {
+	return s.Code
+}
