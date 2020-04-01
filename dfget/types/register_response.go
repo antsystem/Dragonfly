@@ -38,4 +38,9 @@ type RegisterResponseData struct {
 	TaskID     string `json:"taskId"`
 	FileLength int64  `json:"fileLength"`
 	PieceSize  int32  `json:"pieceSize"`
+
+	// seed resp
+	AsSeed	   bool    `json:"asSeed"`
+	// if as seed, SeedTaskID is the taskID of seed file.
+	SeedTaskID string	`json:"seedTaskID"`
 }
