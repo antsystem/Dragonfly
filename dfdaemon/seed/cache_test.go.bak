@@ -2,34 +2,13 @@ package seed
 
 import (
 	"io/ioutil"
-	"math/rand"
 	"net/http"
 	"path/filepath"
-	"testing"
-	"time"
 
-	"github.com/dragonflyoss/Dragonfly/dfget/core/helper"
 	"github.com/dragonflyoss/Dragonfly/pkg/errortypes"
 
 	"github.com/go-check/check"
 )
-
-func Test(t *testing.T) {
-	check.TestingT(t)
-}
-
-type SeedTestSuite struct {
-	port     int
-	host     string
-	server   *helper.MockFileServer
-	tmpDir   string
-	cacheDir string
-}
-
-func init() {
-	rand.Seed(time.Now().Unix())
-	check.Suite(&SeedTestSuite{})
-}
 
 func (s *SeedTestSuite) TestFileCacheBufferWithNoFile(c *check.C) {
 	testDir := s.tmpDir

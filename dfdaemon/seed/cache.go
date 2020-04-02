@@ -83,6 +83,8 @@ type fileCacheBuffer struct {
 	remove   bool
 	size     int64
 	lockSize int64
+	fileLength int64
+
 }
 
 func (fcb *fileCacheBuffer) WriteAt(p []byte, off int64) (n int, err error) {
