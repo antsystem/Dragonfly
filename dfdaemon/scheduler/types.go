@@ -10,13 +10,6 @@ type Result struct {
 	PeerInfo *types.PeerInfo
 	Task     *types.TaskInfo
 	Path     string
-
-	Generation int64
-	// before download, it should be called
-	StartDownload func(peerID string, generation int64)
-
-	// after finishing download, it should be called
-	FinishDownload func(peerID string, generation int64)
 }
 
 type notifySt struct {

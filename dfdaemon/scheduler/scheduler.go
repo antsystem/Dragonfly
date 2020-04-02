@@ -48,30 +48,7 @@ func NewScheduler(localPeer *types.PeerInfo) *SchedulerManager {
 		downloadFinishCh:   make(chan notifySt, 10),
 	}
 
-	go sm.adjustPeerLoad()
 	return sm
-}
-
-func (sm *SchedulerManager) adjustPeerLoad() {
-	for {
-		select {
-		case st := <-sm.downloadStartCh:
-			if st.generation != sm.generation {
-				logrus.Infof("in local schedule downloadStartCh, notify %v is out of generation", st)
-				continue
-			}
-
-			sm.updateNodeLoad(st.peerID, 1)
-
-		case st := <-sm.downloadFinishCh:
-			if st.generation != sm.generation {
-				logrus.Infof("in local schedule downloadFinishCh , notify %v is out of generation", st)
-				continue
-			}
-
-			sm.updateNodeLoad(st.peerID, -1)
-		}
-	}
 }
 
 // if pieceRange == "" means all Pieces of file
@@ -120,17 +97,10 @@ func (sm *SchedulerManager) scheduleRemotePeer(ctx context.Context, url string, 
 		}
 
 		result[i] = &Result{
-			DstCid:     pn.peerID,
-			Path:       pn.path,
-			Task:       pn.info,
-			PeerInfo:   node.Basic,
-			Generation: sm.generation,
-			StartDownload: func(peerID string, generation int64) {
-				sm.downloadStartCh <- notifySt{peerID: peerID, generation: generation}
-			},
-			FinishDownload: func(peerID string, generation int64) {
-				sm.downloadFinishCh <- notifySt{peerID: peerID, generation: generation}
-			},
+			DstCid:   pn.peerID,
+			Path:     pn.path,
+			Task:     pn.info,
+			PeerInfo: node.Basic,
 		}
 	}
 
@@ -183,26 +153,10 @@ func (sm *SchedulerManager) syncSeedContainerPerNode(node *types.Node, seedConta
 			}
 		}
 
-		err = ts.add(node.Basic.ID, &node.Load, task.Pieces[0].Path, task.Task)
+		err = ts.add(node.Basic.ID, task.Pieces[0].Path, task.Task)
 		if err != nil {
 			logrus.Errorf("syncSeedContainerPerNode error: %v", err)
 		}
-	}
-}
-
-func (sm *SchedulerManager) updateNodeLoad(peerID string, addLoad int) {
-	sm.mutex.Lock()
-	defer sm.mutex.Unlock()
-
-	node, err := sm.nodeContainer.getAsNode(peerID)
-	if err != nil {
-		logrus.Errorf("updateNodeLoad failed: %v", err)
-		return
-	}
-
-	node.Load = node.Load + int64(addLoad)
-	if node.Load < 0 {
-		node.Load = 0
 	}
 }
 
@@ -223,11 +177,10 @@ func (sm *SchedulerManager) scheduleLocalPeer(url string) []*Result {
 
 func (sm *SchedulerManager) covertLocalTaskStateToResult(lts *localTaskState) *Result {
 	return &Result{
-		DstCid:     sm.localPeerInfo.ID,
-		PeerInfo:   sm.localPeerInfo,
-		Task:       lts.task.Task,
-		Path:       lts.path,
-		Generation: sm.generation,
-		Local:      true,
+		DstCid:   sm.localPeerInfo.ID,
+		PeerInfo: sm.localPeerInfo,
+		Task:     lts.task.Task,
+		Path:     lts.path,
+		Local:    true,
 	}
 }

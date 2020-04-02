@@ -38,6 +38,16 @@ func initPeerInfoForTest(id string, ip string, port int) *types.PeerInfo {
 	}
 }
 
+func isInArrayForTest(cid string, path string, result []*Result, c *check.C) {
+	for _, r := range result {
+		if r.Path == path && r.PeerInfo.ID == cid {
+			return
+		}
+	}
+
+	c.Fatalf("failed to get cid %s, path %s in array %v", cid, path, result)
+}
+
 func (suite *schedulerSuite) TestNormalScheduler(c *check.C) {
 	sm := NewScheduler(&types.PeerInfo{
 		ID:   "local_cid",
@@ -73,10 +83,8 @@ func (suite *schedulerSuite) TestNormalScheduler(c *check.C) {
 
 	rs = sm.Scheduler(context.Background(), "http://url2", "", 0)
 	c.Assert(len(rs), check.Equals, 2)
-	c.Assert(rs[0].PeerInfo.ID, check.Equals, "node2")
-	c.Assert(rs[0].Path, check.Equals, "seed2")
-	c.Assert(rs[1].PeerInfo.ID, check.Equals, "node1")
-	c.Assert(rs[1].Path, check.Equals, "seed2")
+	isInArrayForTest("node1", "seed2", rs, c)
+	isInArrayForTest("node2", "seed2", rs, c)
 
 	rs = sm.Scheduler(context.Background(), "http://url3", "", 0)
 	c.Assert(len(rs), check.Equals, 1)
