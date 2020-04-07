@@ -333,7 +333,7 @@ check:
 		}(r.startIndex, r.endIndex)
 	}
 
-	for _, r := range downRs.unsetRange {
+	for _, r := range rs {
 		endBytes := (int64(r.endIndex + 1) << sd.BlockOrder) - 1
 		if endBytes >= sd.FullSize {
 			endBytes = sd.FullSize - 1

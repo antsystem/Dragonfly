@@ -182,8 +182,8 @@ func (s *SeedTestSuite) TestSeedSyncRead(c *check.C) {
 	contentPath := filepath.Join(s.cacheDir, "TestSeedSyncReadContent1")
 	metaPath := filepath.Join(s.cacheDir, "TestSeedSyncReadMeta1")
 	metaBakPath := filepath.Join(s.cacheDir, "TestSeedSyncReadMetaBak1")
-	// 16 KB
-	blockOrder := uint32(14)
+	// 64 KB
+	blockOrder := uint32(16)
 
 	sOpt := seedBaseOpt{
 		contentPath: contentPath,
@@ -202,7 +202,7 @@ func (s *SeedTestSuite) TestSeedSyncRead(c *check.C) {
 	sd, err := newSeed(sOpt, rateOpt{downloadRateLimiter: ratelimiter.NewRateLimiter(0, 0)})
 	c.Assert(err, check.IsNil)
 
-	notifyCh, err := sd.Prefetch(32 * 1024)
+	notifyCh, err := sd.Prefetch(64 * 1024)
 	c.Assert(err, check.IsNil)
 
 	// try to download
@@ -228,6 +228,12 @@ func (s *SeedTestSuite) TestSeedSyncRead(c *check.C) {
 		obtainedData, err := ioutil.ReadAll(rc)
 		rc.Close()
 		c.Assert(err, check.IsNil)
+
+		startTime = time.Now()
+		_, err = s.readFromFileServer("fileF", start, end-start+1)
+		c.Assert(err, check.IsNil)
+		logrus.Infof("in TestSeedSyncRead, Download from source 100KB costs time: %f second", time.Now().Sub(startTime).Seconds())
+
 		s.checkDataWithFileServer(c, "fileF", start, end-start+1, obtainedData)
 		start = end + 1
 	}
