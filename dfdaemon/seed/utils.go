@@ -3,6 +3,7 @@ package seed
 import (
 	"bytes"
 	"crypto/md5"
+	"encoding/binary"
 	"fmt"
 	"io"
 )
@@ -16,12 +17,7 @@ func NewPreFetchResult(success bool, canceled bool, err error, close func()) Pre
 		Success:  success,
 		Canceled: canceled,
 		Err:      err,
-		close:    close,
 	}
-}
-
-func (r *PreFetchResult) Close() {
-	r.Once.Do(r.close)
 }
 
 func CopyBufferToWriterAt(off int64, writerAt io.WriterAt, rd io.Reader) (n int64, err error) {
@@ -47,4 +43,32 @@ func CopyBufferToWriterAt(off int64, writerAt io.WriterAt, rd io.Reader) (n int6
 		buffer.Reset()
 		off += int64(wcount)
 	}
+}
+
+func EncodeUintArray(input []uint64) []byte {
+	arrLen := len(input)
+	data := make([]byte, arrLen * 8)
+
+	bytesIndex := 0
+	for i := 0; i < arrLen; i ++ {
+		binary.LittleEndian.PutUint64(data[bytesIndex: bytesIndex+ 8], input[i])
+		bytesIndex += 8
+	}
+
+	return data[:bytesIndex]
+}
+
+func DecodeToUintArray(data []byte) []uint64 {
+	var(
+		bytesIndex int
+	)
+
+	arrLen := len(data) / 8
+	out := make([]uint64, arrLen)
+	for i := 0; i < arrLen ; i ++ {
+		out[i] = binary.LittleEndian.Uint64(data[bytesIndex: bytesIndex + 8])
+		bytesIndex += 8
+	}
+
+	return out
 }

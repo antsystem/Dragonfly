@@ -1,15 +1,14 @@
 package seed
 
-import "sync"
+import (
+	"github.com/dragonflyoss/Dragonfly/pkg/ratelimiter"
+)
 
 type PreFetchInfo struct {
 	TaskID string
 	URL    string
 	Header map[string][]string
-	Length int64
-
-	// if FilePath is valid, means the seed file already exists.
-	FilePath string
+	FullLength int64
 }
 
 type PreFetchResult struct {
@@ -18,10 +17,6 @@ type PreFetchResult struct {
 	Err error
 	// if canceled, caller need not to do other
 	Canceled bool
-
-	sync.Once
-	// close() should be called by caller
-	close func()
 }
 
 type DownloadStatus struct {
@@ -34,4 +29,16 @@ type DownloadStatus struct {
 type prefetchSt struct {
 	sd *seed
 	ch chan PreFetchResult
+}
+
+type seedBaseOpt struct {
+	contentPath 		string
+	metaPath			string
+	metaBakPath			string
+	blockOrder			uint32
+	info 				*PreFetchInfo
+}
+
+type rateOpt struct {
+	downloadRateLimiter *ratelimiter.RateLimiter
 }

@@ -1,138 +1,74 @@
 package seed
 
 import (
+	"github.com/dragonflyoss/Dragonfly/pkg/errortypes"
 	"io"
 	"net/http"
 	"os"
 	"sync"
-
-	"github.com/dragonflyoss/Dragonfly/pkg/errortypes"
 )
 
 // cacheBuffer interface caches the seed file
 type cacheBuffer interface {
 	io.WriterAt
+	// write close
 	io.Closer
-	// lock the range [0, size-1], it don't allow to alter the range.
-	LockSize(int64)
 	Sync() error
 	ReadStream(off int64, size int64) (io.ReadCloser, error)
 	// remove the cache
 	Remove() error
 
-	// cache size
-	Size() int64
+	// the cache full size
+	FullSize() int64
 }
 
-// if file size is shorter than existSize, exist return false and write from 0;
-// if file size is longer or equal than existSize, exist return true and write from existSize.
-// if finished set true and file Size is longer or equal than existSize, exist return true. It will
-// no need to write again.
-func newFileCacheBuffer(path string, existSize int64, finished bool) (cb cacheBuffer, exist bool, err error) {
-	var (
+func newFileCacheBuffer(path string, fullSize int64, trunc bool) (cb cacheBuffer, err error)  {
+	var
+	(
 		fw    *os.File
-		trunc bool = true
 	)
 
-	if existSize > 0 {
-		info, err := os.Stat(path)
-		if err != nil {
-			if !os.IsNotExist(err) {
-				return nil, false, err
-			}
-
-			goto truncWrite
+	_, err = os.Stat(path)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			return nil,  err
 		}
 
-		if info.Size() < existSize {
-			goto truncWrite
-		}
+		if !trunc {
 
-		trunc = false
-		exist = true
-		fw, err = os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
-		if err != nil {
-			return nil, false, err
 		}
-
-		fw.Seek(existSize, io.SeekStart)
 	}
 
-truncWrite:
 	if trunc {
-		fw, err = os.OpenFile(path, os.O_CREATE|os.O_TRUNC|os.O_WRONLY|os.O_APPEND, 0644)
-		if err != nil {
-			return nil, false, err
-		}
+		fw, err = os.OpenFile(path, os.O_CREATE|os.O_WRONLY | os.O_TRUNC, 0644)
+	}else{
+		fw, err = os.OpenFile(path, os.O_CREATE|os.O_WRONLY, 0644)
 	}
 
-	fcb := &fileCacheBuffer{path: path, fw: fw, size: existSize, lockSize: existSize}
-	if finished && exist {
-		fcb.finished = finished
+	if err != nil {
+		return nil, err
 	}
 
-	return fcb, exist, nil
+	fcb := &fileCacheBuffer{path: path, fw: fw, fullSize: fullSize}
+	return fcb, nil
 }
 
 type fileCacheBuffer struct {
 	sync.RWMutex
+	prefetchOnce sync.Once
 
-	path     string
-	fw       *os.File
-	finished bool
-	remove   bool
-	size     int64
-	lockSize int64
-	fileLength int64
-
+	path     		string
+	fw       		*os.File
+	remove  	 	bool
+	fullSize     	int64
 }
 
 func (fcb *fileCacheBuffer) WriteAt(p []byte, off int64) (n int, err error) {
-	fcb.Lock()
-	if fcb.finished || fcb.remove {
-		//todo: return the error
-		fcb.Unlock()
-		return 0, io.ErrClosedPipe
-	}
-	fcb.size = off
-	fcb.Unlock()
-
-	n, err = fcb.fw.WriteAt(p, off)
-
-	fcb.Lock()
-	defer fcb.Unlock()
-
-	fcb.size = off + int64(n)
-	return n, err
+	return fcb.fw.WriteAt(p, off)
 }
 
 func (fcb *fileCacheBuffer) Close() error {
-	fcb.Lock()
-	defer fcb.Unlock()
-
-	if fcb.remove {
-		return io.ErrClosedPipe
-	}
-
-	if fcb.finished {
-		return nil
-	}
-
-	err := fcb.fw.Close()
-	if err != nil {
-		return err
-	}
-
-	// get the size of file
-	fi, err := os.Stat(fcb.path)
-	if err != nil {
-		return err
-	}
-
-	fcb.size = fi.Size()
-	fcb.lockSize = fcb.size
-	fcb.finished = true
-	return nil
+	return fcb.fw.Close()
 }
 
 func (fcb *fileCacheBuffer) Sync() error {
@@ -143,19 +79,13 @@ func (fcb *fileCacheBuffer) Sync() error {
 		return io.ErrClosedPipe
 	}
 
-	if fcb.finished {
-		return nil
-	}
-
 	return fcb.fw.Sync()
 }
 
 func (fcb *fileCacheBuffer) ReadStream(off int64, size int64) (io.ReadCloser, error) {
-	fcb.RLock()
-	defer fcb.RUnlock()
-
-	if fcb.remove {
-		return nil, io.ErrClosedPipe
+	off, size, err := fcb.checkReadStreamParam(off, size)
+	if err != nil {
+		return nil, err
 	}
 
 	return fcb.openReadCloser(off, size)
@@ -173,34 +103,38 @@ func (fcb *fileCacheBuffer) Remove() error {
 	return os.Remove(fcb.path)
 }
 
-func (fcb *fileCacheBuffer) Size() int64 {
+func (fcb *fileCacheBuffer) FullSize() int64 {
 	fcb.RLock()
 	defer fcb.RUnlock()
 
-	return fcb.size
+	return fcb.fullSize
 }
 
-func (fcb *fileCacheBuffer) LockSize(size int64) {
-	fcb.Lock()
-	defer fcb.Unlock()
+func (fcb *fileCacheBuffer) checkReadStreamParam(off int64, size int64) (int64, int64, error) {
+	fcb.RLock()
+	defer fcb.RUnlock()
 
-	fcb.lockSize = size
-}
+	if fcb.remove {
+		return 0, 0, io.ErrClosedPipe
+	}
 
-func (fcb *fileCacheBuffer) openReadCloser(off int64, size int64) (io.ReadCloser, error) {
 	if off < 0 {
 		off = 0
 	}
 
-	// if size <= 0, set range to [off, lockSize-1]
+	// if size <= 0, set range to [off, fullSize-1]
 	if size <= 0 {
-		size = fcb.lockSize - off
+		size = fcb.fullSize - off
 	}
 
-	if off+size > fcb.lockSize {
-		return nil, errortypes.NewHttpError(http.StatusRequestedRangeNotSatisfiable, "out of range")
+	if off + size > fcb.fullSize {
+		return 0, 0, errortypes.NewHttpError(http.StatusRequestedRangeNotSatisfiable, "out of range")
 	}
 
+	return off, size, nil
+}
+
+func (fcb *fileCacheBuffer) openReadCloser(off int64, size int64) (io.ReadCloser, error) {
 	fr, err := os.Open(fcb.path)
 	if err != nil {
 		return nil, err

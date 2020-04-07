@@ -10,11 +10,10 @@ import (
 	"github.com/go-check/check"
 )
 
-func (s *SeedTestSuite) TestFileCacheBufferWithNoFile(c *check.C) {
-	testDir := s.tmpDir
+func (suite *SeedTestSuite) TestFileCacheBufferWithNoFile(c *check.C) {
+	testDir := suite.tmpDir
 
-	cb, exist, err := newFileCacheBuffer(filepath.Join(testDir, "fileA"), 0, false)
-	c.Assert(exist, check.Equals, false)
+	cb, err := newFileCacheBuffer(filepath.Join(testDir, "fileA"), 30, true)
 	c.Assert(err, check.IsNil)
 
 	data := []byte("0123456789")
@@ -22,15 +21,14 @@ func (s *SeedTestSuite) TestFileCacheBufferWithNoFile(c *check.C) {
 	n, err := cb.WriteAt(data, 0)
 	c.Assert(int(n), check.Equals, len(data))
 	c.Assert(err, check.IsNil)
-	cb.LockSize(cb.Size())
 
 	// write data
-	n, err = cb.WriteAt(data, 20)
+	n, err = cb.WriteAt(data, 10)
 	c.Assert(int(n), check.Equals, len(data))
 	c.Assert(err, check.IsNil)
 
 	// read stream
-	rc, err := cb.ReadStream(0, -1)
+	rc, err := cb.ReadStream(0, 10)
 	c.Assert(err, check.IsNil)
 	data0, err := ioutil.ReadAll(rc)
 	c.Assert(err, check.IsNil)
@@ -40,8 +38,7 @@ func (s *SeedTestSuite) TestFileCacheBufferWithNoFile(c *check.C) {
 	err = rc.Close()
 	c.Assert(err, check.IsNil)
 
-	cb.LockSize(cb.Size())
-	rc, err = cb.ReadStream(0, -1)
+	rc, err = cb.ReadStream(0, 20)
 	c.Assert(err, check.IsNil)
 	data0, err = ioutil.ReadAll(rc)
 	c.Assert(err, check.IsNil)
@@ -110,12 +107,11 @@ func (s *SeedTestSuite) TestFileCacheBufferWithNoFile(c *check.C) {
 	c.Assert(err, check.NotNil)
 }
 
-func (s *SeedTestSuite) TestFileCacheBufferWithExistFile(c *check.C) {
-	testDir := s.tmpDir
+func (suite *SeedTestSuite) TestFileCacheBufferWithExistFile(c *check.C) {
+	testDir := suite.tmpDir
 
 	// create cb
-	cb, exist, err := newFileCacheBuffer(filepath.Join(testDir, "fileB"), 0, false)
-	c.Assert(exist, check.Equals, false)
+	cb, err := newFileCacheBuffer(filepath.Join(testDir, "fileB"), 35, true)
 	c.Assert(err, check.IsNil)
 
 	inputData1 := []byte("0123456789")
@@ -138,11 +134,10 @@ func (s *SeedTestSuite) TestFileCacheBufferWithExistFile(c *check.C) {
 	c.Assert(err, check.IsNil)
 
 	// reopen again
-	cb, exist, err = newFileCacheBuffer(filepath.Join(testDir, "fileB"), 30, false)
+	cb, err = newFileCacheBuffer(filepath.Join(testDir, "fileB"), 35, false)
 	c.Assert(err, check.IsNil)
-	c.Assert(exist, check.Equals, true)
 
-	rc, err := cb.ReadStream(0, -1)
+	rc, err := cb.ReadStream(0, 30)
 	c.Assert(err, check.IsNil)
 	data0, err := ioutil.ReadAll(rc)
 	c.Assert(err, check.IsNil)
@@ -160,9 +155,6 @@ func (s *SeedTestSuite) TestFileCacheBufferWithExistFile(c *check.C) {
 	// close
 	err = cb.Close()
 	c.Assert(err, check.IsNil)
-	size := cb.Size()
-	c.Assert(err, check.IsNil)
-	c.Assert(int(size), check.Equals, 35)
 
 	// read all
 	rc, err = cb.ReadStream(0, -1)

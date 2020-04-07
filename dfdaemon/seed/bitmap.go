@@ -30,6 +30,16 @@ func newBitMap(sizeOf64Bits int32, allSetBit bool) *bitmap {
 	}
 }
 
+func restoreBitMap(data []byte) (*bitmap, error) {
+	bm := DecodeToUintArray(data)
+
+	return &bitmap{
+		bm: 			bm,
+		maxBitIndex:    int32(len(bm) * 64),
+		lockMap:     	make(map[int32]*lockInfo),
+	}, nil
+}
+
 // get gets the bits in range [start, end]. if set is true, return the set bits.
 // else return the unset bits.
 func (b *bitmap) get(start int32, end int32, setBit bool) []*bitmapRs {
@@ -232,6 +242,13 @@ func (b *bitmap) setWithoutLock(start int32, end int32, setBit bool) {
 			b.bm[i>>6] = b.bm[i>>6] & (^lbm.Bit[i&63])
 		}
 	}
+}
+
+func (b *bitmap) encode() []byte {
+	b.RLock()
+	defer b.RUnlock()
+
+	return EncodeUintArray(b.bm)
 }
 
 type bitmapRs struct {

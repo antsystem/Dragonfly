@@ -18,7 +18,7 @@ import (
 
 // downloader manage the downloading of seed file
 type downloader interface {
-	DownloadToWriterAt(ctx context.Context, rangeStruct httputils.RangeStruct, timeout time.Duration, writeOff int64, writerAt io.WriterAt) (length int64, err error)
+	DownloadToWriterAt(ctx context.Context, rangeStruct httputils.RangeStruct, timeout time.Duration, writeOff int64, writerAt io.WriterAt, rateLimit bool) (length int64, err error)
 	Download(ctx context.Context, rangeStruct httputils.RangeStruct, timeout time.Duration, writer io.Writer) (length int64, err error)
 }
 
@@ -40,17 +40,19 @@ type localDownloader struct {
 
 func (ld *localDownloader) Download(ctx context.Context, rangeStruct httputils.RangeStruct, timeout time.Duration,
 	writer io.Writer) (length int64, err error) {
-	return ld.download(ctx, rangeStruct, timeout, 0, nil, writer, false)
+	return ld.download(ctx, rangeStruct, timeout, 0, nil, writer, false, true)
 }
 
-func (ld *localDownloader) DownloadToWriterAt(ctx context.Context, rangeStruct httputils.RangeStruct, timeout time.Duration, writeOff int64, writerAt io.WriterAt) (length int64, err error) {
-	return ld.download(ctx, rangeStruct, timeout, writeOff, writerAt, nil, true)
+func (ld *localDownloader) DownloadToWriterAt(ctx context.Context, rangeStruct httputils.RangeStruct, timeout time.Duration,
+	writeOff int64, writerAt io.WriterAt, rateLimit bool) (length int64, err error) {
+	return ld.download(ctx, rangeStruct, timeout, writeOff, writerAt, nil, true, rateLimit)
 }
 
 func (ld *localDownloader) download(ctx context.Context, rangeStruct httputils.RangeStruct, timeout time.Duration,
-	writeOff int64, writerAt io.WriterAt, writer io.Writer, bWriteAt bool) (length int64, err error) {
+	writeOff int64, writerAt io.WriterAt, writer io.Writer, bWriteAt bool, rateLimit bool) (length int64, err error) {
 	var (
 		written int64
+		rd		io.Reader
 	)
 
 	header := map[string]string{}
@@ -71,7 +73,10 @@ func (ld *localDownloader) download(ctx context.Context, rangeStruct httputils.R
 	expectedLen := rangeStruct.EndIndex - rangeStruct.StartIndex + 1
 
 	defer resp.Body.Close()
-	rd := limitreader.NewLimitReaderWithLimiter(ld.rate, resp.Body, false)
+	rd = resp.Body
+	if rateLimit {
+		rd = limitreader.NewLimitReaderWithLimiter(ld.rate, resp.Body, false)
+	}
 
 	if bWriteAt {
 		written, err = CopyBufferToWriterAt(writeOff, writerAt, rd)

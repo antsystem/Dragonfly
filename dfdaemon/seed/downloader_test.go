@@ -43,7 +43,7 @@ func (s *SeedTestSuite) SetUpSuite(c *check.C) {
 	c.Assert(err, check.IsNil)
 
 	s.cacheDir = "./testcache"
-	err = os.MkdirAll(s.tmpDir, 0774)
+	err = os.MkdirAll(s.cacheDir, 0774)
 	c.Assert(err, check.IsNil)
 
 	s.port = rand.Intn(1000) + 63000
@@ -70,6 +70,10 @@ func (s *SeedTestSuite) SetUpSuite(c *check.C) {
 	c.Assert(err, check.IsNil)
 	// 10 MB
 	err = s.server.RegisterFile("fileF", 10*1024*1024, "abcdefg")
+	c.Assert(err, check.IsNil)
+
+	// 1 G
+	err = s.server.RegisterFile("fileG", 1024*1024*1024, "1abcdefg")
 	c.Assert(err, check.IsNil)
 
 }
@@ -108,7 +112,7 @@ func (s *SeedTestSuite) checkLocalDownloadDataFromFileServer(c *check.C, path st
 
 	ld := newLocalDownloader(fmt.Sprintf("http://%s/%s", s.host, path), nil, ratelimiter.NewRateLimiter(0, 0))
 
-	length, err := ld.DownloadToWriterAt(context.Background(), httputils.RangeStruct{StartIndex: off, EndIndex: off + size - 1}, 0, 0, buf)
+	length, err := ld.DownloadToWriterAt(context.Background(), httputils.RangeStruct{StartIndex: off, EndIndex: off + size - 1}, 0, 0, buf, true)
 	c.Check(err, check.IsNil)
 	c.Check(size, check.Equals, length)
 

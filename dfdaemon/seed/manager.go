@@ -19,8 +19,6 @@ const (
 	DefaultDownloadConcurrency = 4
 	MaxDownloadConcurrency     = 8
 	MinTotalLimit              = 2
-	// 50MB
-	DefaultBlockSize = 1024 * 1024 * 50
 
 	defaultGcInterval = 2 * time.Minute
 	defaultRetryTimes = 3
@@ -35,6 +33,11 @@ type SeedManager interface {
 
 	// UnRegister
 	UnRegister(key string) error
+
+	RefreshExpireTime()
+
+	// NotifyExpired
+	NotifyExpired() (<-chan struct{}, error)
 
 	// SetPrefetchLimit limits the concurrency of downloading seed.
 	// default is DefaultDownloadConcurrency.
