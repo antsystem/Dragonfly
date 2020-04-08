@@ -28,6 +28,7 @@ require (
 	github.com/magiconair/properties v1.8.1 // indirect
 	github.com/mailru/easyjson v0.0.0-20170902151237-2a92e673c9a6 // indirect
 	github.com/mitchellh/mapstructure v1.1.2
+	github.com/openacid/low v0.1.10
 	github.com/pborman/uuid v0.0.0-20180122190007-c65b2f87fee3
 	github.com/pkg/errors v0.8.0
 	github.com/prashantv/gostub v1.0.0
