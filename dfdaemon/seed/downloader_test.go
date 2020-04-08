@@ -83,7 +83,7 @@ func (s *SeedTestSuite) TearDownSuite(c *check.C) {
 		os.RemoveAll(s.tmpDir)
 	}
 	if s.cacheDir != "" {
-		os.RemoveAll(s.cacheDir)
+		//os.RemoveAll(s.cacheDir)
 	}
 }
 

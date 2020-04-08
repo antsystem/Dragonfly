@@ -219,3 +219,38 @@ func (suite *SeedTestSuite) TestLockBitmap2(c *check.C) {
 		break
 	}
 }
+
+func (suite *SeedTestSuite) TestLockBitmap3(c *check.C) {
+	bm := newBitMap(100, false)
+	rs1 := bm.lockRange(5, 10)
+	c.Assert(len(rs1.waitChs), check.Equals, 0)
+	c.Assert(len(rs1.unsetRange), check.Equals, 1)
+	c.Assert(rs1.unsetRange[0].startIndex, check.Equals, int32(5))
+	c.Assert(rs1.unsetRange[0].endIndex, check.Equals, int32(10))
+
+	rs2 := bm.lockRange(13, 15)
+	c.Assert(len(rs2.waitChs), check.Equals, 0)
+	c.Assert(len(rs2.unsetRange), check.Equals, 1)
+	c.Assert(rs2.unsetRange[0].startIndex, check.Equals, int32(13))
+	c.Assert(rs2.unsetRange[0].endIndex, check.Equals, int32(15))
+
+	rs3 := bm.lockRange(7, 14)
+	c.Assert(len(rs3.waitChs), check.Equals, 2)
+	c.Assert(len(rs3.unsetRange), check.Equals, 1)
+	c.Assert(rs3.unsetRange[0].startIndex, check.Equals, int32(11))
+	c.Assert(rs3.unsetRange[0].endIndex, check.Equals, int32(12))
+
+	bm.unlockRange(5, 10)
+	fmt.Printf("TestLockBitmap2, bm[0]: %x, bm lock map: %v\n", bm.bm[0], bm.lockMap)
+	for k, v := range bm.lockMap {
+		fmt.Printf("TestLockBitmap2, bm lock map key: %d, value :%v\n", k, v)
+	}
+
+	select {
+	case <-time.NewTimer(2 * time.Second).C:
+		c.Fatalf("TestLockBitmap2 expected not go to timeout")
+		break
+	case <-rs3.waitChs[0]:
+		break
+	}
+}
