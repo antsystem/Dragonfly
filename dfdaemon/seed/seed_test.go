@@ -255,16 +255,17 @@ func (s *SeedTestSuite) checkSeedFile(c *check.C, path string, fileLength int64,
 
 func (s *SeedTestSuite) TestSeedSyncReadPerformance(c *check.C) {
 	var(
-		start, end, rangeSize int64
+		rangeSize int64
 	)
 
-	urlF := fmt.Sprintf("http://%s/fileG", s.host)
+	fileName := "fileA"
+	fileLength := int64(500*1024)
+	urlF := fmt.Sprintf("http://%s/%s", s.host, fileName)
 	contentPath := filepath.Join(s.cacheDir, "TestSeedSyncReadPerformanceContent1")
 	metaPath := filepath.Join(s.cacheDir, "TestSeedSyncReadPerformanceMeta1")
 	metaBakPath := filepath.Join(s.cacheDir, "TestSeedSyncReadPerformanceMetaBak1")
-	// 64 KB
+	// 16 KB
 	blockOrder := uint32(16)
-
 	sOpt := seedBaseOpt{
 		contentPath: contentPath,
 		metaPath: metaPath,
@@ -273,7 +274,7 @@ func (s *SeedTestSuite) TestSeedSyncReadPerformance(c *check.C) {
 		info:  &PreFetchInfo{
 			URL: urlF,
 			TaskID: uuid.New(),
-			FullLength: 1024*1024*1024,
+			FullLength: fileLength,
 		},
 	}
 
@@ -282,20 +283,19 @@ func (s *SeedTestSuite) TestSeedSyncReadPerformance(c *check.C) {
 	sd, err := newSeed(sOpt, rateOpt{downloadRateLimiter: ratelimiter.NewRateLimiter(0, 0)})
 	c.Assert(err, check.IsNil)
 
-	notifyCh, err := sd.Prefetch(512 * 1024)
-	c.Assert(err, check.IsNil)
+	//notifyCh, err := sd.Prefetch(64 * 1024)
+	//c.Assert(err, check.IsNil)
 
 	wg := &sync.WaitGroup{}
 
 	// try to download in 20 goroutine
-	for i := 0; i < 2; i ++ {
+	for i := 0; i < 5; i ++ {
+		rangeSize = 9 * 1023
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			start = 0
-			end = 0
-			rangeSize = 99 * 1023
-			fileLength := int64(1024 * 1024 * 1024)
+			start := int64(0)
+			end := int64(0)
 
 			for {
 				end = start + rangeSize - 1
@@ -316,17 +316,17 @@ func (s *SeedTestSuite) TestSeedSyncReadPerformance(c *check.C) {
 				c.Assert(err, check.IsNil)
 
 				startTime = time.Now()
-				_, err = s.readFromFileServer("fileG", start, end-start+1)
+				_, err = s.readFromFileServer(fileName, start, end-start+1)
 				c.Assert(err, check.IsNil)
 				logrus.Infof("in TestSeedSyncReadPerformance, Download from source 100KB costs time: %f second", time.Now().Sub(startTime).Seconds())
 
-				s.checkDataWithFileServer(c, "fileG", start, end-start+1, obtainedData)
+				s.checkDataWithFileServer(c, fileName, start, end-start+1, obtainedData)
 				start = end + 1
 			}
 		}()
 	}
 
-	<- notifyCh
+	//<- notifyCh
 	logrus.Infof("in TestSeedSyncRead, costs time: %f second", time.Now().Sub(now).Seconds())
 
 	wg.Wait()

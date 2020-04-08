@@ -54,7 +54,7 @@ func (s *SeedTestSuite) SetUpSuite(c *check.C) {
 	c.Assert(err, check.IsNil)
 
 	// 500KB
-	err = s.server.RegisterFile("fileA", 500*1024, "abcdefg")
+	err = s.server.RegisterFile("fileA", 500*1024, "abcde0123456789")
 	c.Assert(err, check.IsNil)
 	// 1MB
 	err = s.server.RegisterFile("fileB", 1024*1024, "abcdefg")
@@ -71,7 +71,6 @@ func (s *SeedTestSuite) SetUpSuite(c *check.C) {
 	// 10 MB
 	err = s.server.RegisterFile("fileF", 10*1024*1024, "abcdefg")
 	c.Assert(err, check.IsNil)
-
 	// 1 G
 	err = s.server.RegisterFile("fileG", 1024*1024*1024, "1abcdefg")
 	c.Assert(err, check.IsNil)

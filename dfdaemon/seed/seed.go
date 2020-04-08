@@ -378,7 +378,7 @@ func (sd *seed) downloadToFile(start, end int64, rateLimit bool) error {
 		return err
 	}
 
-	return sd.cache.Sync()
+	return nil
 }
 
 func (sd *seed) clearResource() {
