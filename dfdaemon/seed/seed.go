@@ -325,15 +325,22 @@ check:
 		return nil
 	}
 
-	downRs := sd.lockBlock.lockRange(startBlock, endBlock)
-	// try to download
-	for _, r := range downRs.unsetRange {
+	unsetRange := []*bitmapRs{}
+	waitChs := []chan struct{}{}
+
+	for _, r := range rs {
+		downRs := sd.lockBlock.lockRange(r.startIndex, r.endIndex)
+		unsetRange = append(unsetRange, downRs.unsetRange...)
+		waitChs = append(waitChs, downRs.waitChs...)
+	}
+	// set defer func to release lock range
+	for _, r := range unsetRange {
 		defer func(b, e int32) {
 			sd.lockBlock.unlockRange(b, e)
 		}(r.startIndex, r.endIndex)
 	}
 
-	for _, r := range rs {
+	for _, r := range unsetRange {
 		endBytes := (int64(r.endIndex + 1) << sd.BlockOrder) - 1
 		if endBytes >= sd.FullSize {
 			endBytes = sd.FullSize - 1
@@ -350,7 +357,7 @@ check:
 	}
 
 	// wait for the chan
-	for _, ch := range downRs.waitChs {
+	for _, ch := range waitChs {
 		// todo: set the timeout, if timeout, try to direct download again.
 		select {
 		case <- ch:

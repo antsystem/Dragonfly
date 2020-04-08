@@ -15,6 +15,10 @@ import (
 func (s *SeedTestSuite) checkDataWithFileServer(c *check.C, path string, off int64, size int64, obtained []byte) {
 	expected, err := s.readFromFileServer(path, off, size)
 	c.Assert(err, check.IsNil)
+	if string(obtained) != string(expected) {
+		c.Errorf("path %s, range [%d-%d]: get %s, expect %s", path, off, off + size - 1,
+			string(obtained), string(expected))
+	}
 
 	c.Assert(string(obtained), check.Equals, string(expected))
 }
@@ -131,57 +135,133 @@ func (s *SeedTestSuite) checkSeedFile(c *check.C, path string, fileLength int64,
 	s.checkFileWithSeed(c, path, fileLength, sd)
 }
 
-func (s *SeedTestSuite) TestNormalSeed(c *check.C) {
-	urlA := fmt.Sprintf("http://%s/fileA", s.host)
-	contentPath := filepath.Join(s.cacheDir, "TestSeedNormalContent1")
-	metaPath := filepath.Join(s.cacheDir, "TestSeedNormalMeta1")
-	metaBakPath := filepath.Join(s.cacheDir, "TestSeedNormalMetaBak1")
-	// 8 KB
-	blockOrder := uint32(13)
+//func (s *SeedTestSuite) TestNormalSeed(c *check.C) {
+//	urlA := fmt.Sprintf("http://%s/fileA", s.host)
+//	contentPath := filepath.Join(s.cacheDir, "TestSeedNormalContent1")
+//	metaPath := filepath.Join(s.cacheDir, "TestSeedNormalMeta1")
+//	metaBakPath := filepath.Join(s.cacheDir, "TestSeedNormalMetaBak1")
+//	// 8 KB
+//	blockOrder := uint32(13)
+//
+//	sOpt := seedBaseOpt{
+//		contentPath: contentPath,
+//		metaPath: metaPath,
+//		metaBakPath: metaBakPath,
+//		blockOrder: blockOrder,
+//		info:  &PreFetchInfo{
+//			URL: urlA,
+//			TaskID: uuid.New(),
+//			FullLength: 500*1024,
+//		},
+//	}
+//
+//	sd, err := newSeed(sOpt, rateOpt{downloadRateLimiter: ratelimiter.NewRateLimiter(0, 0)})
+//	c.Assert(err, check.IsNil)
+//
+//	notifyCh, err := sd.Prefetch(16 * 1024)
+//	c.Assert(err, check.IsNil)
+//
+//	// wait for prefetch ok
+//	<- notifyCh
+//	rs, err := sd.GetPrefetchResult()
+//	c.Assert(err, check.IsNil)
+//	c.Assert(rs.Success, check.Equals, true)
+//	c.Assert(rs.Err , check.IsNil)
+//
+//	s.checkFileWithSeed(c, "fileA", 500*1024, sd)
+//
+//	s.checkSeedFile(c, "fileB", 1024*1024, "TestNormalSeed-fileB", 14, 17 * 1024, nil)
+//	s.checkSeedFile(c, "fileC", 1500*1024, "TestNormalSeed-fileC", 12, 10 * 1024, nil)
+//	s.checkSeedFile(c, "fileD", 2048*1024, "TestNormalSeed-fileD", 13, 24 * 1024, nil)
+//	s.checkSeedFile(c, "fileE", 9500*1024, "TestNormalSeed-fileE", 15, 100 * 1024, nil)
+//	s.checkSeedFile(c, "fileF", 10*1024*1024, "TestNormalSeed-fileE", 15, 96 * 1024, nil)
+//}
+//
+//func (s *SeedTestSuite) TestSeedSyncRead(c *check.C) {
+//	var(
+//		start, end, rangeSize int64
+//	)
+//
+//	urlF := fmt.Sprintf("http://%s/fileF", s.host)
+//	contentPath := filepath.Join(s.cacheDir, "TestSeedSyncReadContent1")
+//	metaPath := filepath.Join(s.cacheDir, "TestSeedSyncReadMeta1")
+//	metaBakPath := filepath.Join(s.cacheDir, "TestSeedSyncReadMetaBak1")
+//	// 64 KB
+//	blockOrder := uint32(16)
+//
+//	sOpt := seedBaseOpt{
+//		contentPath: contentPath,
+//		metaPath: metaPath,
+//		metaBakPath: metaBakPath,
+//		blockOrder: blockOrder,
+//		info:  &PreFetchInfo{
+//			URL: urlF,
+//			TaskID: uuid.New(),
+//			FullLength: 10*1024*1024,
+//		},
+//	}
+//
+//	now := time.Now()
+//
+//	sd, err := newSeed(sOpt, rateOpt{downloadRateLimiter: ratelimiter.NewRateLimiter(0, 0)})
+//	c.Assert(err, check.IsNil)
+//
+//	notifyCh, err := sd.Prefetch(64 * 1024)
+//	c.Assert(err, check.IsNil)
+//
+//	// try to download
+//	start = 0
+//	end = 0
+//	rangeSize = 99 * 1023
+//	fileLength := int64(10*1024*1024)
+//
+//	for {
+//		end = start + rangeSize - 1
+//		if end >= fileLength {
+//			end = fileLength - 1
+//		}
+//
+//		if start > end {
+//			break
+//		}
+//
+//		startTime := time.Now()
+//		rc, err := sd.Download(start, end-start+1)
+//		logrus.Infof("in TestSeedSyncRead, Download 100KB costs time: %f second", time.Now().Sub(startTime).Seconds())
+//		c.Assert(err, check.IsNil)
+//		obtainedData, err := ioutil.ReadAll(rc)
+//		rc.Close()
+//		c.Assert(err, check.IsNil)
+//
+//		startTime = time.Now()
+//		_, err = s.readFromFileServer("fileF", start, end-start+1)
+//		c.Assert(err, check.IsNil)
+//		logrus.Infof("in TestSeedSyncRead, Download from source 100KB costs time: %f second", time.Now().Sub(startTime).Seconds())
+//
+//		s.checkDataWithFileServer(c, "fileF", start, end-start+1, obtainedData)
+//		start = end + 1
+//	}
+//
+//	<- notifyCh
+//	logrus.Infof("in TestSeedSyncRead, costs time: %f second", time.Now().Sub(now).Seconds())
+//
+//	rs, err := sd.GetPrefetchResult()
+//	c.Assert(err, check.IsNil)
+//	c.Assert(rs.Success, check.Equals, true)
+//	c.Assert(rs.Err , check.IsNil)
+//
+//	s.checkFileWithSeed(c, "fileF", fileLength, sd)
+//}
 
-	sOpt := seedBaseOpt{
-		contentPath: contentPath,
-		metaPath: metaPath,
-		metaBakPath: metaBakPath,
-		blockOrder: blockOrder,
-		info:  &PreFetchInfo{
-			URL: urlA,
-			TaskID: uuid.New(),
-			FullLength: 500*1024,
-		},
-	}
-
-	sd, err := newSeed(sOpt, rateOpt{downloadRateLimiter: ratelimiter.NewRateLimiter(0, 0)})
-	c.Assert(err, check.IsNil)
-
-	notifyCh, err := sd.Prefetch(16 * 1024)
-	c.Assert(err, check.IsNil)
-
-	// wait for prefetch ok
-	<- notifyCh
-	rs, err := sd.GetPrefetchResult()
-	c.Assert(err, check.IsNil)
-	c.Assert(rs.Success, check.Equals, true)
-	c.Assert(rs.Err , check.IsNil)
-
-	s.checkFileWithSeed(c, "fileA", 500*1024, sd)
-
-	s.checkSeedFile(c, "fileB", 1024*1024, "TestNormalSeed-fileB", 14, 17 * 1024, nil)
-	s.checkSeedFile(c, "fileC", 1500*1024, "TestNormalSeed-fileC", 12, 10 * 1024, nil)
-	s.checkSeedFile(c, "fileD", 2048*1024, "TestNormalSeed-fileD", 13, 24 * 1024, nil)
-	s.checkSeedFile(c, "fileE", 9500*1024, "TestNormalSeed-fileE", 15, 100 * 1024, nil)
-	s.checkSeedFile(c, "fileF", 10*1024*1024, "TestNormalSeed-fileE", 15, 96 * 1024, nil)
-}
-
-func (s *SeedTestSuite) TestSeedSyncRead(c *check.C) {
+func (s *SeedTestSuite) TestSeedSyncReadPerformance(c *check.C) {
 	var(
 		start, end, rangeSize int64
 	)
 
-	urlF := fmt.Sprintf("http://%s/fileF", s.host)
-	contentPath := filepath.Join(s.cacheDir, "TestSeedSyncReadContent1")
-	metaPath := filepath.Join(s.cacheDir, "TestSeedSyncReadMeta1")
-	metaBakPath := filepath.Join(s.cacheDir, "TestSeedSyncReadMetaBak1")
+	urlF := fmt.Sprintf("http://%s/fileG", s.host)
+	contentPath := filepath.Join(s.cacheDir, "TestSeedSyncReadPerformanceContent1")
+	metaPath := filepath.Join(s.cacheDir, "TestSeedSyncReadPerformanceMeta1")
+	metaBakPath := filepath.Join(s.cacheDir, "TestSeedSyncReadPerformanceMetaBak1")
 	// 64 KB
 	blockOrder := uint32(16)
 
@@ -193,7 +273,7 @@ func (s *SeedTestSuite) TestSeedSyncRead(c *check.C) {
 		info:  &PreFetchInfo{
 			URL: urlF,
 			TaskID: uuid.New(),
-			FullLength: 10*1024*1024,
+			FullLength: 1024*1024*1024,
 		},
 	}
 
@@ -202,49 +282,59 @@ func (s *SeedTestSuite) TestSeedSyncRead(c *check.C) {
 	sd, err := newSeed(sOpt, rateOpt{downloadRateLimiter: ratelimiter.NewRateLimiter(0, 0)})
 	c.Assert(err, check.IsNil)
 
-	notifyCh, err := sd.Prefetch(64 * 1024)
+	notifyCh, err := sd.Prefetch(512 * 1024)
 	c.Assert(err, check.IsNil)
 
-	// try to download
-	start = 0
-	end = 0
-	rangeSize = 99 * 1023
-	fileLength := int64(10*1024*1024)
+	wg := &sync.WaitGroup{}
 
-	for {
-		end = start + rangeSize - 1
-		if end >= fileLength {
-			end = fileLength - 1
-		}
+	// try to download in 20 goroutine
+	for i := 0; i < 2; i ++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			start = 0
+			end = 0
+			rangeSize = 99 * 1023
+			fileLength := int64(1024 * 1024 * 1024)
 
-		if start > end {
-			break
-		}
+			for {
+				end = start + rangeSize - 1
+				if end >= fileLength {
+					end = fileLength - 1
+				}
 
-		startTime := time.Now()
-		rc, err := sd.Download(start, end-start+1)
-		logrus.Infof("in TestSeedSyncRead, Download 100KB costs time: %f second", time.Now().Sub(startTime).Seconds())
-		c.Assert(err, check.IsNil)
-		obtainedData, err := ioutil.ReadAll(rc)
-		rc.Close()
-		c.Assert(err, check.IsNil)
+				if start > end {
+					break
+				}
 
-		startTime = time.Now()
-		_, err = s.readFromFileServer("fileF", start, end-start+1)
-		c.Assert(err, check.IsNil)
-		logrus.Infof("in TestSeedSyncRead, Download from source 100KB costs time: %f second", time.Now().Sub(startTime).Seconds())
+				startTime := time.Now()
+				rc, err := sd.Download(start, end-start+1)
+				logrus.Infof("in TestSeedSyncReadPerformance, Download 100KB costs time: %f second", time.Now().Sub(startTime).Seconds())
+				c.Assert(err, check.IsNil)
+				obtainedData, err := ioutil.ReadAll(rc)
+				rc.Close()
+				c.Assert(err, check.IsNil)
 
-		s.checkDataWithFileServer(c, "fileF", start, end-start+1, obtainedData)
-		start = end + 1
+				startTime = time.Now()
+				_, err = s.readFromFileServer("fileG", start, end-start+1)
+				c.Assert(err, check.IsNil)
+				logrus.Infof("in TestSeedSyncReadPerformance, Download from source 100KB costs time: %f second", time.Now().Sub(startTime).Seconds())
+
+				s.checkDataWithFileServer(c, "fileG", start, end-start+1, obtainedData)
+				start = end + 1
+			}
+		}()
 	}
 
 	<- notifyCh
 	logrus.Infof("in TestSeedSyncRead, costs time: %f second", time.Now().Sub(now).Seconds())
 
-	rs, err := sd.GetPrefetchResult()
-	c.Assert(err, check.IsNil)
-	c.Assert(rs.Success, check.Equals, true)
-	c.Assert(rs.Err , check.IsNil)
+	wg.Wait()
 
-	s.checkFileWithSeed(c, "fileF", fileLength, sd)
+	//rs, err := sd.GetPrefetchResult()
+	//c.Assert(err, check.IsNil)
+	//c.Assert(rs.Success, check.Equals, true)
+	//c.Assert(rs.Err , check.IsNil)
+
+	//s.checkFileWithSeed(c, "fileF", fileLength, sd)
 }
