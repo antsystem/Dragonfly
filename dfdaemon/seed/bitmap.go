@@ -8,11 +8,11 @@ import (
 )
 
 type bitmap struct {
-	sync.RWMutex
+	lock 		sync.RWMutex
 	bm          []uint64
 	maxBitIndex int32
 
-	lockMap map[int32]*lockInfo
+	waitChArr	[]chan struct{}
 }
 
 func newBitMap(sizeOf64Bits int32, allSetBit bool) *bitmap {
@@ -26,7 +26,7 @@ func newBitMap(sizeOf64Bits int32, allSetBit bool) *bitmap {
 	return &bitmap{
 		bm:          bm,
 		maxBitIndex: sizeOf64Bits * 64,
-		lockMap:     make(map[int32]*lockInfo),
+		waitChArr:   make([]chan struct{}, sizeOf64Bits * 64),
 	}
 }
 
@@ -36,32 +36,33 @@ func restoreBitMap(data []byte) (*bitmap, error) {
 	return &bitmap{
 		bm: 			bm,
 		maxBitIndex:    int32(len(bm) * 64),
-		lockMap:     	make(map[int32]*lockInfo),
+		waitChArr:   make([]chan struct{}, len(bm) * 64),
 	}, nil
 }
 
 // get gets the bits in range [start, end]. if set is true, return the set bits.
 // else return the unset bits.
 func (b *bitmap) get(start int32, end int32, setBit bool) []*bitmapRs {
-	b.RLock()
-	defer b.RUnlock()
+	b.lock.RLock()
+	defer b.lock.RUnlock()
 
 	return b.getWithoutLock(start, end, setBit)
 }
 
 // set sets or cleans the bits in range [start, end]. if setBit is true, set bits. else clean bits.
 func (b *bitmap) set(start int32, end int32, setBit bool) {
-	b.Lock()
-	defer b.Unlock()
+	b.lock.Lock()
+	defer b.lock.Unlock()
 
 	b.setWithoutLock(start, end, setBit)
 }
 
 // lockRange lock the range [start, end], it will set bits in bitmap.
 // if part of range has been set bits, it will return the unset bits range.
-func (b *bitmap) lockRange(start int32, end int32) *lockInfoRs {
-	b.Lock()
-	defer b.Unlock()
+//
+func (b *bitmap) lockRange(start int32, end int32, noReturnWaitCh bool) *lockInfoRs {
+	b.lock.Lock()
+	defer b.lock.Unlock()
 
 	if start < 0 {
 		start = 0
@@ -78,57 +79,32 @@ func (b *bitmap) lockRange(start int32, end int32) *lockInfoRs {
 	unsetRange := b.getWithoutLock(start, end, false)
 	rs.unsetRange = unsetRange
 
-	// store to lock map to lock range
-	for _, s := range unsetRange {
-		b.lockMap[s.startIndex] = &lockInfo{
-			start:  s.startIndex,
-			end:    s.endIndex,
-			notify: make(chan struct{}),
-		}
-	}
-
-	// get set bits range to fetch the notify chan
+	// get the set bits range to fetch the notify chan
 	setRange := b.getWithoutLock(start, end, true)
 	if len(setRange) == 0 {
 		goto end
 	}
 
-	// if the first set bits is start, it means start index of its lock range may be smaller than start.
-	if setRange[0].startIndex == start {
-		if _, ok := b.lockMap[start]; ok {
-			goto fetchWaitCh
-		}
-
-		for i := start - 1; i >= 0; i-- {
-			if info, ok := b.lockMap[i]; ok {
-				waitChs = append(waitChs, info.notify)
-				setRange[0].startIndex = info.end + 1
-				break
+	if !noReturnWaitCh {
+		for i := 0; i < len(setRange); i++ {
+			for j := setRange[i].startIndex; j <= setRange[i].endIndex; j++ {
+				if b.waitChArr[j] != nil {
+					waitChs = append(waitChs, b.waitChArr[j])
+				}
 			}
-		}
-	}
-
-fetchWaitCh:
-	for i := 0; i < len(setRange); i++ {
-		lockKey := setRange[i].startIndex
-		for {
-			if lockKey > setRange[i].endIndex {
-				break
-			}
-
-			info, ok := b.lockMap[lockKey]
-			if !ok {
-				// warning: code should not goto the branch
-				break
-			}
-			waitChs = append(waitChs, info.notify)
-			lockKey = info.end + 1
 		}
 	}
 
 	rs.waitChs = waitChs
 
 end:
+	// make chan
+	for _,s := range unsetRange {
+		for i := s.startIndex; i <= s.endIndex; i ++ {
+			b.waitChArr[i] = make(chan struct{})
+		}
+	}
+
 	// set bits in the range [start, end]
 	b.setWithoutLock(start, end, true)
 	return rs
@@ -136,18 +112,31 @@ end:
 
 // unlockRange remove the range from lockMap and close the notify channel.
 func (b *bitmap) unlockRange(start int32, end int32) {
-	b.Lock()
-	defer b.Unlock()
+	b.lock.Lock()
+	defer b.lock.Unlock()
 
-	b.setWithoutLock(start, end, false)
-
-	info, ok := b.lockMap[start]
-	if !ok {
-		return
+	for i := start; i <= end; i ++ {
+		if b.waitChArr[i] != nil {
+			close(b.waitChArr[i])
+		}
+		b.waitChArr[i] = nil
 	}
 
-	close(info.notify)
-	delete(b.lockMap, start)
+	b.setWithoutLock(start, end, false)
+}
+
+func (b *bitmap) getLockRangeWaitChan(start, end  int32) []chan struct{} {
+	b.lock.RLock()
+	defer b.lock.RUnlock()
+
+	res := []chan struct{}{}
+	for i := start; i <= end; i ++ {
+		if b.waitChArr[i] != nil {
+			res = append(res, b.waitChArr[i])
+		}
+	}
+
+	return res
 }
 
 func (b *bitmap) getWithoutLock(start int32, end int32, setBit bool) []*bitmapRs {
@@ -245,8 +234,8 @@ func (b *bitmap) setWithoutLock(start int32, end int32, setBit bool) {
 }
 
 func (b *bitmap) encode() []byte {
-	b.RLock()
-	defer b.RUnlock()
+	b.lock.RLock()
+	defer b.lock.RUnlock()
 
 	return EncodeUintArray(b.bm)
 }
@@ -254,12 +243,6 @@ func (b *bitmap) encode() []byte {
 type bitmapRs struct {
 	startIndex int32
 	endIndex   int32
-}
-
-type lockInfo struct {
-	start  int32
-	end    int32
-	notify chan struct{}
 }
 
 type lockInfoRs struct {

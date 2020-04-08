@@ -156,7 +156,7 @@ func (sd *seed) Prefetch(perDownloadSize int64) (<- chan struct{}, error) {
 					end = sd.FullSize - 1
 				}
 
-				err = sd.download(start, end, true)
+				err = sd.tryDownloadAndWaitReady(start, end, true)
 				if err != nil {
 					//todo: try again
 					logrus.Errorf("failed to download: %v", err)
@@ -226,7 +226,7 @@ func (sd *seed) Download(off int64, size int64) (io.ReadCloser, error) {
 		return nil, err
 	}
 
-	err = sd.download(off, off + size - 1, false)
+	err = sd.tryDownloadAndWaitReady(off, off + size - 1, false)
 	if err != nil {
 		return nil, err
 	}
@@ -314,9 +314,22 @@ func (sd *seed) alignWithBlock(start int64, end int64) (int32, int32) {
 	return int32(start >> sd.BlockOrder), int32(end >> sd.BlockOrder)
 }
 
-func (sd *seed) download(start, end int64, rateLimit bool) error {
+func (sd *seed) tryDownloadAndWaitReady(start, end int64, rateLimit bool) error {
+	var(
+		allCosts time.Duration
+		metaCosts time.Duration
+		waitCount int
+	)
+
+	allStartTime := time.Now()
 	startBlock, endBlock := sd.alignWithBlock(start, end)
 	fmt.Printf("start to download, start-end: [%d-%d], block[%d-%d]\n", start, end, startBlock, endBlock)
+
+	defer func() {
+		allCosts = time.Now().Sub(allStartTime)
+		fmt.Printf("download finished, start-end: [%d-%d], block[%d-%d], wait count: %d, all cost time: %f seconds, " +
+			"metaCosts costs time: %f seconds.\n", start, end, startBlock, endBlock, waitCount, allCosts.Seconds(), metaCosts.Seconds())
+	}()
 
 check:
 	rs := sd.blockMeta.get(startBlock, endBlock, false)
@@ -328,34 +341,19 @@ check:
 	unsetRange := []*bitmapRs{}
 	waitChs := []chan struct{}{}
 
+	// get the bits range which prepare to download
 	for _, r := range rs {
-		downRs := sd.lockBlock.lockRange(r.startIndex, r.endIndex)
+		downRs := sd.lockBlock.lockRange(r.startIndex, r.endIndex, true)
 		unsetRange = append(unsetRange, downRs.unsetRange...)
-		waitChs = append(waitChs, downRs.waitChs...)
-	}
-	// set defer func to release lock range
-	for _, r := range unsetRange {
-		defer func(b, e int32) {
-			sd.lockBlock.unlockRange(b, e)
-		}(r.startIndex, r.endIndex)
 	}
 
-	for _, r := range unsetRange {
-		endBytes := (int64(r.endIndex + 1) << sd.BlockOrder) - 1
-		if endBytes >= sd.FullSize {
-			endBytes = sd.FullSize - 1
-		}
+	go sd.downloadBlocks(unsetRange, rateLimit)
 
-		fmt.Printf("start to download file range [%d, %d]\n", int64(r.startIndex) << sd.BlockOrder, endBytes)
-		err := sd.downloadToFile(int64(r.startIndex) << sd.BlockOrder, endBytes, rateLimit)
-		if err != nil {
-			return err
-		}
+	waitChs = sd.lockBlock.getLockRangeWaitChan(startBlock, endBlock)
 
-		// set bits in bitmap to indicate the range has been downloaded.
-		sd.blockMeta.set(r.startIndex, r.endIndex, true)
-	}
-
+	metaCosts = time.Now().Sub(allStartTime)
+	waitCount ++
+	fmt.Printf("wait ch count: %d", len(waitChs))
 	// wait for the chan
 	for _, ch := range waitChs {
 		// todo: set the timeout, if timeout, try to direct download again.
@@ -374,15 +372,43 @@ func (sd *seed) downloadToFile(start, end int64, rateLimit bool) error {
 	_, err := sd.down.DownloadToWriterAt(context.Background(), httputils.RangeStruct{StartIndex: start, EndIndex: end},
 		timeout, start, sd.cache, rateLimit)
 
-	if err != nil {
-		return err
-	}
-
-	return nil
+	return err
 }
 
 func (sd *seed) clearResource() {
 	os.Remove(sd.metaBakPath)
 	os.Remove(sd.metaPath)
 	sd.cache.Remove()
+}
+
+// downloadBlocks downloads the blocks, it should be sync called.
+func (sd *seed) downloadBlocks(blocks []*bitmapRs, rateLimit bool) {
+	for i := 0; i < len(blocks); i ++ {
+		//for blockIndex := blocks[i].startIndex; blockIndex <= blocks[i].endIndex; blockIndex ++ {
+		//
+		//}
+
+		go  sd.downloadBlock(blocks[i].startIndex, blocks[i].endIndex, rateLimit)
+	}
+}
+
+func (sd *seed) downloadBlock(blockStartIndex, blockEndIndex int32, rateLimit bool)  {
+	startBytes := int64(blockStartIndex) << sd.BlockOrder
+	endBytes := int64(blockEndIndex + 1) << sd.BlockOrder - 1
+	if endBytes >= sd.FullSize {
+		endBytes = sd.FullSize - 1
+	}
+
+	defer func() {
+		sd.lockBlock.unlockRange(blockStartIndex, blockEndIndex)
+	}()
+
+	fmt.Printf("start to download file range [%d, %d]\n", startBytes, endBytes)
+	err := sd.downloadToFile(startBytes, endBytes, rateLimit)
+	if err != nil {
+		logrus.Errorf("failed to download to file: %v", err)
+		return
+	}
+
+	sd.blockMeta.set(blockStartIndex, blockEndIndex, true)
 }
