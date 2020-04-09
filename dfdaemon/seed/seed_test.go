@@ -119,7 +119,7 @@ func (s *SeedTestSuite) checkSeedFile(c *check.C, path string, fileLength int64,
 		},
 	}
 
-	sd, err := newSeed(sOpt, rateOpt{downloadRateLimiter: ratelimiter.NewRateLimiter(0, 0)})
+	sd, err := newSeed(sOpt, rateOpt{downloadRateLimiter: ratelimiter.NewRateLimiter(0, 0)}, false)
 	c.Assert(err, check.IsNil)
 
 	finishCh, err := sd.Prefetch(perDownloadSize)
@@ -264,7 +264,7 @@ func (s *SeedTestSuite) TestSeedSyncReadPerformance(c *check.C) {
 	contentPath := filepath.Join(s.cacheDir, "TestSeedSyncReadPerformanceContent1")
 	metaPath := filepath.Join(s.cacheDir, "TestSeedSyncReadPerformanceMeta1")
 	metaBakPath := filepath.Join(s.cacheDir, "TestSeedSyncReadPerformanceMetaBak1")
-	// 64 KB
+	// 128 KB
 	blockOrder := uint32(17)
 	sOpt := seedBaseOpt{
 		contentPath: contentPath,
@@ -280,7 +280,7 @@ func (s *SeedTestSuite) TestSeedSyncReadPerformance(c *check.C) {
 
 	now := time.Now()
 
-	sd, err := newSeed(sOpt, rateOpt{downloadRateLimiter: ratelimiter.NewRateLimiter(0, 0)})
+	sd, err := newSeed(sOpt, rateOpt{downloadRateLimiter: ratelimiter.NewRateLimiter(0, 0)}, true)
 	c.Assert(err, check.IsNil)
 
 	//notifyCh, err := sd.Prefetch(128 * 1024)
@@ -289,7 +289,7 @@ func (s *SeedTestSuite) TestSeedSyncReadPerformance(c *check.C) {
 	wg := &sync.WaitGroup{}
 
 	// try to download in 20 goroutine
-	for i := 0; i < 2; i ++ {
+	for i := 0; i < 1; i ++ {
 		rangeSize = 99 * 1023
 		wg.Add(1)
 		go func() {

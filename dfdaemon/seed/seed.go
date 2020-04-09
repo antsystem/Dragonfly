@@ -88,7 +88,7 @@ type seed struct {
 	prefetchCh      chan struct{}
 }
 
-func newSeed(base seedBaseOpt, rate rateOpt) (Seed, error) {
+func newSeed(base seedBaseOpt, rate rateOpt, openMemoryCache bool) (Seed, error) {
 	if base.info.FullLength == 0 {
 		return nil, fmt.Errorf("full size should be set")
 	}
@@ -97,7 +97,7 @@ func newSeed(base seedBaseOpt, rate rateOpt) (Seed, error) {
 		return nil, fmt.Errorf("block order should be [2,31]")
 	}
 
-	cache, err := newFileCacheBuffer(base.contentPath, base.info.FullLength, true)
+	cache, err := newFileCacheBuffer(base.contentPath, base.info.FullLength, true, openMemoryCache, base.blockOrder)
 	if err != nil {
 		return nil, err
 	}
@@ -113,7 +113,7 @@ func newSeed(base seedBaseOpt, rate rateOpt) (Seed, error) {
 		metaPath:    base.metaPath,
 		metaBakPath: base.metaBakPath,
 		ContentPath: base.contentPath,
-		down: newLocalDownloader(base.info.URL, base.info.Header, rate.downloadRateLimiter),
+		down: newLocalDownloader(base.info.URL, base.info.Header, rate.downloadRateLimiter, openMemoryCache),
 		//uploadRate: sm.uploadRate,
 		prefetchCh: make(chan struct{}),
 	}
@@ -384,10 +384,6 @@ func (sd *seed) clearResource() {
 // downloadBlocks downloads the blocks, it should be sync called.
 func (sd *seed) downloadBlocks(blocks []*bitmapRs, rateLimit bool) {
 	for i := 0; i < len(blocks); i ++ {
-		//for blockIndex := blocks[i].startIndex; blockIndex <= blocks[i].endIndex; blockIndex ++ {
-		//
-		//}
-
 		go  sd.downloadBlock(blocks[i].startIndex, blocks[i].endIndex, rateLimit)
 	}
 }

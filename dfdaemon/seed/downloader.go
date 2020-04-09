@@ -1,6 +1,7 @@
 package seed
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -22,11 +23,12 @@ type downloader interface {
 	Download(ctx context.Context, rangeStruct httputils.RangeStruct, timeout time.Duration, writer io.Writer) (length int64, err error)
 }
 
-func newLocalDownloader(url string, header map[string][]string, rate *ratelimiter.RateLimiter) downloader {
+func newLocalDownloader(url string, header map[string][]string, rate *ratelimiter.RateLimiter, copyCache bool) downloader {
 	return &localDownloader{
 		url:    url,
 		header: header,
 		rate:   rate,
+		copyCache: copyCache,
 	}
 }
 
@@ -36,6 +38,8 @@ type localDownloader struct {
 	// todo: support ssl?
 
 	rate *ratelimiter.RateLimiter
+	// if copyCache sets, the response body will store to memory cache and transfer to writer
+	copyCache		bool
 }
 
 func (ld *localDownloader) Download(ctx context.Context, rangeStruct httputils.RangeStruct, timeout time.Duration,
@@ -78,10 +82,28 @@ func (ld *localDownloader) download(ctx context.Context, rangeStruct httputils.R
 		rd = limitreader.NewLimitReaderWithLimiter(ld.rate, resp.Body, false)
 	}
 
-	if bWriteAt {
-		written, err = CopyBufferToWriterAt(writeOff, writerAt, rd)
-	} else {
-		written, err = io.CopyN(writer, rd, expectedLen)
+	if ld.copyCache {
+		buf := bytes.NewBuffer(nil)
+		written, err = io.CopyN(buf, rd, expectedLen)
+		if written < expectedLen {
+			return 0, errors.Wrap(io.ErrShortWrite, fmt.Sprintf("download from [%d,%d], expecte read %d, but got %d", rangeStruct.StartIndex, rangeStruct.EndIndex, expectedLen, written))
+		}
+
+		var n int
+		if bWriteAt {
+			n, err = writerAt.WriteAt(buf.Bytes(), writeOff)
+		}else{
+			n, err = writer.Write(buf.Bytes())
+		}
+
+		written = int64((n))
+
+	}else {
+		if bWriteAt {
+			written, err = CopyBufferToWriterAt(writeOff, writerAt, rd)
+		} else {
+			written, err = io.CopyN(writer, rd, expectedLen)
+		}
 	}
 
 	if err == io.EOF {

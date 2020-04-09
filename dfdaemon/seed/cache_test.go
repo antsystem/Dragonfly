@@ -1,6 +1,8 @@
 package seed
 
 import (
+	"bytes"
+	"io"
 	"io/ioutil"
 	"net/http"
 	"path/filepath"
@@ -13,7 +15,7 @@ import (
 func (suite *SeedTestSuite) TestFileCacheBufferWithNoFile(c *check.C) {
 	testDir := suite.tmpDir
 
-	cb, err := newFileCacheBuffer(filepath.Join(testDir, "fileA"), 30, true)
+	cb, err := newFileCacheBuffer(filepath.Join(testDir, "fileA"), 30, true, false, 0)
 	c.Assert(err, check.IsNil)
 
 	data := []byte("0123456789")
@@ -111,7 +113,7 @@ func (suite *SeedTestSuite) TestFileCacheBufferWithExistFile(c *check.C) {
 	testDir := suite.tmpDir
 
 	// create cb
-	cb, err := newFileCacheBuffer(filepath.Join(testDir, "fileB"), 35, true)
+	cb, err := newFileCacheBuffer(filepath.Join(testDir, "fileB"), 35, true, false, 0)
 	c.Assert(err, check.IsNil)
 
 	inputData1 := []byte("0123456789")
@@ -134,7 +136,7 @@ func (suite *SeedTestSuite) TestFileCacheBufferWithExistFile(c *check.C) {
 	c.Assert(err, check.IsNil)
 
 	// reopen again
-	cb, err = newFileCacheBuffer(filepath.Join(testDir, "fileB"), 35, false)
+	cb, err = newFileCacheBuffer(filepath.Join(testDir, "fileB"), 35, false, false, 0)
 	c.Assert(err, check.IsNil)
 
 	rc, err := cb.ReadStream(0, 30)
@@ -202,4 +204,101 @@ func (suite *SeedTestSuite) TestFileCacheBufferWithExistFile(c *check.C) {
 	// read again
 	_, err = cb.ReadStream(20, 5)
 	c.Assert(err, check.NotNil)
+}
+
+func (suite *SeedTestSuite) TestCacheMemoryMode(c *check.C) {
+	testDir := suite.tmpDir
+	cb1, err := newFileCacheBuffer(filepath.Join(testDir, "TestCacheMemoryModeFileB"), 64, true, true, 4)
+	c.Assert(err, check.IsNil)
+
+	inputData1 := []byte("0123456789abcdef")
+	inputData2 := []byte("fedcba9876543210")
+
+	data1 := make([]byte, 16)
+	copy(data1, inputData1)
+	n, err := cb1.WriteAt(data1, 0)
+	c.Assert(err, check.IsNil)
+	c.Assert(n, check.Equals, 16)
+
+	rc, err := cb1.ReadStream(0, 10)
+	c.Assert(err, check.IsNil)
+	rcData, err := ioutil.ReadAll(rc)
+	c.Assert(err, check.IsNil)
+	expectData := []byte("0123456789")
+	c.Assert(string(rcData), check.Equals, string(expectData))
+	err = rc.Close()
+	c.Assert(err, check.IsNil)
+
+	data1 = make([]byte, 16)
+	copy(data1, inputData2)
+	n, err = cb1.WriteAt(data1, 32)
+	c.Assert(err, check.IsNil)
+	c.Assert(n, check.Equals, 16)
+
+	rc, err = cb1.ReadStream(32, 10)
+	c.Assert(err, check.IsNil)
+	rcData, err = ioutil.ReadAll(rc)
+	c.Assert(err, check.IsNil)
+	expectData = []byte("fedcba9876")
+	c.Assert(string(rcData), check.Equals, string(expectData))
+	err = rc.Close()
+	c.Assert(err, check.IsNil)
+
+	// sync
+	err = cb1.Sync()
+	c.Check(err, check.IsNil)
+
+	data1 = make([]byte, 16)
+	copy(data1, inputData2)
+	n, err = cb1.WriteAt(data1, 16)
+	c.Assert(err, check.IsNil)
+	c.Assert(n, check.Equals, 16)
+
+	rc, err = cb1.ReadStream(10, 20)
+	c.Assert(err, check.IsNil)
+	rcData, err = ioutil.ReadAll(rc)
+	c.Assert(err, check.IsNil)
+	expectData = []byte("abcdeffedcba98765432")
+	c.Assert(string(rcData), check.Equals, string(expectData))
+	err = rc.Close()
+	c.Assert(err, check.IsNil)
+
+	rc, err = cb1.ReadStream(10, 20)
+	c.Assert(err, check.IsNil)
+	rcData, err = ioutil.ReadAll(rc)
+	c.Assert(err, check.IsNil)
+	expectData = []byte("abcdeffedcba98765432")
+	c.Assert(string(rcData), check.Equals, string(expectData))
+	err = rc.Close()
+	c.Assert(err, check.IsNil)
+
+	rc, err = cb1.ReadStream(15, 20)
+	c.Assert(err, check.IsNil)
+	mrc, ok := rc.(*multiReadCloser)
+	c.Assert(ok, check.Equals, true)
+	c.Assert(len(mrc.rds), check.Equals, 3)
+	_,ok = mrc.rds[0].(*io.SectionReader)
+	c.Assert(ok, check.Equals, true)
+	_,ok = mrc.rds[1].(*bytes.Reader)
+	c.Assert(ok, check.Equals, true)
+	_,ok = mrc.rds[2].(*io.SectionReader)
+	c.Assert(ok, check.Equals, true)
+	rcData, err = ioutil.ReadAll(rc)
+	c.Assert(err, check.IsNil)
+	expectData = []byte("ffedcba9876543210fed")
+	c.Assert(string(rcData), check.Equals, string(expectData))
+	err = rc.Close()
+	c.Assert(err, check.IsNil)
+
+	// sync
+	err = cb1.Sync()
+	c.Assert(err, check.IsNil)
+	rc, err = cb1.ReadStream(15, 20)
+	c.Assert(err, check.IsNil)
+	_, ok = rc.(*fileReadCloser)
+	c.Assert(ok, check.Equals, true)
+	expectData = []byte("ffedcba9876543210fed")
+	c.Assert(string(rcData), check.Equals, string(expectData))
+	err = rc.Close()
+	c.Assert(err, check.IsNil)
 }

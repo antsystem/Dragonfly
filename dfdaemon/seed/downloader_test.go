@@ -109,7 +109,7 @@ func (s *SeedTestSuite) readFromFileServer(path string, off int64, size int64) (
 func (s *SeedTestSuite) checkLocalDownloadDataFromFileServer(c *check.C, path string, off int64, size int64) {
 	buf := newMockBufferWriterAt()
 
-	ld := newLocalDownloader(fmt.Sprintf("http://%s/%s", s.host, path), nil, ratelimiter.NewRateLimiter(0, 0))
+	ld := newLocalDownloader(fmt.Sprintf("http://%s/%s", s.host, path), nil, ratelimiter.NewRateLimiter(0, 0), false)
 
 	length, err := ld.DownloadToWriterAt(context.Background(), httputils.RangeStruct{StartIndex: off, EndIndex: off + size - 1}, 0, 0, buf, true)
 	c.Check(err, check.IsNil)
@@ -122,7 +122,7 @@ func (s *SeedTestSuite) checkLocalDownloadDataFromFileServer(c *check.C, path st
 	// test with Download
 	buffer := bytes.NewBuffer(nil)
 
-	ld = newLocalDownloader(fmt.Sprintf("http://%s/%s", s.host, path), nil, ratelimiter.NewRateLimiter(0, 0))
+	ld = newLocalDownloader(fmt.Sprintf("http://%s/%s", s.host, path), nil, ratelimiter.NewRateLimiter(0, 0), false)
 
 	length, err = ld.Download(context.Background(), httputils.RangeStruct{StartIndex: off, EndIndex: off + size - 1}, 0, buffer)
 	c.Check(err, check.IsNil)
