@@ -75,11 +75,13 @@ type seed struct {
 	metaBakPath 	string
 
 	down    	    downloader
-	// blockMeta bitmap may should be sync to fs.
+	// block info
 	blockMeta		*bitmap
 	lockBlock 		*bitmap
 	// the max size of cache is (blockSize * MaxInt32)
 	blockSize		int32
+	// if block is downloading, it set wait chan in blockWaitChMap, and set bits in lockBlock.
+	blockWaitChMap  map[int32]chan struct{}
 
 	prefetchOnce    sync.Once
 
@@ -116,6 +118,7 @@ func NewSeed(base SeedBaseOpt, rate RateOpt, openMemoryCache bool) (Seed, error)
 		down: newLocalDownloader(base.Info.URL, base.Info.Header, rate.DownloadRateLimiter, openMemoryCache),
 		//uploadRate: sm.uploadRate,
 		prefetchCh: make(chan struct{}),
+		blockWaitChMap: make(map[int32]chan struct{}),
 	}
 
 	sd.initParam()
@@ -339,18 +342,13 @@ check:
 		return nil
 	}
 
-	unsetRange := []*bitmapRs{}
 	waitChs := []chan struct{}{}
 
-	// get the bits range which prepare to download
-	for _, r := range rs {
-		downRs := sd.lockBlock.lockRange(r.startIndex, r.endIndex, true)
-		unsetRange = append(unsetRange, downRs.unsetRange...)
-	}
+	nextDownloadBlocks := sd.lockBlocksForPrepareDownload(startBlock, endBlock)
 
-	go sd.downloadBlocks(unsetRange, rateLimit)
+	go sd.downloadBlocks(nextDownloadBlocks, rateLimit)
 
-	waitChs = sd.lockBlock.getLockRangeWaitChan(startBlock, endBlock)
+	waitChs = sd.getWaitChans(startBlock, endBlock)
 
 	metaCosts = time.Now().Sub(allStartTime)
 	waitCount ++
@@ -383,9 +381,9 @@ func (sd *seed) clearResource() {
 }
 
 // downloadBlocks downloads the blocks, it should be sync called.
-func (sd *seed) downloadBlocks(blocks []*bitmapRs, rateLimit bool) {
+func (sd *seed) downloadBlocks(blocks []int32, rateLimit bool) {
 	for i := 0; i < len(blocks); i ++ {
-		go  sd.downloadBlock(blocks[i].startIndex, blocks[i].endIndex, rateLimit)
+		go sd.downloadBlock(blocks[i], blocks[i], rateLimit)
 	}
 }
 
@@ -397,7 +395,7 @@ func (sd *seed) downloadBlock(blockStartIndex, blockEndIndex int32, rateLimit bo
 	}
 
 	defer func() {
-		sd.lockBlock.unlockRange(blockStartIndex, blockEndIndex)
+		sd.unlockBlocks(blockStartIndex, blockEndIndex)
 	}()
 
 	fmt.Printf("start to download file range [%d, %d]\n", startBytes, endBytes)
@@ -408,4 +406,68 @@ func (sd *seed) downloadBlock(blockStartIndex, blockEndIndex int32, rateLimit bo
 	}
 
 	sd.blockMeta.set(blockStartIndex, blockEndIndex, true)
+}
+
+// lockBlocksForPrepareDownload  lock the range, will return next downloading blocks.
+func (sd *seed) lockBlocksForPrepareDownload(startBlock, endBlock int32) (blocks []int32) {
+	sd.Lock()
+	defer sd.Unlock()
+
+	needDownloadBlocks := sd.blockMeta.get(startBlock, endBlock, false)
+	unDownloadBlocks := []*bitsRange{}
+	for _, r := range needDownloadBlocks {
+		br := sd.lockBlock.get(r.startIndex, r.endIndex, false)
+		unDownloadBlocks = append(unDownloadBlocks, br...)
+	}
+
+	ret := []int32{}
+	// lock the unDownloadBlocks
+	for _, r := range unDownloadBlocks {
+		for i := r.startIndex; i <= r.endIndex; i ++ {
+			sd.blockWaitChMap[i] = make(chan struct{})
+			ret = append(ret, i)
+		}
+
+		// set bits  in lockBlock to tell other goroutinue the range has been locked
+		sd.lockBlock.set(r.startIndex, r.endIndex, true)
+	}
+
+	return ret
+}
+
+func (sd *seed) unlockBlocks(startBlock, endBlock int32) {
+	sd.Lock()
+	defer sd.Unlock()
+
+	for i := startBlock; i <= endBlock; i ++ {
+		ch, ok := sd.blockWaitChMap[i]
+		if  !ok {
+			continue
+		}
+
+		close(ch)
+		delete(sd.blockWaitChMap, i)
+	}
+
+	sd.lockBlock.set(startBlock, endBlock, false)
+}
+
+func (sd *seed) getWaitChans(startBlock, endBlock int32) []chan struct{} {
+	sd.RLock()
+	defer sd.RUnlock()
+
+	res := []chan struct{}{}
+	lockBlocks := sd.lockBlock.get(startBlock, endBlock, true)
+	for _, r := range lockBlocks {
+		for i:= r.startIndex; i <= r.endIndex; i ++ {
+			ch, ok := sd.blockWaitChMap[i]
+			if !ok {
+				continue
+			}
+
+			res = append(res, ch)
+		}
+	}
+
+	return res
 }
