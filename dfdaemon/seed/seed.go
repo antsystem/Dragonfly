@@ -88,32 +88,32 @@ type seed struct {
 	prefetchCh      chan struct{}
 }
 
-func newSeed(base seedBaseOpt, rate rateOpt, openMemoryCache bool) (Seed, error) {
-	if base.info.FullLength == 0 {
+func NewSeed(base SeedBaseOpt, rate RateOpt, openMemoryCache bool) (Seed, error) {
+	if base.Info.FullLength == 0 {
 		return nil, fmt.Errorf("full size should be set")
 	}
 
-	if base.blockOrder < 10 || base.blockOrder > 31 {
+	if base.BlockOrder < 10 || base.BlockOrder > 31 {
 		return nil, fmt.Errorf("block order should be [2,31]")
 	}
 
-	cache, err := newFileCacheBuffer(base.contentPath, base.info.FullLength, true, openMemoryCache, base.blockOrder)
+	cache, err := newFileCacheBuffer(base.ContentPath, base.Info.FullLength, true, openMemoryCache, base.BlockOrder)
 	if err != nil {
 		return nil, err
 	}
 
 	sd := &seed{
 		Status:      INITIAL_STATUS,
-		Url:         base.info.URL,
-		Header:      base.info.Header,
-		FullSize:	 base.info.FullLength,
-		TaskId:      base.info.TaskID,
-		BlockOrder:  base.blockOrder,
+		Url:         base.Info.URL,
+		Header:      base.Info.Header,
+		FullSize:	 base.Info.FullLength,
+		TaskId:      base.Info.TaskID,
+		BlockOrder:  base.BlockOrder,
 		cache:       cache,
-		metaPath:    base.metaPath,
-		metaBakPath: base.metaBakPath,
-		ContentPath: base.contentPath,
-		down: newLocalDownloader(base.info.URL, base.info.Header, rate.downloadRateLimiter, openMemoryCache),
+		metaPath:    base.MetaPath,
+		metaBakPath: base.MetaBakPath,
+		ContentPath: base.ContentPath,
+		down: newLocalDownloader(base.Info.URL, base.Info.Header, rate.DownloadRateLimiter, openMemoryCache),
 		//uploadRate: sm.uploadRate,
 		prefetchCh: make(chan struct{}),
 	}
@@ -190,6 +190,7 @@ func (sd *seed) Prefetch(perDownloadSize int64) (<- chan struct{}, error) {
 				sd.Status = FINISHED_STATUS
 			}
 
+			sd.cache.Close()
 			close(sd.prefetchCh)
 		})
 	}()

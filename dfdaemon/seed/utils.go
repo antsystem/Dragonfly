@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"time"
 )
 
 func GenerateKeyByUrl(url string) string {
@@ -72,3 +73,20 @@ func DecodeToUintArray(data []byte) []uint64 {
 
 	return out
 }
+
+type costsTimeTool struct {
+	start 		time.Time
+	outStr		string
+}
+
+func newCostsTimeTool(outStr string) *costsTimeTool {
+	return &costsTimeTool{
+		start:   time.Now(),
+		outStr:  outStr,
+	}
+}
+
+func (c *costsTimeTool) costs() string {
+	return fmt.Sprintf("out: %s, costs time: %f seconds\n", c.outStr, time.Now().Sub(c.start).Seconds())
+}
+

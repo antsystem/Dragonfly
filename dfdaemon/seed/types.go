@@ -31,14 +31,14 @@ type prefetchSt struct {
 	ch chan PreFetchResult
 }
 
-type seedBaseOpt struct {
-	contentPath 		string
-	metaPath			string
-	metaBakPath			string
-	blockOrder			uint32
-	info 				*PreFetchInfo
+type SeedBaseOpt struct {
+	ContentPath string
+	MetaPath    string
+	MetaBakPath string
+	BlockOrder  uint32
+	Info        *PreFetchInfo
 }
 
-type rateOpt struct {
-	downloadRateLimiter *ratelimiter.RateLimiter
+type RateOpt struct {
+	DownloadRateLimiter *ratelimiter.RateLimiter
 }

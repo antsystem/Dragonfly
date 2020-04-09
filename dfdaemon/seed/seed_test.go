@@ -107,19 +107,19 @@ func (s *SeedTestSuite) checkSeedFile(c *check.C, path string, fileLength int64,
 	metaBakPath := filepath.Join(s.cacheDir, fmt.Sprintf("%s-meta.bak", seedName))
 	blockOrder := uint32(order)
 
-	sOpt := seedBaseOpt{
-		contentPath: contentPath,
-		metaPath: metaPath,
-		metaBakPath: metaBakPath,
-		blockOrder: blockOrder,
-		info:  &PreFetchInfo{
+	sOpt := SeedBaseOpt{
+		ContentPath: contentPath,
+		MetaPath:    metaPath,
+		MetaBakPath: metaBakPath,
+		BlockOrder:  blockOrder,
+		Info:  &PreFetchInfo{
 			URL: fmt.Sprintf("http://%s/%s", s.host, path),
 			TaskID: uuid.New(),
 			FullLength: fileLength,
 		},
 	}
 
-	sd, err := newSeed(sOpt, rateOpt{downloadRateLimiter: ratelimiter.NewRateLimiter(0, 0)}, false)
+	sd, err := NewSeed(sOpt, RateOpt{DownloadRateLimiter: ratelimiter.NewRateLimiter(0, 0)}, false)
 	c.Assert(err, check.IsNil)
 
 	finishCh, err := sd.Prefetch(perDownloadSize)
@@ -143,7 +143,7 @@ func (s *SeedTestSuite) checkSeedFile(c *check.C, path string, fileLength int64,
 //	// 8 KB
 //	blockOrder := uint32(13)
 //
-//	sOpt := seedBaseOpt{
+//	sOpt := SeedBaseOpt{
 //		contentPath: contentPath,
 //		metaPath: metaPath,
 //		metaBakPath: metaBakPath,
@@ -155,7 +155,7 @@ func (s *SeedTestSuite) checkSeedFile(c *check.C, path string, fileLength int64,
 //		},
 //	}
 //
-//	sd, err := newSeed(sOpt, rateOpt{downloadRateLimiter: ratelimiter.NewRateLimiter(0, 0)})
+//	sd, err := NewSeed(sOpt, RateOpt{downloadRateLimiter: ratelimiter.NewRateLimiter(0, 0)})
 //	c.Assert(err, check.IsNil)
 //
 //	notifyCh, err := sd.Prefetch(16 * 1024)
@@ -189,7 +189,7 @@ func (s *SeedTestSuite) checkSeedFile(c *check.C, path string, fileLength int64,
 //	// 64 KB
 //	blockOrder := uint32(16)
 //
-//	sOpt := seedBaseOpt{
+//	sOpt := SeedBaseOpt{
 //		contentPath: contentPath,
 //		metaPath: metaPath,
 //		metaBakPath: metaBakPath,
@@ -203,7 +203,7 @@ func (s *SeedTestSuite) checkSeedFile(c *check.C, path string, fileLength int64,
 //
 //	now := time.Now()
 //
-//	sd, err := newSeed(sOpt, rateOpt{downloadRateLimiter: ratelimiter.NewRateLimiter(0, 0)})
+//	sd, err := NewSeed(sOpt, RateOpt{downloadRateLimiter: ratelimiter.NewRateLimiter(0, 0)})
 //	c.Assert(err, check.IsNil)
 //
 //	notifyCh, err := sd.Prefetch(64 * 1024)
@@ -266,12 +266,12 @@ func (s *SeedTestSuite) TestSeedSyncReadPerformance(c *check.C) {
 	metaBakPath := filepath.Join(s.cacheDir, "TestSeedSyncReadPerformanceMetaBak1")
 	// 128 KB
 	blockOrder := uint32(17)
-	sOpt := seedBaseOpt{
-		contentPath: contentPath,
-		metaPath: metaPath,
-		metaBakPath: metaBakPath,
-		blockOrder: blockOrder,
-		info:  &PreFetchInfo{
+	sOpt := SeedBaseOpt{
+		ContentPath: contentPath,
+		MetaPath:    metaPath,
+		MetaBakPath: metaBakPath,
+		BlockOrder:  blockOrder,
+		Info:  &PreFetchInfo{
 			URL: urlF,
 			TaskID: uuid.New(),
 			FullLength: fileLength,
@@ -280,7 +280,7 @@ func (s *SeedTestSuite) TestSeedSyncReadPerformance(c *check.C) {
 
 	now := time.Now()
 
-	sd, err := newSeed(sOpt, rateOpt{downloadRateLimiter: ratelimiter.NewRateLimiter(0, 0)}, true)
+	sd, err := NewSeed(sOpt, RateOpt{DownloadRateLimiter: ratelimiter.NewRateLimiter(0, 0)}, true)
 	c.Assert(err, check.IsNil)
 
 	//notifyCh, err := sd.Prefetch(128 * 1024)

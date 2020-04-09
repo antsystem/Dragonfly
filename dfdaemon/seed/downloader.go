@@ -64,6 +64,8 @@ func (ld *localDownloader) download(ctx context.Context, rangeStruct httputils.R
 		header[k] = v[0]
 	}
 
+	dncosts := newCostsTimeTool("do download from remote")
+
 	header[config.StrRange] = fmt.Sprintf("bytes=%d-%d", rangeStruct.StartIndex, rangeStruct.EndIndex)
 	resp, err := httputils.HTTPWithHeaders("GET", ld.url, header, timeout, nil)
 	if err != nil {
@@ -82,16 +84,24 @@ func (ld *localDownloader) download(ctx context.Context, rangeStruct httputils.R
 		rd = limitreader.NewLimitReaderWithLimiter(ld.rate, resp.Body, false)
 	}
 
+	fmt.Printf(dncosts.costs())
+
 	if ld.copyCache {
+		copyBufCosts := newCostsTimeTool("do copy buffer")
 		buf := bytes.NewBuffer(nil)
+		buf.Grow(int(expectedLen))
 		written, err = io.CopyN(buf, rd, expectedLen)
 		if written < expectedLen {
 			return 0, errors.Wrap(io.ErrShortWrite, fmt.Sprintf("download from [%d,%d], expecte read %d, but got %d", rangeStruct.StartIndex, rangeStruct.EndIndex, expectedLen, written))
 		}
 
+		fmt.Print(copyBufCosts.costs())
+
 		var n int
 		if bWriteAt {
+			writeC := newCostsTimeTool("do write at")
 			n, err = writerAt.WriteAt(buf.Bytes(), writeOff)
+			fmt.Printf(writeC.costs())
 		}else{
 			n, err = writer.Write(buf.Bytes())
 		}
