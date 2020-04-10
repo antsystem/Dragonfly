@@ -11,6 +11,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -99,7 +100,16 @@ func NewSeed(base SeedBaseOpt, rate RateOpt, openMemoryCache bool) (Seed, error)
 		return nil, fmt.Errorf("block order should be [2,31]")
 	}
 
-	cache, err := newFileCacheBuffer(base.ContentPath, base.Info.FullLength, true, openMemoryCache, base.BlockOrder)
+	err := os.MkdirAll(base.MetaDir, 0744)
+	if err != nil {
+		return nil, err
+	}
+
+	metaPath := filepath.Join(base.MetaDir, "meta.json")
+	metaBakPath := filepath.Join(base.MetaDir, "meta.json.bak")
+	contentPath := filepath.Join(base.MetaDir, "content")
+
+	cache, err := newFileCacheBuffer(contentPath, base.Info.FullLength, true, openMemoryCache, base.BlockOrder)
 	if err != nil {
 		return nil, err
 	}
@@ -112,9 +122,9 @@ func NewSeed(base SeedBaseOpt, rate RateOpt, openMemoryCache bool) (Seed, error)
 		TaskId:      base.Info.TaskID,
 		BlockOrder:  base.BlockOrder,
 		cache:       cache,
-		metaPath:    base.MetaPath,
-		metaBakPath: base.MetaBakPath,
-		ContentPath: base.ContentPath,
+		metaPath:    metaPath,
+		metaBakPath: metaBakPath,
+		ContentPath: contentPath,
 		down: newLocalDownloader(base.Info.URL, base.Info.Header, rate.DownloadRateLimiter, openMemoryCache),
 		//uploadRate: sm.uploadRate,
 		prefetchCh: make(chan struct{}),

@@ -102,15 +102,11 @@ func (s *SeedTestSuite) checkSeedFile(c *check.C, path string, fileLength int64,
 		}
 	}()
 
-	contentPath := filepath.Join(s.cacheDir, fmt.Sprintf("%s-content", seedName))
-	metaPath := filepath.Join(s.cacheDir, fmt.Sprintf("%s-meta", seedName))
-	metaBakPath := filepath.Join(s.cacheDir, fmt.Sprintf("%s-meta.bak", seedName))
+	metaDir := filepath.Join(s.cacheDir, seedName)
 	blockOrder := uint32(order)
 
 	sOpt := SeedBaseOpt{
-		ContentPath: contentPath,
-		MetaPath:    metaPath,
-		MetaBakPath: metaBakPath,
+		MetaDir: metaDir,
 		BlockOrder:  blockOrder,
 		Info:  &PreFetchInfo{
 			URL: fmt.Sprintf("http://%s/%s", s.host, path),
@@ -137,16 +133,12 @@ func (s *SeedTestSuite) checkSeedFile(c *check.C, path string, fileLength int64,
 
 func (s *SeedTestSuite) TestNormalSeed(c *check.C) {
 	urlA := fmt.Sprintf("http://%s/fileA", s.host)
-	contentPath := filepath.Join(s.cacheDir, "TestSeedNormalContent1")
-	metaPath := filepath.Join(s.cacheDir, "TestSeedNormalMeta1")
-	metaBakPath := filepath.Join(s.cacheDir, "TestSeedNormalMetaBak1")
+	metaDir := filepath.Join(s.cacheDir, "TestNormalSeed")
 	// 8 KB
 	blockOrder := uint32(13)
 
 	sOpt := SeedBaseOpt{
-		ContentPath: contentPath,
-		MetaPath: metaPath,
-		MetaBakPath: metaBakPath,
+		MetaDir: metaDir,
 		BlockOrder: blockOrder,
 		Info:  &PreFetchInfo{
 			URL: urlA,
@@ -183,16 +175,12 @@ func (s *SeedTestSuite) TestSeedSyncRead(c *check.C) {
 	)
 
 	urlF := fmt.Sprintf("http://%s/fileF", s.host)
-	contentPath := filepath.Join(s.cacheDir, "TestSeedSyncReadContent1")
-	metaPath := filepath.Join(s.cacheDir, "TestSeedSyncReadMeta1")
-	metaBakPath := filepath.Join(s.cacheDir, "TestSeedSyncReadMetaBak1")
+	metaDir := filepath.Join(s.cacheDir, "TestSeedSyncRead")
 	// 64 KB
 	blockOrder := uint32(16)
 
 	sOpt := SeedBaseOpt{
-		ContentPath: contentPath,
-		MetaPath: metaPath,
-		MetaBakPath: metaBakPath,
+		MetaDir: metaDir,
 		BlockOrder: blockOrder,
 		Info:  &PreFetchInfo{
 			URL: urlF,
@@ -261,15 +249,11 @@ func (s *SeedTestSuite) TestSeedSyncReadPerformance(c *check.C) {
 	fileName := "fileF"
 	fileLength := int64(10*1024*1024)
 	urlF := fmt.Sprintf("http://%s/%s", s.host, fileName)
-	contentPath := filepath.Join(s.cacheDir, "TestSeedSyncReadPerformanceContent1")
-	metaPath := filepath.Join(s.cacheDir, "TestSeedSyncReadPerformanceMeta1")
-	metaBakPath := filepath.Join(s.cacheDir, "TestSeedSyncReadPerformanceMetaBak1")
+	metaDir := filepath.Join(s.cacheDir, "TestSeedSyncReadPerformance")
 	// 128 KB
 	blockOrder := uint32(17)
 	sOpt := SeedBaseOpt{
-		ContentPath: contentPath,
-		MetaPath:    metaPath,
-		MetaBakPath: metaBakPath,
+		MetaDir: metaDir,
 		BlockOrder:  blockOrder,
 		Info:  &PreFetchInfo{
 			URL: urlF,

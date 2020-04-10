@@ -32,9 +32,7 @@ type prefetchSt struct {
 }
 
 type SeedBaseOpt struct {
-	ContentPath string
-	MetaPath    string
-	MetaBakPath string
+	MetaDir		string
 	BlockOrder  uint32
 	Info        *PreFetchInfo
 }

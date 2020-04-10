@@ -22,15 +22,11 @@ func Run(host string, cacheDir string, directSrc bool, cacheRun bool, fileCache 
 	fileName := "fileG"
 	fileLength := int64(100*1024*1024)
 	urlF := fmt.Sprintf("http://%s/%s",host, fileName)
-	contentPath := filepath.Join(cacheDir, "content")
-	metaPath := filepath.Join(cacheDir, "meta")
-	metaBakPath := filepath.Join(cacheDir, "meta.bak")
+	metaDir := filepath.Join(cacheDir, "seed")
 	// 128 KB
 	blockOrder := uint32(17)
 	sOpt := seed.SeedBaseOpt{
-		ContentPath: contentPath,
-		MetaPath:    metaPath,
-		MetaBakPath: metaBakPath,
+		MetaDir:	 metaDir,
 		BlockOrder:  blockOrder,
 		Info:  &seed.PreFetchInfo{
 			URL: urlF,
