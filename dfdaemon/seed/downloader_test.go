@@ -118,19 +118,6 @@ func (s *SeedTestSuite) checkLocalDownloadDataFromFileServer(c *check.C, path st
 	expectData, err := s.readFromFileServer(path, off, size)
 	c.Check(err, check.IsNil)
 	c.Check(string(buf.Bytes()), check.Equals, string(expectData))
-
-	// test with Download
-	buffer := bytes.NewBuffer(nil)
-
-	ld = newLocalDownloader(fmt.Sprintf("http://%s/%s", s.host, path), nil, ratelimiter.NewRateLimiter(0, 0), false)
-
-	length, err = ld.Download(context.Background(), httputils.RangeStruct{StartIndex: off, EndIndex: off + size - 1}, 0, buffer)
-	c.Check(err, check.IsNil)
-	c.Check(size, check.Equals, length)
-
-	expectData, err = s.readFromFileServer(path, off, size)
-	c.Check(err, check.IsNil)
-	c.Check(string(buffer.Bytes()), check.Equals, string(expectData))
 }
 
 func (s *SeedTestSuite) TestLocalDownload(c *check.C) {

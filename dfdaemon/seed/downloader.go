@@ -20,7 +20,6 @@ import (
 // downloader manage the downloading of seed file
 type downloader interface {
 	DownloadToWriterAt(ctx context.Context, rangeStruct httputils.RangeStruct, timeout time.Duration, writeOff int64, writerAt io.WriterAt, rateLimit bool) (length int64, err error)
-	Download(ctx context.Context, rangeStruct httputils.RangeStruct, timeout time.Duration, writer io.Writer) (length int64, err error)
 }
 
 func newLocalDownloader(url string, header map[string][]string, rate *ratelimiter.RateLimiter, copyCache bool) downloader {
@@ -42,18 +41,13 @@ type localDownloader struct {
 	copyCache		bool
 }
 
-func (ld *localDownloader) Download(ctx context.Context, rangeStruct httputils.RangeStruct, timeout time.Duration,
-	writer io.Writer) (length int64, err error) {
-	return ld.download(ctx, rangeStruct, timeout, 0, nil, writer, false, true)
-}
-
 func (ld *localDownloader) DownloadToWriterAt(ctx context.Context, rangeStruct httputils.RangeStruct, timeout time.Duration,
 	writeOff int64, writerAt io.WriterAt, rateLimit bool) (length int64, err error) {
-	return ld.download(ctx, rangeStruct, timeout, writeOff, writerAt, nil, true, rateLimit)
+	return ld.download(ctx, rangeStruct, timeout, writeOff, writerAt, rateLimit)
 }
 
 func (ld *localDownloader) download(ctx context.Context, rangeStruct httputils.RangeStruct, timeout time.Duration,
-	writeOff int64, writerAt io.WriterAt, writer io.Writer, bWriteAt bool, rateLimit bool) (length int64, err error) {
+	writeOff int64, writerAt io.WriterAt, rateLimit bool) (length int64, err error) {
 	var (
 		written int64
 		rd		io.Reader
@@ -98,22 +92,14 @@ func (ld *localDownloader) download(ctx context.Context, rangeStruct httputils.R
 		fmt.Print(copyBufCosts.costs())
 
 		var n int
-		if bWriteAt {
-			writeC := newCostsTimeTool("do write at")
-			n, err = writerAt.WriteAt(buf.Bytes(), writeOff)
-			fmt.Printf(writeC.costs())
-		}else{
-			n, err = writer.Write(buf.Bytes())
-		}
+		writeC := newCostsTimeTool("do write at")
+		n, err = writerAt.WriteAt(buf.Bytes(), writeOff)
+		fmt.Printf(writeC.costs())
 
 		written = int64((n))
 
 	}else {
-		if bWriteAt {
-			written, err = CopyBufferToWriterAt(writeOff, writerAt, rd)
-		} else {
-			written, err = io.CopyN(writer, rd, expectedLen)
-		}
+		written, err = CopyBufferToWriterAt(writeOff, writerAt, rd)
 	}
 
 	if err == io.EOF {
