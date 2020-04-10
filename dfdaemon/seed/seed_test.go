@@ -246,8 +246,8 @@ func (s *SeedTestSuite) TestSeedSyncReadPerformance(c *check.C) {
 		rangeSize int64
 	)
 
-	fileName := "fileF"
-	fileLength := int64(10*1024*1024)
+	fileName := "fileH"
+	fileLength := int64(100*1024*1024)
 	urlF := fmt.Sprintf("http://%s/%s", s.host, fileName)
 	metaDir := filepath.Join(s.cacheDir, "TestSeedSyncReadPerformance")
 	// 128 KB
@@ -273,7 +273,7 @@ func (s *SeedTestSuite) TestSeedSyncReadPerformance(c *check.C) {
 	wg := &sync.WaitGroup{}
 
 	// try to download in 20 goroutine
-	for i := 0; i < 2; i ++ {
+	for i := 0; i < 20; i ++ {
 		rangeSize = 99 * 1023
 		wg.Add(1)
 		go func() {

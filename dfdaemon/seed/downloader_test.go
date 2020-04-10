@@ -75,6 +75,9 @@ func (s *SeedTestSuite) SetUpSuite(c *check.C) {
 	err = s.server.RegisterFile("fileG", 1024*1024*1024, "1abcdefg")
 	c.Assert(err, check.IsNil)
 
+	// 100 M
+	err = s.server.RegisterFile("fileH", 100*1024*1024, "1abcdefg")
+	c.Assert(err, check.IsNil)
 }
 
 func (s *SeedTestSuite) TearDownSuite(c *check.C) {

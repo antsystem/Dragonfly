@@ -2,6 +2,7 @@ package seed
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"github.com/dragonflyoss/Dragonfly/dfget/config"
 	"github.com/dragonflyoss/Dragonfly/pkg/errortypes"
@@ -9,6 +10,7 @@ import (
 	"github.com/dragonflyoss/Dragonfly/pkg/netutils"
 	"github.com/sirupsen/logrus"
 	"io"
+	"io/ioutil"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -57,30 +59,39 @@ type seed struct {
 
 	Header		 	map[string][]string `json:"header"`
 	Url    			string              `json:"url"`
-	// current content size, it may be not full downloaded
 	ContentPath 	string `json:"contentPath"`
 	FullSize    	int64  `json:"fullSize"`
 	TaskId      	string `json:"taskId"`
+	Status 			string  `json:"Status"`
 
-	Status string 			`json:"Status"`
 	// blockOrder should be [10,31], it means the order of block size.
 	BlockOrder		uint32		`json:"blockOrder"`
-	BlockMetaBits   []byte		`json:"blockMetaBits"`
+
+	// if OpenMemoryCache sets, cacheBuffer will store seed block in memory and asynchronously refresh to local file.
+	OpenMemoryCache bool		`json:"openMemoryCache"`
 
 	cache 			cacheBuffer
-
 	rate          	*ratelimiter.RateLimiter
 	uploadRate    	*ratelimiter.RateLimiter
 
+
 	metaPath    	string
 	metaBakPath 	string
+	// blockMetaPath will store the block bitmap
+	blockMetaPath   string
+	metaDir			string
 
 	down    	    downloader
+
 	// block info
 	blockMeta		*bitmap
+
+	// lockBlock
 	lockBlock 		*bitmap
+
 	// the max size of cache is (blockSize * MaxInt32)
 	blockSize		int32
+
 	// if block is downloading, it set wait chan in blockWaitChMap, and set bits in lockBlock.
 	blockWaitChMap  map[int32]chan struct{}
 
@@ -97,7 +108,7 @@ func NewSeed(base SeedBaseOpt, rate RateOpt, openMemoryCache bool) (Seed, error)
 	}
 
 	if base.BlockOrder < 10 || base.BlockOrder > 31 {
-		return nil, fmt.Errorf("block order should be [2,31]")
+		return nil, fmt.Errorf("block order should be [10,31]")
 	}
 
 	err := os.MkdirAll(base.MetaDir, 0744)
@@ -108,6 +119,7 @@ func NewSeed(base SeedBaseOpt, rate RateOpt, openMemoryCache bool) (Seed, error)
 	metaPath := filepath.Join(base.MetaDir, "meta.json")
 	metaBakPath := filepath.Join(base.MetaDir, "meta.json.bak")
 	contentPath := filepath.Join(base.MetaDir, "content")
+	blockMetaPath := filepath.Join(base.MetaDir, "blockBits")
 
 	cache, err := newFileCacheBuffer(contentPath, base.Info.FullLength, true, openMemoryCache, base.BlockOrder)
 	if err != nil {
@@ -125,13 +137,18 @@ func NewSeed(base SeedBaseOpt, rate RateOpt, openMemoryCache bool) (Seed, error)
 		metaPath:    metaPath,
 		metaBakPath: metaBakPath,
 		ContentPath: contentPath,
+		blockMetaPath: blockMetaPath,
+		metaDir:     base.MetaDir,
 		down: newLocalDownloader(base.Info.URL, base.Info.Header, rate.DownloadRateLimiter, openMemoryCache),
 		//uploadRate: sm.uploadRate,
 		prefetchCh: make(chan struct{}),
 		blockWaitChMap: make(map[int32]chan struct{}),
+		OpenMemoryCache: openMemoryCache,
 	}
 
 	sd.initParam()
+
+	go sd.syncCacheLoop(context.Background())
 
 	return sd, nil
 }
@@ -146,6 +163,11 @@ func (sd *seed) Prefetch(perDownloadSize int64) (<- chan struct{}, error) {
 	}
 
 	sd.Status = FETCHING_STATUS
+
+	err := sd.storeMetaData()
+	if err != nil {
+		return nil, err
+	}
 
 	go func() {
 		sd.prefetchOnce.Do(func() {
@@ -205,6 +227,11 @@ func (sd *seed) Prefetch(perDownloadSize int64) (<- chan struct{}, error) {
 
 			sd.cache.Close()
 			close(sd.prefetchCh)
+
+			err = sd.storeMetaData()
+			if err != nil {
+				logrus.Errorf("failed to store meta data: %v", err)
+			}
 		})
 	}()
 
@@ -480,4 +507,58 @@ func (sd *seed) getWaitChans(startBlock, endBlock int32) []chan struct{} {
 	}
 
 	return res
+}
+
+func (sd *seed) syncCacheLoop(ctx context.Context) {
+	if !sd.OpenMemoryCache {
+		return
+	}
+
+	ticker := time.NewTicker(time.Second * 3)
+	defer ticker.Stop()
+
+	for{
+		select {
+			case <- ctx.Done():
+				return
+
+			case <- ticker.C:
+				err := sd.syncCache()
+				if err != nil {
+					logrus.Errorf("sync cache failed: %v", err)
+				}
+		}
+	}
+}
+
+// syncCache will sync the memory cache to local file
+func (sd *seed) syncCache() error {
+	// get the bitmap, and then sync cache.
+	out := sd.blockMeta.encode()
+	err := sd.cache.Sync()
+	if err != nil {
+		return err
+	}
+
+	tmpFile := filepath.Join(sd.metaDir, "blockBits.tmp")
+	err = ioutil.WriteFile(tmpFile, out, 0644)
+	if err != nil {
+		return err
+	}
+
+	return os.Rename(tmpFile, sd.blockMetaPath)
+}
+
+func (sd *seed) storeMetaData() error {
+	data, err := json.Marshal(sd)
+	if err != nil {
+		return err
+	}
+
+	err = ioutil.WriteFile(sd.metaBakPath, data, 0644)
+	if err != nil {
+		return err
+	}
+
+	return os.Rename(sd.metaBakPath, sd.metaPath)
 }
