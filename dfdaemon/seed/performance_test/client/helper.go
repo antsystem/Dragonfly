@@ -14,6 +14,10 @@ import (
 	"time"
 )
 
+func init()  {
+	logrus.SetLevel(logrus.DebugLevel)
+}
+
 func Run(host string, cacheDir string, directSrc bool, cacheRun bool, fileCache bool)  {
 	var(
 		rangeSize  int64 = 99 * 1023
