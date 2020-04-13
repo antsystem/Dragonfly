@@ -4,11 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/dragonflyoss/Dragonfly/dfget/config"
-	"github.com/dragonflyoss/Dragonfly/pkg/errortypes"
-	"github.com/dragonflyoss/Dragonfly/pkg/httputils"
-	"github.com/dragonflyoss/Dragonfly/pkg/netutils"
-	"github.com/sirupsen/logrus"
 	"io"
 	"io/ioutil"
 	"net/http"
@@ -18,6 +13,12 @@ import (
 	"time"
 
 	"github.com/dragonflyoss/Dragonfly/pkg/ratelimiter"
+	"github.com/dragonflyoss/Dragonfly/dfget/config"
+	"github.com/dragonflyoss/Dragonfly/pkg/errortypes"
+	"github.com/dragonflyoss/Dragonfly/pkg/httputils"
+	"github.com/dragonflyoss/Dragonfly/pkg/netutils"
+
+	"github.com/sirupsen/logrus"
 )
 
 const (
@@ -45,6 +46,9 @@ type Seed interface {
 	// Download providers the range download, if seed not include the range,
 	// directSource decide to whether to download from source.
 	Download(off int64, size int64) (io.ReadCloser, error)
+
+	// stop the internal loop and release execution resource
+	Stop()
 
 	GetFullSize() int64
 	GetStatus() string
@@ -100,6 +104,10 @@ type seed struct {
 	// prefetch result
 	prefetchRs		PreFetchResult
 	prefetchCh      chan struct{}
+
+	// internal context
+	doneCtx			context.Context
+	cancel          context.CancelFunc
 }
 
 func NewSeed(base SeedBaseOpt, rate RateOpt, openMemoryCache bool) (Seed, error) {
@@ -116,15 +124,7 @@ func NewSeed(base SeedBaseOpt, rate RateOpt, openMemoryCache bool) (Seed, error)
 		return nil, err
 	}
 
-	metaPath := filepath.Join(base.MetaDir, "meta.json")
-	metaBakPath := filepath.Join(base.MetaDir, "meta.json.bak")
-	contentPath := filepath.Join(base.MetaDir, "content")
-	blockMetaPath := filepath.Join(base.MetaDir, "blockBits")
-
-	cache, err := newFileCacheBuffer(contentPath, base.Info.FullLength, true, openMemoryCache, base.BlockOrder)
-	if err != nil {
-		return nil, err
-	}
+	ctx, cancel := context.WithCancel(context.Background())
 
 	sd := &seed{
 		Status:      INITIAL_STATUS,
@@ -133,24 +133,95 @@ func NewSeed(base SeedBaseOpt, rate RateOpt, openMemoryCache bool) (Seed, error)
 		FullSize:	 base.Info.FullLength,
 		TaskId:      base.Info.TaskID,
 		BlockOrder:  base.BlockOrder,
-		cache:       cache,
-		metaPath:    metaPath,
-		metaBakPath: metaBakPath,
-		ContentPath: contentPath,
-		blockMetaPath: blockMetaPath,
 		metaDir:     base.MetaDir,
 		down: newLocalDownloader(base.Info.URL, base.Info.Header, rate.DownloadRateLimiter, openMemoryCache),
 		//uploadRate: sm.uploadRate,
 		prefetchCh: make(chan struct{}),
 		blockWaitChMap: make(map[int32]chan struct{}),
 		OpenMemoryCache: openMemoryCache,
+		doneCtx: ctx,
+		cancel: cancel,
 	}
 
-	sd.initParam()
+	sd.initParam(base.MetaDir)
 
-	go sd.syncCacheLoop(context.Background())
+	cache, err := newFileCacheBuffer(sd.ContentPath, base.Info.FullLength, true, openMemoryCache, base.BlockOrder)
+	if err != nil {
+		return nil, err
+	}
+
+	sd.cache = cache
+
+	go sd.syncCacheLoop(sd.doneCtx)
 
 	return sd, nil
+}
+
+func Restore(metaDir string, rate RateOpt) (Seed, error) {
+	var(
+		err error
+	)
+
+	sd := &seed{}
+	sd.initParam(metaDir)
+	// restore metadata
+	metaData, err := ioutil.ReadFile(sd.metaPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if err = json.Unmarshal(metaData, sd); err != nil {
+		return nil, err
+	}
+
+	// init downloader and cachebuffer
+	sd.down = newLocalDownloader(sd.Url, sd.Header, rate.DownloadRateLimiter, sd.OpenMemoryCache)
+	cache, err := newFileCacheBuffer(sd.ContentPath, sd.FullSize, false, sd.OpenMemoryCache, sd.BlockOrder)
+	if err != nil {
+		return nil, err
+	}
+
+	sd.cache = cache
+
+	if sd.Status == FINISHED_STATUS || sd.Status == DEAD_STATUS {
+		return sd, nil
+	}
+
+	// restore blocks bitmap if necessary
+	blocksBits, err := ioutil.ReadFile(sd.blockMetaPath)
+	if err != nil {
+		return nil, err
+	}
+
+	sd.blockMeta, err = restoreBitMap(blocksBits)
+	if err != nil {
+		return nil, err
+	}
+
+	sd.prefetchCh = make(chan struct{})
+	sd.blockWaitChMap = make(map[int32]chan struct{})
+	ctx, cancel := context.WithCancel(context.Background())
+	sd.doneCtx = ctx
+	sd.cancel = cancel
+
+	go sd.syncCacheLoop(sd.doneCtx)
+
+	return sd, nil
+}
+
+func (sd *seed) Stop() {
+	if sd.cancel != nil {
+		sd.cancel()
+	}
+
+	status := sd.GetStatus()
+	if status != FINISHED_STATUS && status != DEAD_STATUS {
+		sd.syncCache()
+	}
+
+	if sd.cache != nil {
+		sd.cache.Close()
+	}
 }
 
 // Prefetch will prefetch data to buffer, and its download rate will be limited.
@@ -267,9 +338,12 @@ func (sd *seed) Download(off int64, size int64) (io.ReadCloser, error) {
 		return nil, err
 	}
 
-	err = sd.tryDownloadAndWaitReady(off, off + size - 1, false)
-	if err != nil {
-		return nil, err
+	// if seed is not finished status, try to download blocks
+	if sd.GetStatus() != FINISHED_STATUS {
+		err = sd.tryDownloadAndWaitReady(off, off+size-1, false)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	return sd.cache.ReadStream(off, size)
@@ -310,7 +384,19 @@ func (sd *seed) Headers() map[string][]string {
 	return sd.Header
 }
 
-func (sd *seed) initParam() {
+func (sd *seed) initParam(metaDir string) {
+	// init path
+	metaPath := filepath.Join(metaDir, "meta.json")
+	metaBakPath := filepath.Join(metaDir, "meta.json.bak")
+	contentPath := filepath.Join(metaDir, "content")
+	blockMetaPath := filepath.Join(metaDir, "blockBits")
+
+	sd.metaPath = metaPath
+	sd.metaBakPath = metaBakPath
+	sd.ContentPath = contentPath
+	sd.blockMetaPath = blockMetaPath
+
+	// init block bitmap
 	blockSize := 1 << sd.BlockOrder
 	blocks := sd.FullSize/int64(blockSize)
 	if (sd.FullSize % int64(blockSize)) > 0 {
@@ -364,11 +450,11 @@ func (sd *seed) tryDownloadAndWaitReady(start, end int64, rateLimit bool) error 
 
 	allStartTime := time.Now()
 	startBlock, endBlock := sd.alignWithBlock(start, end)
-	fmt.Printf("start to download, start-end: [%d-%d], block[%d-%d]\n", start, end, startBlock, endBlock)
+	logrus.Debugf("start to download, start-end: [%d-%d], block[%d-%d]\n", start, end, startBlock, endBlock)
 
 	defer func() {
 		allCosts = time.Now().Sub(allStartTime)
-		fmt.Printf("download finished, start-end: [%d-%d], block[%d-%d], wait count: %d, all cost time: %f seconds, " +
+		logrus.Debugf("download finished, start-end: [%d-%d], block[%d-%d], wait count: %d, all cost time: %f seconds, " +
 			"metaCosts costs time: %f seconds.\n", start, end, startBlock, endBlock, waitCount, allCosts.Seconds(), metaCosts.Seconds())
 	}()
 
@@ -383,13 +469,14 @@ check:
 
 	nextDownloadBlocks := sd.lockBlocksForPrepareDownload(startBlock, endBlock)
 
-	go sd.downloadBlocks(nextDownloadBlocks, rateLimit)
+	// downloadBlocks will download blocks asynchronously.
+	sd.downloadBlocks(nextDownloadBlocks, rateLimit)
 
 	waitChs = sd.getWaitChans(startBlock, endBlock)
 
 	metaCosts = time.Now().Sub(allStartTime)
 	waitCount ++
-	fmt.Printf("wait ch count: %d", len(waitChs))
+
 	// wait for the chan
 	for _, ch := range waitChs {
 		// todo: set the timeout, if timeout, try to direct download again.
@@ -523,10 +610,16 @@ func (sd *seed) syncCacheLoop(ctx context.Context) {
 				return
 
 			case <- ticker.C:
+				// if seed is finished, break the loop.
+				if sd.GetStatus() == FINISHED_STATUS {
+					return
+				}
+
 				err := sd.syncCache()
 				if err != nil {
 					logrus.Errorf("sync cache failed: %v", err)
 				}
+
 		}
 	}
 }

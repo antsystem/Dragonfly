@@ -15,6 +15,7 @@ import (
 	"github.com/dragonflyoss/Dragonfly/pkg/ratelimiter"
 
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 )
 
 // downloader manage the downloading of seed file
@@ -78,7 +79,7 @@ func (ld *localDownloader) download(ctx context.Context, rangeStruct httputils.R
 		rd = limitreader.NewLimitReaderWithLimiter(ld.rate, resp.Body, false)
 	}
 
-	fmt.Printf(dncosts.costs())
+	logrus.Debugf(dncosts.costs())
 
 	if ld.copyCache {
 		copyBufCosts := newCostsTimeTool("do copy buffer")
@@ -89,12 +90,12 @@ func (ld *localDownloader) download(ctx context.Context, rangeStruct httputils.R
 			return 0, errors.Wrap(io.ErrShortWrite, fmt.Sprintf("download from [%d,%d], expecte read %d, but got %d", rangeStruct.StartIndex, rangeStruct.EndIndex, expectedLen, written))
 		}
 
-		fmt.Print(copyBufCosts.costs())
+		logrus.Debugf(copyBufCosts.costs())
 
 		var n int
 		writeC := newCostsTimeTool("do write at")
 		n, err = writerAt.WriteAt(buf.Bytes(), writeOff)
-		fmt.Printf(writeC.costs())
+		logrus.Debugf(writeC.costs())
 
 		written = int64((n))
 

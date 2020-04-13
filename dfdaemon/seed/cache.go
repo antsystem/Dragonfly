@@ -255,7 +255,6 @@ func (fcb *fileCacheBuffer) openReadCloser(off int64, size int64) (io.ReadCloser
 	return newLimitReadCloser(fr, off, size)
 }
 
-
 // if in memory cache mode, the reader is multi reader in which some data in memory and others in file.
 func (fcb *fileCacheBuffer) openReadCloserInMemoryCacheMode(off , size int64) (io.ReadCloser, error) {
 	var(
