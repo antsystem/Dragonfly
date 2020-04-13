@@ -26,11 +26,6 @@ const (
 	FETCHING_STATUS = "fetching"
 	INITIAL_STATUS  = "initial"
 	DEAD_STATUS     = "dead"
-
-	defaultTimeLayout = time.RFC3339Nano
-
-	// 16KB
-	defaultBlockOrder = 14
 )
 
 type Seed interface {
@@ -99,7 +94,7 @@ type seed struct {
 	// if block is downloading, it set wait chan in blockWaitChMap, and set bits in lockBlock.
 	blockWaitChMap  map[int32]chan struct{}
 
-	prefetchOnce    sync.Once
+	//prefetchOnce    sync.Once
 
 	// prefetch result
 	prefetchRs		PreFetchResult
@@ -244,69 +239,32 @@ func (sd *seed) Prefetch(perDownloadSize int64) (<- chan struct{}, error) {
 	}
 
 	go func() {
-		sd.prefetchOnce.Do(func() {
-			block := int32(perDownloadSize >> sd.BlockOrder)
-			if block == 0 {
-				block = 1
+		err := sd.prefetch(perDownloadSize)
+
+		sd.Lock()
+		defer sd.Unlock()
+
+		if err != nil {
+			sd.prefetchRs = PreFetchResult{
+				Success: false,
+				Err: err,
 			}
-			blockSize := int64(block) << sd.BlockOrder
-			var start, end int64
-			var err error
-			var try int
-			var maxTry int = 3
-
-			for{
-				if start >= sd.FullSize {
-					break
-				}
-
-				end = start + blockSize - 1
-				if end >= sd.FullSize {
-					end = sd.FullSize - 1
-				}
-
-				err = sd.tryDownloadAndWaitReady(start, end, true)
-				if err != nil {
-					//todo: try again
-					logrus.Errorf("failed to download: %v", err)
-					if try > maxTry {
-						err = fmt.Errorf("try %d times to download file %s, range (%d-%d) failed: %v",
-							try, sd.Url, start, end, err)
-						break
-					}
-					try ++
-					continue
-				}
-
-				maxTry = 0
-				start = end + 1
+			sd.Status = INITIAL_STATUS
+		}else {
+			sd.prefetchRs = PreFetchResult{
+				Success: true,
+				Err: nil,
 			}
+			sd.Status = FINISHED_STATUS
+		}
 
-			sd.Lock()
-			defer sd.Unlock()
+		err = sd.cache.Close()
+		close(sd.prefetchCh)
 
-			if err != nil {
-				sd.prefetchRs = PreFetchResult{
-					Success: false,
-					Err: err,
-				}
-				sd.Status = INITIAL_STATUS
-			}else {
-				sd.prefetchRs = PreFetchResult{
-					Success: true,
-					Err: nil,
-				}
-				sd.Status = FINISHED_STATUS
-			}
-
-			sd.cache.Close()
-			close(sd.prefetchCh)
-
-			err = sd.storeMetaData()
-			if err != nil {
-				logrus.Errorf("failed to store meta data: %v", err)
-			}
-		})
+		err = sd.storeMetaData()
+		if err != nil {
+			logrus.Errorf("failed to store meta data: %v", err)
+		}
 	}()
 
 	return sd.prefetchCh, nil
@@ -665,4 +623,45 @@ func (sd *seed) storeMetaData() error {
 	}
 
 	return os.Rename(sd.metaBakPath, sd.metaPath)
+}
+
+func (sd *seed) prefetch(perDownloadSize int64) error {
+	block := int32(perDownloadSize >> sd.BlockOrder)
+	if block == 0 {
+		block = 1
+	}
+	blockSize := int64(block) << sd.BlockOrder
+	var start, end int64
+	var err error
+	var try int
+	var maxTry int = 3
+
+	for{
+		if start >= sd.FullSize {
+			break
+		}
+
+		end = start + blockSize - 1
+		if end >= sd.FullSize {
+			end = sd.FullSize - 1
+		}
+
+		err = sd.tryDownloadAndWaitReady(start, end, true)
+		if err != nil {
+			//todo: try again
+			logrus.Errorf("failed to download: %v", err)
+			if try > maxTry {
+				err = fmt.Errorf("try %d times to download file %s, range (%d-%d) failed: %v",
+					try, sd.Url, start, end, err)
+				break
+			}
+			try ++
+			continue
+		}
+
+		maxTry = 0
+		start = end + 1
+	}
+
+	return err
 }

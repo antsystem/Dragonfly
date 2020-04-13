@@ -9,6 +9,7 @@ type PreFetchInfo struct {
 	URL    string
 	Header map[string][]string
 	FullLength int64
+	BlockOrder uint32
 }
 
 type PreFetchResult struct {
