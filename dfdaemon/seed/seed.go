@@ -66,7 +66,7 @@ type seed struct {
 	ContentPath 	string `json:"contentPath"`
 	FullSize    	int64  `json:"fullSize"`
 	TaskId      	string `json:"taskId"`
-	Status 			string  `json:"Status"`
+	Status 			string  `json:"status"`
 
 	// blockOrder should be [10,31], it means the order of block size.
 	BlockOrder		uint32		`json:"blockOrder"`
@@ -162,8 +162,9 @@ func Restore(metaDir string, rate RateOpt) (Seed, error) {
 		err error
 	)
 
-	sd := &seed{}
-	sd.initParam(metaDir)
+	sd := &seed{
+		metaPath: filepath.Join(metaDir, "meta.json"),
+	}
 	// restore metadata
 	metaData, err := ioutil.ReadFile(sd.metaPath)
 	if err != nil {
@@ -173,6 +174,8 @@ func Restore(metaDir string, rate RateOpt) (Seed, error) {
 	if err = json.Unmarshal(metaData, sd); err != nil {
 		return nil, err
 	}
+
+	sd.initParam(metaDir)
 
 	// init downloader and cachebuffer
 	sd.down = newLocalDownloader(sd.Url, sd.Header, rate.DownloadRateLimiter, sd.OpenMemoryCache)
@@ -619,7 +622,6 @@ func (sd *seed) syncCacheLoop(ctx context.Context) {
 				if err != nil {
 					logrus.Errorf("sync cache failed: %v", err)
 				}
-
 		}
 	}
 }
@@ -639,7 +641,16 @@ func (sd *seed) syncCache() error {
 		return err
 	}
 
-	return os.Rename(tmpFile, sd.blockMetaPath)
+	err = os.Rename(tmpFile, sd.blockMetaPath)
+	if err != nil {
+		return err
+	}
+
+	// store the metadata
+	sd.RLock()
+	defer sd.RUnlock()
+
+	return sd.storeMetaData()
 }
 
 func (sd *seed) storeMetaData() error {

@@ -23,7 +23,7 @@ func newBitMap(sizeOf64Bits int32, allSetBit bool) *bitmap {
 
 	return &bitmap{
 		bm:          bm,
-		maxBitIndex: sizeOf64Bits * 64,
+		maxBitIndex: sizeOf64Bits * 64 - 1,
 	}
 }
 
@@ -32,7 +32,7 @@ func restoreBitMap(data []byte) (*bitmap, error) {
 
 	return &bitmap{
 		bm: 			bm,
-		maxBitIndex:    int32(len(bm) * 64),
+		maxBitIndex:    int32(len(bm) * 64 - 1),
 	}, nil
 }
 
