@@ -2,6 +2,7 @@ package seed
 
 import (
 	"github.com/dragonflyoss/Dragonfly/pkg/ratelimiter"
+	"time"
 )
 
 type PreFetchInfo struct {
@@ -10,6 +11,8 @@ type PreFetchInfo struct {
 	Header map[string][]string
 	FullLength int64
 	BlockOrder uint32
+
+	ExpireTimeDur  time.Duration
 }
 
 type PreFetchResult struct {
@@ -27,17 +30,25 @@ type DownloadStatus struct {
 	Length   int64
 }
 
-type prefetchSt struct {
-	sd *seed
-	ch chan PreFetchResult
-}
-
 type SeedBaseOpt struct {
 	MetaDir		string
-	BlockOrder  uint32
-	Info        *PreFetchInfo
+	Info        PreFetchInfo
+
+	downPreFunc func(sd Seed)
 }
 
 type RateOpt struct {
 	DownloadRateLimiter *ratelimiter.RateLimiter
+}
+
+type NewSeedManagerOpt struct {
+	StoreDir string
+	ConcurrentLimit int
+	TotalLimit int
+	DownloadBlockOrder uint32
+	OpenMemoryCache bool
+
+	// if download rate < 0, means no rate limit; else default limit
+	downloadRate int64
+	uploadRate   int64
 }

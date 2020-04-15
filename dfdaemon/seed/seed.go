@@ -103,6 +103,9 @@ type seed struct {
 	// internal context
 	doneCtx			context.Context
 	cancel          context.CancelFunc
+
+	// when call Download(), run the downPreFunc first.
+	downPreFunc func(sd Seed)
 }
 
 func NewSeed(base SeedBaseOpt, rate RateOpt, openMemoryCache bool) (Seed, error) {
@@ -110,7 +113,7 @@ func NewSeed(base SeedBaseOpt, rate RateOpt, openMemoryCache bool) (Seed, error)
 		return nil, fmt.Errorf("full size should be set")
 	}
 
-	if base.BlockOrder < 10 || base.BlockOrder > 31 {
+	if base.Info.BlockOrder < 10 || base.Info.BlockOrder > 31 {
 		return nil, fmt.Errorf("block order should be [10,31]")
 	}
 
@@ -127,7 +130,7 @@ func NewSeed(base SeedBaseOpt, rate RateOpt, openMemoryCache bool) (Seed, error)
 		Header:      base.Info.Header,
 		FullSize:	 base.Info.FullLength,
 		TaskId:      base.Info.TaskID,
-		BlockOrder:  base.BlockOrder,
+		BlockOrder:  base.Info.BlockOrder,
 		metaDir:     base.MetaDir,
 		down: newLocalDownloader(base.Info.URL, base.Info.Header, rate.DownloadRateLimiter, openMemoryCache),
 		//uploadRate: sm.uploadRate,
@@ -136,11 +139,12 @@ func NewSeed(base SeedBaseOpt, rate RateOpt, openMemoryCache bool) (Seed, error)
 		OpenMemoryCache: openMemoryCache,
 		doneCtx: ctx,
 		cancel: cancel,
+		downPreFunc: base.downPreFunc,
 	}
 
 	sd.initParam(base.MetaDir)
 
-	cache, err := newFileCacheBuffer(sd.ContentPath, base.Info.FullLength, true, openMemoryCache, base.BlockOrder)
+	cache, err := newFileCacheBuffer(sd.ContentPath, base.Info.FullLength, true, openMemoryCache, base.Info.BlockOrder)
 	if err != nil {
 		return nil, err
 	}
@@ -152,13 +156,14 @@ func NewSeed(base SeedBaseOpt, rate RateOpt, openMemoryCache bool) (Seed, error)
 	return sd, nil
 }
 
-func Restore(metaDir string, rate RateOpt) (Seed, error) {
+func RestoreSeed(seedDir string, rate RateOpt, downPreFunc func(sd Seed)) (Seed, error) {
 	var(
 		err error
 	)
 
 	sd := &seed{
-		metaPath: filepath.Join(metaDir, "meta.json"),
+		metaPath: filepath.Join(seedDir, "meta.json"),
+		downPreFunc: downPreFunc,
 	}
 	// restore metadata
 	metaData, err := ioutil.ReadFile(sd.metaPath)
@@ -170,7 +175,7 @@ func Restore(metaDir string, rate RateOpt) (Seed, error) {
 		return nil, err
 	}
 
-	sd.initParam(metaDir)
+	sd.initParam(seedDir)
 
 	// init downloader and cachebuffer
 	sd.down = newLocalDownloader(sd.Url, sd.Header, rate.DownloadRateLimiter, sd.OpenMemoryCache)
@@ -290,6 +295,11 @@ func (sd *seed) Delete() error {
 	}
 
 	sd.clearResource()
+	sd.Status = DEAD_STATUS
+	if sd.cancel != nil {
+		sd.cancel()
+	}
+
 	return nil
 }
 
@@ -305,6 +315,10 @@ func (sd *seed) Download(off int64, size int64) (io.ReadCloser, error) {
 		if err != nil {
 			return nil, err
 		}
+	}
+
+	if sd.downPreFunc != nil {
+		sd.downPreFunc(sd)
 	}
 
 	return sd.cache.ReadStream(off, size)

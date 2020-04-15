@@ -1,88 +1,13 @@
 package seed
 
 import (
-	"context"
 	"fmt"
 	"io/ioutil"
 	"math/rand"
-	"os"
 	"path/filepath"
-	"testing"
-	"time"
-
-	"github.com/dragonflyoss/Dragonfly/dfget/core/helper"
 
 	"github.com/go-check/check"
 )
-
-func Test(t *testing.T) {
-	check.TestingT(t)
-}
-
-type SeedTestSuite struct {
-	port     int
-	host     string
-	server   *helper.MockFileServer
-	tmpDir   string
-	cacheDir string
-}
-
-func init() {
-	rand.Seed(time.Now().Unix())
-	check.Suite(&SeedTestSuite{})
-}
-
-func (suite *SeedTestSuite) SetUpSuite(c *check.C) {
-	suite.tmpDir = "./testdata"
-	err := os.MkdirAll(suite.tmpDir, 0774)
-	c.Assert(err, check.IsNil)
-
-	suite.cacheDir = "./testcache"
-	err = os.MkdirAll(suite.cacheDir, 0774)
-	c.Assert(err, check.IsNil)
-
-	suite.port = rand.Intn(1000) + 63000
-	suite.host = fmt.Sprintf("127.0.0.1:%d", suite.port)
-
-	suite.server = helper.NewMockFileServer()
-	err = suite.server.StartServer(context.Background(), suite.port)
-	c.Assert(err, check.IsNil)
-
-	// 500KB
-	err = suite.server.RegisterFile("fileA", 500*1024, "abcde0123456789")
-	c.Assert(err, check.IsNil)
-	// 1MB
-	err = suite.server.RegisterFile("fileB", 1024*1024, "abcdefg")
-	c.Assert(err, check.IsNil)
-	// 1.5 MB
-	err = suite.server.RegisterFile("fileC", 1500*1024, "abcdefg")
-	c.Assert(err, check.IsNil)
-	// 2 MB
-	err = suite.server.RegisterFile("fileD", 2048*1024, "abcdefg")
-	c.Assert(err, check.IsNil)
-	// 9.5 MB
-	err = suite.server.RegisterFile("fileE", 9500*1024, "abcdefg")
-	c.Assert(err, check.IsNil)
-	// 10 MB
-	err = suite.server.RegisterFile("fileF", 10*1024*1024, "abcdefg")
-	c.Assert(err, check.IsNil)
-	// 1 G
-	err = suite.server.RegisterFile("fileG", 1024*1024*1024, "1abcdefg")
-	c.Assert(err, check.IsNil)
-
-	// 100 M
-	err = suite.server.RegisterFile("fileH", 100*1024*1024, "1abcdefg")
-	c.Assert(err, check.IsNil)
-}
-
-func (suite *SeedTestSuite) TearDownSuite(c *check.C) {
-	if suite.tmpDir != "" {
-		os.RemoveAll(suite.tmpDir)
-	}
-	if suite.cacheDir != "" {
-		os.RemoveAll(suite.cacheDir)
-	}
-}
 
 func (suite *SeedTestSuite) TestBitMap(c *check.C) {
 	// bits are in [0, 100 * 64 - 1]

@@ -2,9 +2,12 @@ package seed
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"io/ioutil"
+	"net/http"
 	"os"
 	"path/filepath"
 	"sort"
@@ -20,8 +23,8 @@ import (
 )
 
 var (
-	localSeedManager SeedManager
-	once             sync.Once
+	localSeedManager 		SeedManager
+	once  					sync.Once
 )
 
 const (
@@ -30,10 +33,10 @@ const (
 	MinTotalLimit              = 2
 
 	defaultGcInterval = 2 * time.Minute
-	defaultRetryTimes = 3
 
 	defaultUploadRate = 10 * 1024 * 1024
 
+	defaultDownloadRate = 100 * 1024 * 1024
 
 	defaultTimeLayout = time.RFC3339Nano
 
@@ -41,10 +44,10 @@ const (
 	defaultBlockOrder = 17
 )
 
-// SeedManager is an interface which manages the seeds
+// SeedManager is an interface which manages the seeds.
 type SeedManager interface {
 	// Register a seed, manager will prefetch it to cache
-	Register(key string, info *PreFetchInfo) (Seed, error)
+	Register(key string, info PreFetchInfo) (Seed, error)
 
 	// UnRegister
 	UnRegister(key string) error
@@ -58,6 +61,9 @@ type SeedManager interface {
 	// Prefetch will add seed to the prefetch list by key, and then prefetch by the concurrent limit.
 	Prefetch(key string, perDownloadSize int64) (<- chan struct{}, error)
 
+	// GetPrefetchResult should be called after notify by prefetch chan.
+	GetPrefetchResult(key string) (PreFetchResult, error)
+
 	// SetPrefetchLimit limits the concurrency of downloading seed.
 	// default is DefaultDownloadConcurrency.
 	SetConcurrentLimit(limit int) (validLimit int)
@@ -70,7 +76,7 @@ type SeedManager interface {
 	Stop()
 }
 
-// seedWrapObj wraps the seed and other info
+// seedWrapObj wraps the seed and expired info.
 type seedWrapObj struct {
 	sync.RWMutex
 	sd     		Seed
@@ -79,13 +85,17 @@ type seedWrapObj struct {
 	// if seed is expired, the expiredCh will be closed.
 	expiredCh   chan struct{}
 
-	Key             string
-	ExpireTimeDur   time.Duration
-	ExpireTime      time.Time
-	PerDownloadSize int64
+	prefetchRs  PreFetchResult
+
+	Key             string			`json:"key"`
+	ExpireTimeDur   time.Duration	`json:"expireTimeDur"`
+	ExpireTime      time.Time		`json:"expireTime"`
+	PerDownloadSize int64			`json:"perDownloadSize"`
 
 	// if prefetch has been called, set prefetch to true to prevent other goroutine prefetch again.
 	prefetch        bool
+	metaPath		string
+	metaBakPath     string
 }
 
 func (sw *seedWrapObj) isExpired() bool {
@@ -109,9 +119,7 @@ func (sw *seedWrapObj) refreshExpireTime(expireTimeDur time.Duration) error {
 	}
 
 	sw.ExpireTime = time.Now().Add(sw.ExpireTimeDur)
-	//todo: store them to local fs
-
-	return nil
+	return sw.storeMetaDataWithoutLock()
 }
 
 func (sw *seedWrapObj) release() {
@@ -121,6 +129,27 @@ func (sw *seedWrapObj) release() {
 	close(sw.expiredCh)
 	sw.sd.Stop()
 	sw.sd.Delete()
+}
+
+func (sw *seedWrapObj) storeMetaData() error {
+	sw.RLock()
+	defer sw.RUnlock()
+
+	return sw.storeMetaDataWithoutLock()
+}
+
+func (sw *seedWrapObj) storeMetaDataWithoutLock() error {
+	data, err := json.Marshal(sw)
+	if  err != nil {
+		return err
+	}
+
+	err = ioutil.WriteFile(sw.metaBakPath, data, 0644)
+	if err != nil {
+		return err
+	}
+
+	return os.Rename(sw.metaBakPath, sw.metaPath)
 }
 
 type seedManager struct {
@@ -147,45 +176,85 @@ type seedManager struct {
 	originClient httpclient.OriginHTTPClient
 
 	uploadRate *ratelimiter.RateLimiter
+	downRate   *ratelimiter.RateLimiter
 
 	defaultBlockOrder  uint32
 	openMemoryCache    bool
 }
 
-func NewSeedManager(storeDir string, concurrentLimit int, totalLimit int, downloadBlockOrder uint32) (SeedManager, error) {
+func NewSeedManager(opt NewSeedManagerOpt) SeedManager {
+	once.Do(func() {
+		var err error
+		// todo: config the total limit
+		localSeedManager, err = newSeedManager(opt)
+		if err != nil {
+			panic(err)
+		}
+	})
 
-
-
+	return localSeedManager
 }
 
-func newSeedManager(storeDir string, concurrentLimit int, totalLimit int, downloadBlockOrder uint32, openMemoryCache bool) (SeedManager, error) {
-	if concurrentLimit > MaxDownloadConcurrency {
-		concurrentLimit = MaxDownloadConcurrency
+func newSeedManager(opt NewSeedManagerOpt) (SeedManager, error) {
+	if opt.ConcurrentLimit > MaxDownloadConcurrency {
+		opt.ConcurrentLimit = MaxDownloadConcurrency
 	}
 
-	if concurrentLimit <= 0 {
-		concurrentLimit = DefaultDownloadConcurrency
+	if opt.ConcurrentLimit <= 0 {
+		opt.ConcurrentLimit = DefaultDownloadConcurrency
 	}
 
-	if totalLimit < MinTotalLimit {
-		totalLimit = MinTotalLimit
+	if opt.TotalLimit < MinTotalLimit {
+		opt.TotalLimit = MinTotalLimit
 	}
 
-	if downloadBlockOrder == 0 {
-		downloadBlockOrder = defaultBlockOrder
+	if opt.DownloadBlockOrder == 0 {
+		opt.DownloadBlockOrder = defaultBlockOrder
 	}
 
-	if downloadBlockOrder < 10 || downloadBlockOrder > 31 {
+	if opt.DownloadBlockOrder < 10 || opt.DownloadBlockOrder > 31 {
 		return nil, fmt.Errorf("downloadBlockOrder should be in range[10, 31]")
 	}
 
-	downloadCh := make(chan struct{}, concurrentLimit)
-	for i := 0; i < concurrentLimit; i++ {
+	// if downloadRate sets 0, means default limit
+	if opt.downloadRate == 0 {
+		opt.downloadRate = defaultDownloadRate
+	}
+
+	// if downloadRate < 0, means no limit
+	if opt.downloadRate < 0 {
+		opt.downloadRate = 0
+	}
+
+	// if uploadRate sets 0, means default limit
+	if opt.uploadRate == 0 {
+		opt.uploadRate = defaultUploadRate
+	}
+
+	// if uploadRate < 0, means no limit
+	if opt.uploadRate < 0 {
+		opt.uploadRate = 0
+	}
+
+	downloadCh := make(chan struct{}, opt.ConcurrentLimit)
+	for i := 0; i < opt.ConcurrentLimit; i++ {
 		downloadCh <- struct{}{}
 	}
 
 	// mkdir store dir
-	err := os.MkdirAll(storeDir, 0774)
+	err := os.MkdirAll(opt.StoreDir, 0774)
+	if err != nil {
+		return nil, err
+	}
+
+	// mkdir store seed dir
+	err = os.MkdirAll(filepath.Join(opt.StoreDir, "seed"), 0774)
+	if err != nil {
+		return nil, err
+	}
+
+	// mkdir store seed meta dir
+	err = os.MkdirAll(filepath.Join(opt.StoreDir, "meta"), 0774)
 	if err != nil {
 		return nil, err
 	}
@@ -195,17 +264,18 @@ func newSeedManager(storeDir string, concurrentLimit int, totalLimit int, downlo
 	sm := &seedManager{
 		ctx:               ctx,
 		cancelFn:          cancelFn,
-		storeDir:          storeDir,
-		concurrentLimit:   concurrentLimit,
-		totalLimit:        totalLimit,
+		storeDir:          opt.StoreDir,
+		concurrentLimit:   opt.ConcurrentLimit,
+		totalLimit:        opt.TotalLimit,
 		seedContainer:     make(map[string]*seedWrapObj),
-		lru:               queue.NewLRUQueue(totalLimit),
+		lru:               queue.NewLRUQueue(opt.TotalLimit),
 		waitQueue:         queue.NewQueue(0),
 		downloadCh:        downloadCh,
 		originClient:      httpclient.NewOriginClient(),
-		uploadRate: 	   ratelimiter.NewRateLimiter(defaultUploadRate/100, 100),
-		defaultBlockOrder: downloadBlockOrder,
-		openMemoryCache:   openMemoryCache,
+		uploadRate: 	   ratelimiter.NewRateLimiter(opt.uploadRate/100, 100),
+		downRate:          ratelimiter.NewRateLimiter(opt.downloadRate/100, 100),
+		defaultBlockOrder: opt.DownloadBlockOrder,
+		openMemoryCache:   opt.OpenMemoryCache,
 	}
 
 	sm.restore(ctx)
@@ -216,7 +286,7 @@ func newSeedManager(storeDir string, concurrentLimit int, totalLimit int, downlo
 	return sm, nil
 }
 
-func (sm *seedManager) Register(key string, info *PreFetchInfo) (Seed, error) {
+func (sm *seedManager) Register(key string, info PreFetchInfo) (Seed, error) {
 	sm.Lock()
 	defer sm.Unlock()
 
@@ -229,13 +299,30 @@ func (sm *seedManager) Register(key string, info *PreFetchInfo) (Seed, error) {
 		info.BlockOrder = sm.defaultBlockOrder
 	}
 
-	opt := SeedBaseOpt{
-		MetaDir:  filepath.Join(sm.storeDir, "seed",  key),
-		BlockOrder: info.BlockOrder,
-		Info: info,
+	if info.FullLength == 0 {
+		// get seed file length
+		hd := map[string]string{}
+		for k, v := range info.Header {
+			hd[k] = v[0]
+		}
+
+		fullSize, err := sm.getHTTPFileLength(key, info.URL, hd)
+		if err != nil {
+			return nil, err
+		}
+
+		info.FullLength = fullSize
 	}
 
-	sd, err := NewSeed(opt, RateOpt{}, sm.openMemoryCache)
+	opt := SeedBaseOpt{
+		MetaDir:  filepath.Join(sm.storeDir, "seed",  key),
+		Info: info,
+		downPreFunc: func(sd Seed) {
+			sm.downPreFunc(key, sd)
+		},
+	}
+
+	sd, err := NewSeed(opt, RateOpt{DownloadRateLimiter: sm.downRate}, sm.openMemoryCache)
 	if err != nil {
 		return nil, err
 	}
@@ -244,6 +331,10 @@ func (sm *seedManager) Register(key string, info *PreFetchInfo) (Seed, error) {
 		sd:  sd,
 		prefetchCh: make(chan struct{}),
 		expiredCh:  make(chan struct{}),
+		Key: key,
+		metaPath: sm.seedWrapMetaPath(key),
+		metaBakPath: sm.seedWrapMetaBakPath(key),
+		ExpireTimeDur: info.ExpireTimeDur,
 	}
 
 	return sd, nil
@@ -316,6 +407,15 @@ func (sm *seedManager) Prefetch(key string, perDownloadSize int64) (<- chan stru
 	return sw.prefetchCh, nil
 }
 
+func (sm *seedManager) GetPrefetchResult(key string) (PreFetchResult, error) {
+	sw, err := sm.getSeedWrapObj(key)
+	if err != nil {
+		return PreFetchResult{}, err
+	}
+
+	return sw.sd.GetPrefetchResult()
+}
+
 func (sm *seedManager) Get(key string) (Seed, error) {
 	obj, err := sm.getSeedWrapObj(key)
 	if err != nil {
@@ -336,62 +436,148 @@ func (sm *seedManager) Stop() {
 }
 
 func (sm *seedManager) restore(ctx context.Context) {
-	metaDir := filepath.Join(sm.storeDir, "seed")
-	fis, err := ioutil.ReadDir(metaDir)
+	sm.restoreSeedWraps()
+	sm.restoreSeeds()
+
+	var sws, validSws []*seedWrapObj
+
+	for _, sw := range sm.seedContainer {
+		sws = append(sws, sw)
+	}
+
+	// check if seed is expired
+	for _, sw := range sws {
+		if sw.isExpired() {
+			// if expired, release the seed file.
+			delete(sm.seedContainer, sw.Key)
+			sw.release()
+			continue
+		}
+
+		validSws = append(validSws, sw)
+	}
+
+	// if not set expired time, consider it as dead line is after all seed.
+	sort.Slice(validSws, func(i, j int) bool {
+		if validSws[i].ExpireTime.IsZero() {
+			return true
+		}
+
+		if validSws[j].ExpireTime.IsZero() {
+			return false
+		}
+
+		return validSws[i].ExpireTime.Before(validSws[j].ExpireTime)
+	})
+
+	// update seed to url queue
+	for _, sw := range validSws {
+		sm.updateLRU(sw.Key, sw.sd)
+	}
+}
+
+// restoreSeedWraps reads the metadata of seed wrap object which wraps the seed.
+func (sm *seedManager) restoreSeedWraps() {
+	seedWrapDir := filepath.Join(sm.storeDir, "meta")
+	fis, err := ioutil.ReadDir(seedWrapDir)
 	if err != nil {
-		logrus.Errorf("failed to read cache dir %s: %v", metaDir, err)
+		logrus.Errorf("failed to read seed meta dir %s: %v", seedWrapDir, err)
 		return
 	}
 
-	seeds := []*seed{}
-
-	// todo: clear the unexpected meta file
 	for _, fi := range fis {
-		if fi.IsDir() {
+		if ! fi.Mode().IsRegular() {
 			continue
 		}
 
-		name := fi.Name()
-		if !strings.HasSuffix(name, ".meta") {
+		if ! strings.HasSuffix(fi.Name(), ".meta") {
 			continue
 		}
 
-		key := strings.TrimSuffix(name, ".meta")
-		data, err := ioutil.ReadFile(filepath.Join(metaDir, name))
+		key := strings.TrimSuffix(fi.Name(), ".meta")
+		sw, err := sm.restoreSeedWrapObj(key, filepath.Join(seedWrapDir, fi.Name()))
 		if err != nil {
-			logrus.Errorf("failed to read file %s: %v", name, err)
+			logrus.Errorf("failed to restore seed wrap obj, key: %s, error: %v", key, err)
 			continue
 		}
 
-		sed, err := restoreFromMeta(sr, key, data)
+		sm.seedContainer[key] = sw
+	}
+}
+
+// restoreSeeds reads the seed object.
+func (sm *seedManager) restoreSeeds() {
+	seedDir := filepath.Join(sm.storeDir, "seed")
+	fis, err := ioutil.ReadDir(seedDir)
+	if err != nil {
+		logrus.Errorf("failed to read seed dir %s: %v", seedDir, err)
+		return
+	}
+
+	tmpSeedMap := map[string]Seed{}
+
+	for _, fi := range fis {
+		if ! fi.IsDir() {
+			continue
+		}
+
+		key := fi.Name()
+		if _, ok := sm.seedContainer[key]; !ok {
+			logrus.Errorf("seed dir %s not found in meta data", key)
+			continue
+		}
+
+		sd, err := RestoreSeed(filepath.Join(seedDir, key), RateOpt{DownloadRateLimiter: sm.downRate}, func(sd Seed) {
+			sm.downPreFunc(key, sd)
+		})
 		if err != nil {
-			logrus.Errorf("failed to restore from meta %s: %v", key, err)
+			logrus.Errorf("failed to restore seed %s: %v", key, err)
 			continue
 		}
 
-		sd := sed.(*seed)
-		if sd.isExpired() {
-			// if expired, remove the seed
-			sd.Delete()
+		tmpSeedMap[key] = sd
+	}
+
+	sws := []*seedWrapObj{}
+	for _, sw := range sm.seedContainer {
+		sws = append(sws, sw)
+	}
+
+	for _, sw := range sws {
+		sd, ok := tmpSeedMap[sw.Key]
+		if !ok {
+			logrus.Errorf("seed key %s, found the metadata, but not found seed file", sw.Key)
+			delete(sm.seedContainer, sw.Key)
+			// todo: remove the seedWrapObj from local file system if seed file not found.
 			continue
 		}
 
-		seeds = append(seeds, sd)
+		sw.sd = sd
+	}
+}
+
+func (sm *seedManager) restoreSeedWrapObj(key, path string) (*seedWrapObj, error) {
+	sw := &seedWrapObj{
+		Key: key,
 	}
 
-	sort.Slice(seeds, func(i, j int) bool {
-		return seeds[i].expireTime.Before(seeds[j].expireTime)
-	})
-
-	// add seed to map
-	for _, sd := range seeds {
-		sr.seedContainer[sd.Key()] = sd
+	data, err := ioutil.ReadFile(path)
+	if err != nil {
+		return nil, err
 	}
 
-	// update seed to url queue
-	for _, sd := range seeds {
-		sr.updateLRU(sd)
+	err = json.Unmarshal(data, sw)
+	if err != nil {
+		return nil, err
 	}
+
+	sw.Key = key
+	sw.metaPath = sm.seedWrapMetaPath(key)
+	sw.metaBakPath = sm.seedWrapMetaBakPath(key)
+	sw.expiredCh = make(chan struct{})
+	sw.prefetchCh = make(chan struct{})
+
+	return sw, nil
 }
 
 func (sm *seedManager) listSeedWrapObj() []*seedWrapObj {
@@ -468,8 +654,8 @@ func (sm *seedManager) downloadSeed(ctx context.Context, sw *seedWrapObj) {
 
 	waitPrefetchCh, err := sw.sd.Prefetch(perDownloadSize)
 	if err != nil {
-		//todo: error handle
-		goto errHandle
+		logrus.Errorf("failed to prefetch seed file %s: %v", sw.Key, err)
+		return
 	}
 
 	select
@@ -498,9 +684,6 @@ func (sm *seedManager) downloadSeed(ctx context.Context, sw *seedWrapObj) {
 	}
 
 	return
-
-errHandle:
-
 }
 
 func (sm *seedManager) updateLRU(key string, sd Seed) {
@@ -510,7 +693,7 @@ func (sm *seedManager) updateLRU(key string, sd Seed) {
 	}
 }
 
-// gcLoop run the loop to gc the seed file.
+// gcLoop runs the loop to gc the seed file.
 func (sm *seedManager) gcLoop(ctx context.Context) {
 	ticker := time.NewTicker(defaultGcInterval)
 	defer ticker.Stop()
@@ -528,6 +711,7 @@ func (sm *seedManager) gcLoop(ctx context.Context) {
 	}
 }
 
+// gc the  expired seed
 func (sm *seedManager) gcExpiredSeed() {
 	list := sm.listSeedWrapObj()
 	for _, sw := range list {
@@ -537,6 +721,35 @@ func (sm *seedManager) gcExpiredSeed() {
 	}
 }
 
-func (sm *seedManager) seedWrapMetaPath() {
+func (sm *seedManager) seedWrapMetaPath(key string) string {
+	return filepath.Join(sm.storeDir, "meta", key + ".meta")
+}
 
+func (sm *seedManager) seedWrapMetaBakPath(key string) string {
+	return filepath.Join(sm.storeDir, "meta", key + ".meta.bak")
+}
+
+func (sm *seedManager) getHTTPFileLength(key, url string, headers map[string]string) (int64, error) {
+	fileLength, code, err := sm.originClient.GetContentLength(url, headers)
+	if err != nil {
+		return -1, errors.Wrapf(errortypes.ErrUnknownError, "failed to get http file Length: %v", err)
+	}
+
+	if code == http.StatusUnauthorized || code == http.StatusProxyAuthRequired {
+		return -1, errors.Wrapf(errortypes.ErrAuthenticationRequired, "taskID: %s,code: %d", key, code)
+	}
+
+	if code != http.StatusOK && code != http.StatusPartialContent {
+		logrus.Warnf("failed to get http file length with unexpected code: %d", code)
+		if code == http.StatusNotFound {
+			return -1, errors.Wrapf(errortypes.ErrURLNotReachable, "taskID: %s, url: %s", key, url)
+		}
+		return -1, nil
+	}
+
+	return fileLength, nil
+}
+
+func (sm *seedManager) downPreFunc(key string, sd Seed) {
+	sm.RefreshExpireTime(key, 0)
 }

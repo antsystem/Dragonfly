@@ -12,125 +12,6 @@ import (
 	"time"
 )
 
-func (suite *SeedTestSuite) checkDataWithFileServer(c *check.C, path string, off int64, size int64, obtained []byte) {
-	expected, err := suite.readFromFileServer(path, off, size)
-	c.Assert(err, check.IsNil)
-	if string(obtained) != string(expected) {
-		c.Errorf("path %s, range [%d-%d]: get %s, expect %s", path, off, off + size - 1,
-			string(obtained), string(expected))
-	}
-
-	c.Assert(string(obtained), check.Equals, string(expected))
-}
-
-func (suite *SeedTestSuite) checkFileWithSeed(c *check.C, path string, fileLength int64, sd Seed) {
-	// download all
-	rc, err := sd.Download(0, -1)
-	c.Assert(err, check.IsNil)
-	obtainedData, err := ioutil.ReadAll(rc)
-	rc.Close()
-	c.Assert(err, check.IsNil)
-	suite.checkDataWithFileServer(c, path, 0, -1, obtainedData)
-
-	// download {fileLength-100KB}- {fileLength}-1
-	rc, err = sd.Download(fileLength-100*1024, 100*1024)
-	c.Assert(err, check.IsNil)
-	obtainedData, err = ioutil.ReadAll(rc)
-	rc.Close()
-	c.Assert(err, check.IsNil)
-	suite.checkDataWithFileServer(c, path, fileLength-100*1024, 100*1024, obtainedData)
-
-	// download 0-{100KB-1}
-	rc, err = sd.Download(0, 100*1024)
-	c.Assert(err, check.IsNil)
-	obtainedData, err = ioutil.ReadAll(rc)
-	rc.Close()
-	c.Assert(err, check.IsNil)
-	suite.checkDataWithFileServer(c, path, 0, 100*1024, obtainedData)
-
-	start := int64(0)
-	end := int64(0)
-	rangeSize := int64(100 * 1024)
-
-	for {
-		end = start + rangeSize - 1
-		if end >= fileLength {
-			end = fileLength - 1
-		}
-
-		if start > end {
-			break
-		}
-
-		rc, err = sd.Download(start, end-start+1)
-		c.Assert(err, check.IsNil)
-		obtainedData, err = ioutil.ReadAll(rc)
-		rc.Close()
-		c.Assert(err, check.IsNil)
-		suite.checkDataWithFileServer(c, path, start, end-start+1, obtainedData)
-		start = end + 1
-	}
-
-	start = 0
-	end = 0
-	rangeSize = 99 * 1023
-
-	for {
-		end = start + rangeSize - 1
-		if end >= fileLength {
-			end = fileLength - 1
-		}
-
-		if start > end {
-			break
-		}
-
-		rc, err = sd.Download(start, end-start+1)
-		c.Assert(err, check.IsNil)
-		obtainedData, err = ioutil.ReadAll(rc)
-		rc.Close()
-		c.Assert(err, check.IsNil)
-		suite.checkDataWithFileServer(c, path, start, end-start+1, obtainedData)
-		start = end + 1
-	}
-}
-
-func (suite *SeedTestSuite) checkSeedFile(c *check.C, path string, fileLength int64, seedName string, order uint32, perDownloadSize int64, wg *sync.WaitGroup) {
-	defer func() {
-		if wg != nil {
-			wg.Done()
-		}
-	}()
-
-	metaDir := filepath.Join(suite.cacheDir, seedName)
-	blockOrder := uint32(order)
-
-	sOpt := SeedBaseOpt{
-		MetaDir: metaDir,
-		BlockOrder:  blockOrder,
-		Info:  &PreFetchInfo{
-			URL: fmt.Sprintf("http://%s/%s", suite.host, path),
-			TaskID: uuid.New(),
-			FullLength: fileLength,
-		},
-	}
-
-	sd, err := NewSeed(sOpt, RateOpt{DownloadRateLimiter: ratelimiter.NewRateLimiter(0, 0)}, false)
-	c.Assert(err, check.IsNil)
-
-	finishCh, err := sd.Prefetch(perDownloadSize)
-	c.Assert(err, check.IsNil)
-
-	 <-finishCh
-	 rs, err := sd.GetPrefetchResult()
-	 c.Assert(err, check.IsNil)
-	c.Assert(rs.Success, check.Equals, true)
-	c.Assert(rs.Err, check.IsNil)
-
-	c.Assert(sd.GetFullSize(), check.Equals, fileLength)
-	suite.checkFileWithSeed(c, path, fileLength, sd)
-}
-
 func (suite *SeedTestSuite) TestNormalSeed(c *check.C) {
 	urlA := fmt.Sprintf("http://%s/fileA", suite.host)
 	metaDir := filepath.Join(suite.cacheDir, "TestNormalSeed")
@@ -139,11 +20,11 @@ func (suite *SeedTestSuite) TestNormalSeed(c *check.C) {
 
 	sOpt := SeedBaseOpt{
 		MetaDir: metaDir,
-		BlockOrder: blockOrder,
-		Info:  &PreFetchInfo{
+		Info:  PreFetchInfo{
 			URL: urlA,
 			TaskID: uuid.New(),
 			FullLength: 500*1024,
+			BlockOrder: blockOrder,
 		},
 	}
 
@@ -181,11 +62,11 @@ func (suite *SeedTestSuite) TestSeedSyncRead(c *check.C) {
 
 	sOpt := SeedBaseOpt{
 		MetaDir: metaDir,
-		BlockOrder: blockOrder,
-		Info:  &PreFetchInfo{
+		Info:  PreFetchInfo{
 			URL: urlF,
 			TaskID: uuid.New(),
 			FullLength: 10*1024*1024,
+			BlockOrder: blockOrder,
 		},
 	}
 
@@ -254,11 +135,11 @@ func (suite *SeedTestSuite) TestSeedSyncReadPerformance(c *check.C) {
 	blockOrder := uint32(17)
 	sOpt := SeedBaseOpt{
 		MetaDir: metaDir,
-		BlockOrder:  blockOrder,
-		Info:  &PreFetchInfo{
+		Info:  PreFetchInfo{
 			URL: urlF,
 			TaskID: uuid.New(),
 			FullLength: fileLength,
+			BlockOrder:  blockOrder,
 		},
 	}
 
@@ -336,11 +217,11 @@ func (suite *SeedTestSuite) TestSeedRestore(c *check.C)  {
 	blockOrder := uint32(17)
 	sOpt := SeedBaseOpt{
 		MetaDir: metaDir,
-		BlockOrder:  blockOrder,
-		Info:  &PreFetchInfo{
+		Info:  PreFetchInfo{
 			URL: urlF,
 			TaskID: uuid.New(),
 			FullLength: fileLength,
+			BlockOrder:  blockOrder,
 		},
 	}
 
@@ -385,7 +266,7 @@ func (suite *SeedTestSuite) TestSeedRestore(c *check.C)  {
 	sd.Stop()
 
 	// restore seed
-	sd, err = Restore(metaDir, RateOpt{DownloadRateLimiter: ratelimiter.NewRateLimiter(0, 0)})
+	sd, err = RestoreSeed(metaDir, RateOpt{DownloadRateLimiter: ratelimiter.NewRateLimiter(0, 0)}, nil)
 	c.Assert(err, check.IsNil)
 
 	localSd, ok := sd.(*seed)
@@ -457,7 +338,7 @@ func (suite *SeedTestSuite) TestSeedRestore(c *check.C)  {
 	sd.Stop()
 
 	// restore again, and try to read all from local file.
-	sd, err = Restore(metaDir, RateOpt{DownloadRateLimiter: ratelimiter.NewRateLimiter(0, 0)})
+	sd, err = RestoreSeed(metaDir, RateOpt{DownloadRateLimiter: ratelimiter.NewRateLimiter(0, 0)}, nil)
 	c.Assert(err, check.IsNil)
 
 	localSd, ok = sd.(*seed)

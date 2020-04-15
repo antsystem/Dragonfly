@@ -66,6 +66,7 @@ func newFileCacheBuffer(path string, fullSize int64, trunc bool, memoryCache boo
 
 		fcb.blockMeta = newBitMap(int32(sizeOf64Bits), false)
 		fcb.memCacheMap = make(map[int64]*bytes.Buffer)
+		fcb.maxBlockIndex = int32(blocks - 1)
 	}
 
 	return fcb, nil
@@ -86,6 +87,7 @@ type fileCacheBuffer struct {
 	blockMeta		*bitmap
 	blockSize		int32
 	blockOrder		uint32
+	maxBlockIndex   int32
 	// the key is bytes start index of block
 	memCacheMap     map[int64]*bytes.Buffer
 }
@@ -337,7 +339,7 @@ func (fcb *fileCacheBuffer) checkWriteAtValid(off, size int64) error {
 	}
 
 	// if last block, the size may smaller than block size
-	if int32(off >> fcb.blockOrder) == fcb.blockMeta.maxBitIndex {
+	if int32(off >> fcb.blockOrder) == fcb.maxBlockIndex {
 		return nil
 	}
 
