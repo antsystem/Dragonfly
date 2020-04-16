@@ -14,8 +14,8 @@ const (
 	defaultMaxPeers = 3
 )
 
-// SchedulerManager schedules the peer node to fetch the resource specified by request
-type SchedulerManager struct {
+// Manager schedules the peer node to fetch the resource specified by request
+type Manager struct {
 	mutex         sync.Mutex
 	localPeerInfo *types.PeerInfo
 	// generation
@@ -37,8 +37,8 @@ type SchedulerManager struct {
 	downloadFinishCh chan notifySt
 }
 
-func NewScheduler(localPeer *types.PeerInfo) *SchedulerManager {
-	sm := &SchedulerManager{
+func NewScheduler(localPeer *types.PeerInfo) *Manager {
+	sm := &Manager{
 		localSeedContainer: newDataMap(),
 		nodeContainer:      newDataMap(),
 		urlContainer:       newDataMap(),
@@ -52,7 +52,7 @@ func NewScheduler(localPeer *types.PeerInfo) *SchedulerManager {
 }
 
 // if pieceRange == "" means all Pieces of file
-func (sm *SchedulerManager) Scheduler(ctx context.Context, url string, pieceRange string, pieceSize int32) []*Result {
+func (sm *Manager) Scheduler(ctx context.Context, url string, pieceRange string, pieceSize int32) []*Result {
 	sm.mutex.Lock()
 	defer sm.mutex.Unlock()
 
@@ -72,7 +72,7 @@ func (sm *SchedulerManager) Scheduler(ctx context.Context, url string, pieceRang
 	return result
 }
 
-func (sm *SchedulerManager) scheduleRemotePeer(ctx context.Context, url string, pieceRange string, pieceSize int32) []*Result {
+func (sm *Manager) scheduleRemotePeer(ctx context.Context, url string, pieceRange string, pieceSize int32) []*Result {
 	var (
 		state *taskState
 		err   error
@@ -107,7 +107,7 @@ func (sm *SchedulerManager) scheduleRemotePeer(ctx context.Context, url string, 
 	return result
 }
 
-func (sm *SchedulerManager) SyncSchedulerInfo(nodes []*types.Node) {
+func (sm *Manager) SyncSchedulerInfo(nodes []*types.Node) {
 	newNodeContainer := newDataMap()
 	seedContainer := newDataMap()
 	// todo: urlContainer init
@@ -125,15 +125,15 @@ func (sm *SchedulerManager) SyncSchedulerInfo(nodes []*types.Node) {
 	sm.seedContainer = seedContainer
 }
 
-func (sm *SchedulerManager) AddLocalSeedInfo(task *types.TaskFetchInfo) {
+func (sm *Manager) AddLocalSeedInfo(task *types.TaskFetchInfo) {
 	sm.localSeedContainer.add(task.Task.TaskURL, &localTaskState{task: task})
 }
 
-func (sm *SchedulerManager) DeleteLocalSeedInfo(url string) {
+func (sm *Manager) DeleteLocalSeedInfo(url string) {
 	sm.localSeedContainer.remove(url)
 }
 
-func (sm *SchedulerManager) syncSeedContainerPerNode(node *types.Node, seedContainer *dataMap) {
+func (sm *Manager) syncSeedContainerPerNode(node *types.Node, seedContainer *dataMap) {
 	for _, task := range node.Tasks {
 		if !task.Task.AsSeed {
 			continue
@@ -160,7 +160,7 @@ func (sm *SchedulerManager) syncSeedContainerPerNode(node *types.Node, seedConta
 	}
 }
 
-func (sm *SchedulerManager) scheduleLocalPeer(url string) []*Result {
+func (sm *Manager) scheduleLocalPeer(url string) []*Result {
 	var (
 		lts *localTaskState
 		err error
@@ -175,7 +175,7 @@ func (sm *SchedulerManager) scheduleLocalPeer(url string) []*Result {
 	return nil
 }
 
-func (sm *SchedulerManager) covertLocalTaskStateToResult(lts *localTaskState) *Result {
+func (sm *Manager) covertLocalTaskStateToResult(lts *localTaskState) *Result {
 	return &Result{
 		DstCid:   sm.localPeerInfo.ID,
 		PeerInfo: sm.localPeerInfo,
