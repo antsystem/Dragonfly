@@ -32,9 +32,6 @@ type Manager struct {
 
 	// key is url, value is localTaskState
 	localSeedContainer *dataMap
-
-	downloadStartCh  chan notifySt
-	downloadFinishCh chan notifySt
 }
 
 func NewScheduler(localPeer *types.PeerInfo) *Manager {
@@ -44,15 +41,13 @@ func NewScheduler(localPeer *types.PeerInfo) *Manager {
 		urlContainer:       newDataMap(),
 		seedContainer:      newDataMap(),
 		localPeerInfo:      localPeer,
-		downloadStartCh:    make(chan notifySt, 10),
-		downloadFinishCh:   make(chan notifySt, 10),
 	}
 
 	return sm
 }
 
 // if pieceRange == "" means all Pieces of file
-func (sm *Manager) Scheduler(ctx context.Context, url string, pieceRange string, pieceSize int32) []*Result {
+func (sm *Manager) Scheduler(ctx context.Context, url string) []*Result {
 	sm.mutex.Lock()
 	defer sm.mutex.Unlock()
 
@@ -64,7 +59,7 @@ func (sm *Manager) Scheduler(ctx context.Context, url string, pieceRange string,
 		result = append(result, localRs...)
 	}
 
-	remoteRs := sm.scheduleRemotePeer(ctx, url, pieceRange, pieceSize)
+	remoteRs := sm.scheduleRemotePeer(ctx, url)
 	if len(remoteRs) > 0 {
 		result = append(result, remoteRs...)
 	}
@@ -72,7 +67,7 @@ func (sm *Manager) Scheduler(ctx context.Context, url string, pieceRange string,
 	return result
 }
 
-func (sm *Manager) scheduleRemotePeer(ctx context.Context, url string, pieceRange string, pieceSize int32) []*Result {
+func (sm *Manager) scheduleRemotePeer(ctx context.Context, url string) []*Result {
 	var (
 		state *taskState
 		err   error

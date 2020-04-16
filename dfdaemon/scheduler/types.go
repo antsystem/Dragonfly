@@ -12,11 +12,6 @@ type Result struct {
 	Path     string
 }
 
-type notifySt struct {
-	peerID     string
-	generation int64
-}
-
 type localTaskState struct {
 	task *types.TaskFetchInfo
 	path string

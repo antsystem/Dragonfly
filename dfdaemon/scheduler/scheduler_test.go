@@ -76,21 +76,21 @@ func (suite *schedulerSuite) TestNormalScheduler(c *check.C) {
 	}
 
 	sm.SyncSchedulerInfo(nodes)
-	rs := sm.Scheduler(context.Background(), "http://url1", "", 0)
+	rs := sm.Scheduler(context.Background(), "http://url1")
 	c.Assert(len(rs), check.Equals, 1)
 	c.Assert(rs[0].PeerInfo.ID, check.Equals, "node1")
 	c.Assert(rs[0].Path, check.Equals, "seed1")
 
-	rs = sm.Scheduler(context.Background(), "http://url2", "", 0)
+	rs = sm.Scheduler(context.Background(), "http://url2")
 	c.Assert(len(rs), check.Equals, 2)
 	isInArrayForTest("node1", "seed2", rs, c)
 	isInArrayForTest("node2", "seed2", rs, c)
 
-	rs = sm.Scheduler(context.Background(), "http://url3", "", 0)
+	rs = sm.Scheduler(context.Background(), "http://url3")
 	c.Assert(len(rs), check.Equals, 1)
 	c.Assert(rs[0].PeerInfo.ID, check.Equals, "node2")
 	c.Assert(rs[0].Path, check.Equals, "seed3")
 
-	rs = sm.Scheduler(context.Background(), "http://url4", "", 0)
+	rs = sm.Scheduler(context.Background(), "http://url4")
 	c.Assert(len(rs), check.Equals, 0)
 }
