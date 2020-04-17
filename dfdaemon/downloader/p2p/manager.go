@@ -87,7 +87,7 @@ func newManager(cfg *Config, superNodes []string) *Manager {
 	}
 
 	seedManager := seed.NewSeedManager(seed.NewSeedManagerOpt{
-		StoreDir: filepath.Join(cfg.metaDir, "seedStore"),
+		StoreDir: filepath.Join(cfg.MetaDir, "seedStore"),
 		TotalLimit: 50,
 		DownloadBlockOrder: 17,
 		OpenMemoryCache: true,

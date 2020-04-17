@@ -18,6 +18,7 @@ package app
 
 import (
 	"encoding/json"
+	"github.com/dragonflyoss/Dragonfly/dfdaemon/downloader/p2p"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -74,6 +75,9 @@ var rootCmd = &cobra.Command{
 		}
 		// if stream mode, launch peer server in dfdaemon progress
 		if cfg.StreamMode {
+			// new Seed Manager
+			seedConfig := getSeedConfig(cfg)
+			_ = p2p.NewManager(seedConfig, cfg.SuperNodes)
 			go dfdaemon.LaunchPeerServer(*cfg)
 		}
 		return s.Start()
@@ -218,5 +222,13 @@ func decodeWithYAML(types ...reflect.Type) mapstructure.DecodeHookFunc {
 			}
 		}
 		return data, nil
+	}
+}
+
+func getSeedConfig(cfg *config.Properties) *p2p.Config {
+	return &p2p.Config{
+		IP: cfg.LocalIP,
+		Port: int(cfg.Port),
+		MetaDir: filepath.Join(cfg.WorkHome , "seed-pattern"),
 	}
 }

@@ -20,5 +20,5 @@ type Config struct {
 	Insecure    bool     `json:"insecure,omitempty"`
 	RootCAs     [][]byte `json:"rootCAs,omitempty"`
 
-	metaDir    string
+	MetaDir string
 }
