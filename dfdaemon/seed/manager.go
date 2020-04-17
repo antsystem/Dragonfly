@@ -195,6 +195,10 @@ func NewSeedManager(opt NewSeedManagerOpt) SeedManager {
 	return localSeedManager
 }
 
+func GetSeedManager(opt NewSeedManagerOpt) SeedManager {
+	return localSeedManager
+}
+
 func newSeedManager(opt NewSeedManagerOpt) (SeedManager, error) {
 	if opt.ConcurrentLimit > MaxDownloadConcurrency {
 		opt.ConcurrentLimit = MaxDownloadConcurrency

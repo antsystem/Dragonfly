@@ -49,6 +49,6 @@ type NewSeedManagerOpt struct {
 	OpenMemoryCache bool
 
 	// if download rate < 0, means no rate limit; else default limit
-	downloadRate int64
-	uploadRate   int64
+	DownloadRate int64
+	UploadRate   int64
 }

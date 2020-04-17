@@ -32,7 +32,8 @@ func (c *Client) DownloadContext(ctx context.Context, url string, header map[str
 }
 
 func (c *Client) DownloadStreamContext(ctx context.Context, url string, header map[string][]string, name string) (io.Reader, error) {
-	return nil, errors.New("Not Implementation")
+	m := GetManager()
+	return m.DownloadStreamContext(ctx, url, header, name)
 }
 
 func NewClient(cfg config.DFGetConfig) *Client {

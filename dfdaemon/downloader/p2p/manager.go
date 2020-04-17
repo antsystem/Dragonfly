@@ -4,8 +4,19 @@ import (
 	"context"
 	"fmt"
 	"github.com/dragonflyoss/Dragonfly/dfdaemon/scheduler"
+	"github.com/dragonflyoss/Dragonfly/dfdaemon/seed"
 	dfgetcfg "github.com/dragonflyoss/Dragonfly/dfget/config"
+	"github.com/dragonflyoss/Dragonfly/pkg/errortypes"
+	"github.com/go-openapi/strfmt"
+	"github.com/pborman/uuid"
+	"path/filepath"
+	"sync"
+	"time"
+
+	api_types "github.com/dragonflyoss/Dragonfly/apis/types"
 	"github.com/dragonflyoss/Dragonfly/dfget/core/api"
+	"github.com/dragonflyoss/Dragonfly/dfget/types"
+	"github.com/dragonflyoss/Dragonfly/pkg/constants"
 	"github.com/dragonflyoss/Dragonfly/pkg/httputils"
 	"github.com/sirupsen/logrus"
 	"io"
@@ -13,13 +24,83 @@ import (
 	"net/http"
 )
 
+var(
+	localManager  *Manager
+	once sync.Once
+)
+
 // Manager control the
 type Manager struct {
+	cfg          *Config
 	superNodes	 []string
 	sm 			 *scheduler.Manager
+	seedManager  seed.SeedManager
 	supernodeAPI api.SupernodeAPI
 	downloadAPI  api.DownloadAPI
 	uploaderAPI  api.UploaderAPI
+
+	rm		 *requestManager
+
+	ctx      context.Context
+	cancel   func()
+
+	syncP2PNetworkCh	chan string
+	syncTimeLock		sync.Mutex
+	syncTime			time.Time
+
+	// recentFetchUrls is the urls which as the parameters to fetch the p2p network recently
+	recentFetchUrls     []string
+}
+
+func GetManager() *Manager {
+	return localManager
+}
+
+func NewManager(cfg *Config, superNodes []string) *Manager {
+	once.Do(func() {
+		m := newManager(cfg, superNodes)
+		localManager = m
+	})
+
+	return localManager
+}
+
+func newManager(cfg *Config, superNodes []string) *Manager {
+	ctx, cancel := context.WithCancel(context.Background())
+
+	m := &Manager{
+		cfg: cfg,
+		superNodes: superNodes,
+		sm: scheduler.NewScheduler(&api_types.PeerInfo{
+			ID: cfg.Cid,
+			IP: strfmt.IPv4(cfg.IP),
+			Port: int32(cfg.Port),
+			HostName: strfmt.Hostname(cfg.HostName),
+		}),
+		supernodeAPI: api.NewSupernodeAPI(),
+		uploaderAPI: api.NewUploaderAPI(time.Duration(0)),
+		downloadAPI: api.NewDownloadAPI(),
+		syncP2PNetworkCh: make(chan string, 10),
+		recentFetchUrls: []string{},
+		ctx: ctx,
+		cancel: cancel,
+	}
+
+	seedManager := seed.NewSeedManager(seed.NewSeedManagerOpt{
+		StoreDir: filepath.Join(cfg.metaDir, "seedStore"),
+		TotalLimit: 50,
+		DownloadBlockOrder: 17,
+		OpenMemoryCache: true,
+		DownloadRate: 0,
+		UploadRate: 0,
+	})
+
+	m.seedManager = seedManager
+
+	go m.fetchP2PNetworkInfoLoop(ctx)
+	go m.heartBeatLoop(ctx)
+
+	return m
 }
 
 func (m *Manager) DownloadStreamContext(ctx context.Context, url string, header map[string][]string, name string) (io.Reader, error) {
@@ -36,7 +117,7 @@ schedule:
 	result := m.sm.Scheduler(ctx, url)
 	if len(result) == 0 {
 		// try to apply to be the seed node
-		m.applyForSeedNode(url, header)
+		m.tryToApplyForSeedNode(url, header)
 		goto schedule
 	}
 
@@ -61,13 +142,81 @@ schedule:
 	return dw.RunStream(ctx)
 }
 
-func (m *Manager) applyForSeedNode(url string, header map[string][]string)  {
+func (m *Manager) tryToApplyForSeedNode(url string, header map[string][]string)  {
+	path := uuid.New()
+	asSeed, taskID := m.applyForSeedNode(url, header, path)
+	if ! asSeed {
+		return
+	}
 
+	m.registerLocalSeed(url, header, path, taskID)
 }
 
 // sync p2p network to local scheduler.
-func (m *Manager) syncP2PNetworkInfo() {
+func (m *Manager) syncP2PNetworkInfo(urls []string) {
+	if len(urls) == 0 {
+		logrus.Debugf("no urls to syncP2PNetworkInfo")
+		return
+	}
 
+	resp, err := m.fetchP2PNetwork(urls)
+	if err != nil {
+		logrus.Error(err)
+		return
+	}
+
+	// update nodes info to internal scheduler
+	m.sm.SyncSchedulerInfo(resp.Nodes)
+
+	m.syncTimeLock.Lock()
+	defer m.syncTimeLock.Unlock()
+	m.syncTime = time.Now()
+	m.recentFetchUrls = urls
+}
+
+func (m *Manager) fetchP2PNetworkInfoLoop(ctx context.Context) {
+	var(
+		lastTime time.Time
+	)
+	defaultInterval := 5 * time.Second
+	ticker := time.NewTicker(defaultInterval)
+	defer ticker.Stop()
+
+	for{
+		select {
+		case <- ctx.Done():
+			return
+		case <- ticker.C:
+			m.syncTimeLock.Lock()
+			lastTime = m.syncTime
+			m.syncTimeLock.Unlock()
+
+			if lastTime.Add(defaultInterval).After(time.Now()) {
+				continue
+			}
+
+			m.syncP2PNetworkInfo(m.rm.getRecentRequest(0))
+		case url := <- m.syncP2PNetworkCh:
+			if m.isRecentFetch(url) {
+				// the url is fetch recently, directly ignore it
+				continue
+			}
+			m.syncP2PNetworkInfo(m.rm.getRecentRequest(0))
+		}
+	}
+}
+
+func (m *Manager) isRecentFetch(url string) bool {
+	m.syncTimeLock.Lock()
+	defer m.syncTimeLock.Unlock()
+
+	for _, u := range m.recentFetchUrls {
+		if u == url {
+			return true
+		}
+	}
+
+	return false
 }
 
 func (m *Manager) getRangeFromHeader(header map[string][]string) (*httputils.RangeStruct, error) {
@@ -96,4 +245,120 @@ func (m *Manager) getRangeFromHeader(header map[string][]string) (*httputils.Ran
 		StartIndex: 0,
 		EndIndex: -1,
 	}, nil
+}
+
+//
+func (m *Manager) applyForSeedNode(url string, header map[string][]string, path string) (asSeed bool, seedTaskID string) {
+	req := &types.RegisterRequest{
+		RawURL: url,
+		TaskId: url,
+		Headers: FlattenHeader(header),
+		Dfdaemon: m.cfg.Dfdaemon,
+		IP:  m.cfg.IP,
+		Port: m.cfg.Port,
+		Version: m.cfg.Version,
+		Identifier: m.cfg.Identifier,
+		RootCAs: m.cfg.RootCAs,
+		HostName: m.cfg.HostName,
+		AsSeed: false,
+	}
+
+	for _, node := range m.superNodes {
+		resp, err := m.supernodeAPI.ApplyForSeedNode(node, req)
+		if err != nil {
+			logrus.Errorf("failed to apply for seed node: %v", err)
+			continue
+		}
+
+		logrus.Debugf("ApplyForSeedNode resp body: %v", resp)
+
+		if resp.Code != constants.Success {
+			continue
+		}
+
+		return resp.Data.AsSeed,  resp.Data.SeedTaskID
+	}
+
+	return false, ""
+}
+
+func (m *Manager) fetchP2PNetwork(urls []string) (resp *api_types.NetworkInfoFetchResponse, e error) {
+	var(
+		lastErr  error
+	)
+
+	req := &api_types.NetworkInfoFetchRequest{
+		Urls: urls,
+	}
+
+	for _, node := range m.superNodes {
+		resp, err := m.supernodeAPI.FetchP2PNetworkInfo(node, 0, 0, req)
+		if err != nil {
+			lastErr = err
+			logrus.Errorf("failed to apply for seed node: %v", err)
+			continue
+		}
+
+		logrus.Debugf("FetchP2PNetworkInfo resp body: %v", resp)
+		return resp, nil
+	}
+
+	return nil, lastErr
+}
+
+func (m *Manager) syncLocalSeed (path string, taskID string, sd seed.Seed) {
+	m.sm.AddLocalSeedInfo(&api_types.TaskFetchInfo{
+		Task: &api_types.TaskInfo{
+			ID: taskID,
+			AsSeed: true,
+			FileLength: sd.GetFullSize(),
+			RawURL: sd.URL(),
+			TaskURL: sd.URL(),
+		},
+		Pieces: []*api_types.PieceInfo{
+			{
+				Path: path,
+			},
+		},
+	})
+}
+
+func (m *Manager) heartBeatLoop(ctx context.Context) {
+	ticker := time.NewTicker(time.Second * 30)
+	defer ticker.Stop()
+
+	for{
+		select {
+		case <- ctx.Done():
+			return
+		case <- ticker.C:
+			m.heartbeat()
+		}
+	}
+}
+
+func (m *Manager) heartbeat() {
+	for _,node := range m.superNodes {
+		m.supernodeAPI.HeartBeat(node, &api_types.HeartBeatRequest{
+			IP: m.cfg.IP,
+			Port: int32(m.cfg.Port),
+			CID: m.cfg.Cid,
+		})
+	}
+}
+
+func (m *Manager) registerLocalSeed(url string, header map[string][]string, path string, taskID string) {
+	info := seed.PreFetchInfo{
+		URL: url,
+		Header: header,
+		BlockOrder: 19,
+		ExpireTimeDur: time.Hour,
+		TaskID: taskID,
+	}
+	sd, err := m.seedManager.Register(path, info)
+	if err == errortypes.ErrTaskIDDuplicate{
+		return
+	}
+
+	m.syncLocalSeed(path, taskID, sd)
 }
