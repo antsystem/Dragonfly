@@ -195,7 +195,7 @@ func NewSeedManager(opt NewSeedManagerOpt) SeedManager {
 	return localSeedManager
 }
 
-func GetSeedManager(opt NewSeedManagerOpt) SeedManager {
+func GetSeedManager() SeedManager {
 	return localSeedManager
 }
 
