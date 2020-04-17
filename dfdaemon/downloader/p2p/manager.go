@@ -117,7 +117,7 @@ schedule:
 	result := m.sm.Scheduler(ctx, url)
 	if len(result) == 0 {
 		// try to apply to be the seed node
-		m.tryToApplyForSeedNode(url, header)
+		m.tryToApplyForSeedNode(m.ctx, url, header)
 		goto schedule
 	}
 
@@ -142,7 +142,7 @@ schedule:
 	return dw.RunStream(ctx)
 }
 
-func (m *Manager) tryToApplyForSeedNode(url string, header map[string][]string)  {
+func (m *Manager) tryToApplyForSeedNode(ctx context.Context, url string, header map[string][]string)  {
 	path := uuid.New()
 	asSeed, taskID := m.applyForSeedNode(url, header, path)
 	if ! asSeed {
@@ -150,6 +150,7 @@ func (m *Manager) tryToApplyForSeedNode(url string, header map[string][]string) 
 	}
 
 	m.registerLocalSeed(url, header, path, taskID)
+	go m.tryToPrefetchSeedFile(ctx, path, taskID)
 }
 
 // sync p2p network to local scheduler.
@@ -361,4 +362,63 @@ func (m *Manager) registerLocalSeed(url string, header map[string][]string, path
 	}
 
 	m.syncLocalSeed(path, taskID, sd)
+}
+
+// tryToPrefetchSeedFile will try to prefetch the seed file
+func (m *Manager) tryToPrefetchSeedFile(ctx context.Context, path string, taskID string) {
+	finishCh, err := m.seedManager.Prefetch(path, 512 * 1024 * 1024)
+	if err != nil {
+		logrus.Errorf("failed to prefetch: %v", err)
+		return
+	}
+
+	<- finishCh
+
+	result, err := m.seedManager.GetPrefetchResult(path)
+	if err != nil {
+		logrus.Errorf("failed to get prefetch result: %v", err)
+		return
+	}
+
+	if ! result.Success {
+		logrus.Warnf("path: %s, taskID: %s, prefetch result : %v", path, taskID, result)
+		return
+	}
+
+	go m.monitorExpiredSeed(ctx, path)
+	//go lm.reportSeedToSuperNode(sd)
+}
+
+// monitor the expired event of seed
+func (m *Manager) monitorExpiredSeed(ctx context.Context, path string) {
+	sd, err := m.seedManager.Get(path)
+	if err != nil {
+		logrus.Errorf("failed to get seed file %s: %v", path, err)
+		return
+	}
+
+	expiredCh, err := m.seedManager.NotifyExpired(path)
+	if err != nil {
+		logrus.Errorf("failed to get expired chan of seed, url:%s, key: %s: %v", sd.URL(), sd.TaskID(), err)
+		return
+	}
+
+	select {
+	case <- ctx.Done():
+		return
+	case <- expiredCh:
+		logrus.Infof("seed url: %s, key: %s, has been expired, try to clear resource of it", sd.URL(), sd.TaskID())
+		break
+	}
+
+	// try to clear resource and report to super node
+	m.sm.DeleteLocalSeedInfo(sd.URL())
+
+	// report super node seed has been deleted
+	//resp, err := lm.spProxy.ReportResourceDeleted(sd.TaskID(), lm.dfGetConfig.RV.Cid)
+	//if err != nil || resp.Code != constants.CodeGetPeerDown {
+	//	logrus.Errorf("failed to report resource %s deleted, resp: %v, err: %v", sd.TaskID(), resp, err)
+	//}else {
+	//	logrus.Infof("success to report resource %s deleted", sd.TaskID())
+	//}
 }
