@@ -220,24 +220,24 @@ func newSeedManager(opt NewSeedManagerOpt) (SeedManager, error) {
 		return nil, fmt.Errorf("downloadBlockOrder should be in range[10, 31]")
 	}
 
-	// if downloadRate sets 0, means default limit
-	if opt.downloadRate == 0 {
-		opt.downloadRate = defaultDownloadRate
+	// if DownloadRate sets 0, means default limit
+	if opt.DownloadRate == 0 {
+		opt.DownloadRate = defaultDownloadRate
 	}
 
-	// if downloadRate < 0, means no limit
-	if opt.downloadRate < 0 {
-		opt.downloadRate = 0
+	// if DownloadRate < 0, means no limit
+	if opt.DownloadRate < 0 {
+		opt.DownloadRate = 0
 	}
 
-	// if uploadRate sets 0, means default limit
-	if opt.uploadRate == 0 {
-		opt.uploadRate = defaultUploadRate
+	// if UploadRate sets 0, means default limit
+	if opt.UploadRate == 0 {
+		opt.UploadRate = defaultUploadRate
 	}
 
-	// if uploadRate < 0, means no limit
-	if opt.uploadRate < 0 {
-		opt.uploadRate = 0
+	// if UploadRate < 0, means no limit
+	if opt.UploadRate < 0 {
+		opt.UploadRate = 0
 	}
 
 	downloadCh := make(chan struct{}, opt.ConcurrentLimit)
@@ -276,8 +276,8 @@ func newSeedManager(opt NewSeedManagerOpt) (SeedManager, error) {
 		waitQueue:         queue.NewQueue(0),
 		downloadCh:        downloadCh,
 		originClient:      httpclient.NewOriginClient(),
-		uploadRate: 	   ratelimiter.NewRateLimiter(opt.uploadRate/100, 100),
-		downRate:          ratelimiter.NewRateLimiter(opt.downloadRate/100, 100),
+		uploadRate: 	   ratelimiter.NewRateLimiter(opt.UploadRate/100, 100),
+		downRate:          ratelimiter.NewRateLimiter(opt.DownloadRate/100, 100),
 		defaultBlockOrder: opt.DownloadBlockOrder,
 		openMemoryCache:   opt.OpenMemoryCache,
 	}

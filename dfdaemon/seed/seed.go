@@ -133,7 +133,7 @@ func NewSeed(base SeedBaseOpt, rate RateOpt, openMemoryCache bool) (Seed, error)
 		BlockOrder:  base.Info.BlockOrder,
 		metaDir:     base.MetaDir,
 		down: newLocalDownloader(base.Info.URL, base.Info.Header, rate.DownloadRateLimiter, openMemoryCache),
-		//uploadRate: sm.uploadRate,
+		//UploadRate: sm.UploadRate,
 		prefetchCh: make(chan struct{}),
 		blockWaitChMap: make(map[int32]chan struct{}),
 		OpenMemoryCache: openMemoryCache,

@@ -12,13 +12,13 @@ import (
 
 func (suite *SeedTestSuite) TestOneSeed(c *check.C) {
 	smOpt := NewSeedManagerOpt{
-		StoreDir: filepath.Join(suite.cacheDir, "TestOneSeed"),
-		ConcurrentLimit: 2,
-		TotalLimit: 4,
+		StoreDir:           filepath.Join(suite.cacheDir, "TestOneSeed"),
+		ConcurrentLimit:    2,
+		TotalLimit:         4,
 		DownloadBlockOrder: 14,
-		OpenMemoryCache: true,
-		downloadRate: -1,
-		uploadRate: -1,
+		OpenMemoryCache:    true,
+		DownloadRate:       -1,
+		UploadRate:         -1,
 	}
 
 	sm, err := newSeedManager(smOpt)
@@ -113,13 +113,13 @@ func (suite *SeedTestSuite) TestOneSeed(c *check.C) {
 
 func (suite *SeedTestSuite) TestManySeed(c *check.C) {
 	smOpt := NewSeedManagerOpt{
-		StoreDir: filepath.Join(suite.cacheDir, "TestManySeed"),
-		ConcurrentLimit: 2,
-		TotalLimit: 4,
+		StoreDir:           filepath.Join(suite.cacheDir, "TestManySeed"),
+		ConcurrentLimit:    2,
+		TotalLimit:         4,
 		DownloadBlockOrder: 14,
-		OpenMemoryCache: true,
-		downloadRate: -1,
-		uploadRate: -1,
+		OpenMemoryCache:    true,
+		DownloadRate:       -1,
+		UploadRate:         -1,
 	}
 
 	sm, err := newSeedManager(smOpt)
@@ -200,13 +200,13 @@ func (suite *SeedTestSuite) TestManySeed(c *check.C) {
 
 func (suite *SeedTestSuite) TestSeedRestoreInManager(c *check.C) {
 	smOpt := NewSeedManagerOpt{
-		StoreDir: filepath.Join(suite.cacheDir, "TestSeedRestoreInManager"),
-		ConcurrentLimit: 2,
-		TotalLimit: 4,
+		StoreDir:           filepath.Join(suite.cacheDir, "TestSeedRestoreInManager"),
+		ConcurrentLimit:    2,
+		TotalLimit:         4,
 		DownloadBlockOrder: 14,
-		OpenMemoryCache: true,
-		downloadRate: -1,
-		uploadRate: -1,
+		OpenMemoryCache:    true,
+		DownloadRate:       -1,
+		UploadRate:         -1,
 	}
 
 	sm, err := newSeedManager(smOpt)
@@ -273,13 +273,13 @@ func (suite *SeedTestSuite) TestSeedRestoreInManager(c *check.C) {
 
 func (suite *SeedTestSuite) TestSeedSyncWriteAndRead(c *check.C) {
 	smOpt := NewSeedManagerOpt{
-		StoreDir: filepath.Join(suite.cacheDir, "TestSeedSyncWriteAndRead"),
-		ConcurrentLimit: 2,
-		TotalLimit: 4,
+		StoreDir:           filepath.Join(suite.cacheDir, "TestSeedSyncWriteAndRead"),
+		ConcurrentLimit:    2,
+		TotalLimit:         4,
 		DownloadBlockOrder: 14,
-		OpenMemoryCache: true,
-		downloadRate: -1,
-		uploadRate: -1,
+		OpenMemoryCache:    true,
+		DownloadRate:       -1,
+		UploadRate:         -1,
 	}
 	sm, err := newSeedManager(smOpt)
 	c.Assert(err, check.IsNil)
