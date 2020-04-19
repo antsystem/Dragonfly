@@ -110,6 +110,8 @@ func (m *Manager) DownloadStreamContext(ctx context.Context, url string, header 
 		return nil, err
 	}
 
+	m.rm.addRequest(url, false)
+
 	logrus.Debugf("start to download stream in seed pattern, url: %s, header: %v, range: [%d, %d]", url,
 		header, reqRange.StartIndex, reqRange.EndIndex)
 
@@ -147,6 +149,7 @@ func (m *Manager) tryToApplyForSeedNode(ctx context.Context, url string, header 
 	path := uuid.New()
 	asSeed, taskID := m.applyForSeedNode(url, header, path)
 	if ! asSeed {
+		m.syncP2PNetworkCh <- url
 		return
 	}
 
@@ -249,11 +252,11 @@ func (m *Manager) getRangeFromHeader(header map[string][]string) (*httputils.Ran
 	}, nil
 }
 
-//
 func (m *Manager) applyForSeedNode(url string, header map[string][]string, path string) (asSeed bool, seedTaskID string) {
 	req := &types.RegisterRequest{
 		RawURL: url,
-		TaskId: url,
+		TaskURL: url,
+		Cid: m.cfg.Cid,
 		Headers: FlattenHeader(header),
 		Dfdaemon: m.cfg.Dfdaemon,
 		IP:  m.cfg.IP,
@@ -262,7 +265,8 @@ func (m *Manager) applyForSeedNode(url string, header map[string][]string, path 
 		Identifier: m.cfg.Identifier,
 		RootCAs: m.cfg.RootCAs,
 		HostName: m.cfg.HostName,
-		AsSeed: false,
+		AsSeed: true,
+		Path: path,
 	}
 
 	for _, node := range m.superNodes {
