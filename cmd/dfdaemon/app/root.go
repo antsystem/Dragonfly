@@ -18,6 +18,7 @@ package app
 
 import (
 	"encoding/json"
+	"fmt"
 	"github.com/dragonflyoss/Dragonfly/dfdaemon/downloader/p2p"
 	"os"
 	"os/exec"
@@ -226,9 +227,13 @@ func decodeWithYAML(types ...reflect.Type) mapstructure.DecodeHookFunc {
 }
 
 func getSeedConfig(cfg *config.Properties) *p2p.Config {
+	sign := fmt.Sprintf("%d-%.3f",
+		os.Getpid(), float64(time.Now().UnixNano())/float64(time.Second))
+
 	return &p2p.Config{
 		IP: cfg.LocalIP,
-		Port: int(cfg.Port),
+		Port: int(cfg.PeerPort),
 		MetaDir: filepath.Join(cfg.WorkHome , "seed-pattern"),
+		Cid: fmt.Sprintf("%s-%s", cfg.LocalIP, sign),
 	}
 }
