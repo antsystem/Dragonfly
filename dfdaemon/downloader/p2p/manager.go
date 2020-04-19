@@ -81,6 +81,7 @@ func newManager(cfg *Config, superNodes []string) *Manager {
 		uploaderAPI: api.NewUploaderAPI(time.Duration(0)),
 		downloadAPI: api.NewDownloadAPI(),
 		syncP2PNetworkCh: make(chan string, 10),
+		rm: newRequestManager(),
 		recentFetchUrls: []string{},
 		ctx: ctx,
 		cancel: cancel,
