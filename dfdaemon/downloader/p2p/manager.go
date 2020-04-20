@@ -376,11 +376,17 @@ func (m *Manager) heartBeatLoop(ctx context.Context) {
 
 func (m *Manager) heartbeat() {
 	for _,node := range m.superNodes {
-		m.supernodeAPI.HeartBeat(node, &api_types.HeartBeatRequest{
+		resp, err := m.supernodeAPI.HeartBeat(node, &api_types.HeartBeatRequest{
 			IP: m.cfg.IP,
 			Port: int32(m.cfg.Port),
 			CID: m.cfg.Cid,
 		})
+
+		logrus.Debugf("heart beat resp: %v", resp)
+
+		if err != nil {
+			logrus.Errorf("failed to heart beat: %v", err)
+		}
 	}
 }
 

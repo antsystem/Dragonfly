@@ -324,7 +324,8 @@ func (api *supernodeAPI) HeartBeat(node string, req *api_types.HeartBeatRequest)
 	}
 
 	if !httputils.HTTPStatusOk(code) {
-		return nil, fmt.Errorf("%d:%s", code, body)
+		logrus.Errorf("failed to heart beat, code %d, body: %s", code, string(body))
+		return nil, fmt.Errorf("%d:%s", code, string(body))
 	}
 
 	resp = new(types.BaseResponse)
