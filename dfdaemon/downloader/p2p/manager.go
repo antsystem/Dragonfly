@@ -375,7 +375,7 @@ func (m *Manager) registerLocalSeed(url string, header map[string][]string, path
 
 // tryToPrefetchSeedFile will try to prefetch the seed file
 func (m *Manager) tryToPrefetchSeedFile(ctx context.Context, path string, taskID string) {
-	finishCh, err := m.seedManager.Prefetch(path, 512 * 1024 * 1024)
+	finishCh, err := m.seedManager.Prefetch(path, 512 * 1024)
 	if err != nil {
 		logrus.Errorf("failed to prefetch: %v", err)
 		return

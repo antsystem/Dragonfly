@@ -86,6 +86,10 @@ func (ld *localDownloader) download(ctx context.Context, rangeStruct httputils.R
 		buf := bytes.NewBuffer(nil)
 		buf.Grow(int(expectedLen))
 		written, err = io.CopyN(buf, rd, expectedLen)
+		if err != nil && err != io.EOF {
+			logrus.Errorf("failed to read data [%d, %d] from resp.body: %v", rangeStruct.StartIndex, rangeStruct.EndIndex, err)
+		}
+
 		if written < expectedLen {
 			return 0, errors.Wrap(io.ErrShortWrite, fmt.Sprintf("download from [%d,%d], expecte read %d, but got %d", rangeStruct.StartIndex, rangeStruct.EndIndex, expectedLen, written))
 		}
