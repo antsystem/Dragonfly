@@ -397,6 +397,11 @@ func (m *Manager) registerLocalSeed(url string, header map[string][]string, path
 		return
 	}
 
+	if err != nil {
+		logrus.Errorf("failed to register seed, info: %v, err:%v", info, err)
+		return
+	}
+
 	m.syncLocalSeed(path, taskID, sd)
 }
 
