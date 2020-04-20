@@ -147,13 +147,17 @@ schedule:
 
 func (m *Manager) tryToApplyForSeedNode(ctx context.Context, url string, header map[string][]string)  {
 	path := uuid.New()
-	asSeed, taskID := m.applyForSeedNode(url, header, path)
+	cHeader := CopyHeader(header)
+	hr := http.Header(cHeader)
+	hr.Del(dfgetcfg.StrRange)
+
+	asSeed, taskID := m.applyForSeedNode(url, cHeader, path)
 	if ! asSeed {
 		m.syncP2PNetworkCh <- url
 		return
 	}
 
-	m.registerLocalSeed(url, header, path, taskID)
+	m.registerLocalSeed(url, cHeader, path, taskID)
 	go m.tryToPrefetchSeedFile(ctx, path, taskID)
 }
 

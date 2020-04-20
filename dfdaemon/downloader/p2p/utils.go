@@ -22,3 +22,14 @@ func FlattenHeader(header map[string][]string) []string {
 	}
 	return res
 }
+
+func CopyHeader(src map[string][]string) map[string][]string {
+	ret := make(map[string][]string)
+	for k, v := range src {
+		value := make([]string, len(v))
+		copy(value, v)
+		ret[k] = value
+	}
+
+	return ret
+}
