@@ -33,6 +33,9 @@ const(
 	defaultUploadRate = 100 * 1024 * 1024
 
 	defaultDownloadRate = 100 * 1024 * 1024
+
+	// 512KB
+	defaultBlockOrder = 19
 )
 
 // Manager control the
@@ -51,12 +54,17 @@ type Manager struct {
 	ctx      context.Context
 	cancel   func()
 
-	syncP2PNetworkCh	chan string
+	syncP2PNetworkCh	chan activeFetchSt
 	syncTimeLock		sync.Mutex
 	syncTime			time.Time
 
 	// recentFetchUrls is the urls which as the parameters to fetch the p2p network recently
 	recentFetchUrls     []string
+}
+
+type activeFetchSt struct {
+	url   	string
+	waitCh  chan struct{}
 }
 
 func GetManager() *Manager {
@@ -87,7 +95,7 @@ func newManager(cfg *Config, superNodes []string) *Manager {
 		supernodeAPI: api.NewSupernodeAPI(),
 		uploaderAPI: api.NewUploaderAPI(time.Duration(0)),
 		downloadAPI: api.NewDownloadAPI(),
-		syncP2PNetworkCh: make(chan string, 10),
+		syncP2PNetworkCh: make(chan activeFetchSt, 10),
 		rm: newRequestManager(),
 		recentFetchUrls: []string{},
 		ctx: ctx,
@@ -164,12 +172,14 @@ func (m *Manager) tryToApplyForSeedNode(ctx context.Context, url string, header 
 
 	asSeed, taskID := m.applyForSeedNode(url, cHeader, path)
 	if ! asSeed {
-		m.syncP2PNetworkCh <- url
+		waitCh := make(chan struct{})
+		m.syncP2PNetworkCh <- activeFetchSt{url: url, waitCh: waitCh}
+		<- waitCh
 		return
 	}
 
-	m.registerLocalSeed(url, cHeader, path, taskID)
-	go m.tryToPrefetchSeedFile(ctx, path, taskID)
+	m.registerLocalSeed(url, cHeader, path, taskID, defaultBlockOrder)
+	go m.tryToPrefetchSeedFile(ctx, path, taskID, defaultBlockOrder)
 }
 
 // sync p2p network to local scheduler.
@@ -216,12 +226,18 @@ func (m *Manager) fetchP2PNetworkInfoLoop(ctx context.Context) {
 			}
 
 			m.syncP2PNetworkInfo(m.rm.getRecentRequest(0))
-		case url := <- m.syncP2PNetworkCh:
-			if m.isRecentFetch(url) {
+		case active := <- m.syncP2PNetworkCh:
+			if m.isRecentFetch(active.url) {
+				if active.waitCh != nil {
+					close(active.waitCh)
+				}
 				// the url is fetch recently, directly ignore it
 				continue
 			}
 			m.syncP2PNetworkInfo(m.rm.getRecentRequest(0))
+			if active.waitCh != nil {
+				close(active.waitCh)
+			}
 		}
 	}
 }
@@ -368,11 +384,11 @@ func (m *Manager) heartbeat() {
 	}
 }
 
-func (m *Manager) registerLocalSeed(url string, header map[string][]string, path string, taskID string) {
+func (m *Manager) registerLocalSeed(url string, header map[string][]string, path string, taskID string, blockOrder uint32) {
 	info := seed.PreFetchInfo{
 		URL: url,
 		Header: header,
-		BlockOrder: 19,
+		BlockOrder: blockOrder,
 		ExpireTimeDur: time.Hour,
 		TaskID: taskID,
 	}
@@ -385,8 +401,8 @@ func (m *Manager) registerLocalSeed(url string, header map[string][]string, path
 }
 
 // tryToPrefetchSeedFile will try to prefetch the seed file
-func (m *Manager) tryToPrefetchSeedFile(ctx context.Context, path string, taskID string) {
-	finishCh, err := m.seedManager.Prefetch(path, m.computePerDownloadSize())
+func (m *Manager) tryToPrefetchSeedFile(ctx context.Context, path string, taskID string, blockOrder uint32) {
+	finishCh, err := m.seedManager.Prefetch(path, m.computePerDownloadSize(blockOrder))
 	if err != nil {
 		logrus.Errorf("failed to prefetch: %v", err)
 		return
@@ -443,6 +459,8 @@ func (m *Manager) monitorExpiredSeed(ctx context.Context, path string) {
 	//}
 }
 
-func (m *Manager) computePerDownloadSize() int64 {
-	return m.sdOpt.DownloadRate/int64(m.sdOpt.ConcurrentLimit * 2)
+func (m *Manager) computePerDownloadSize(blockOrder uint32) int64 {
+	//return m.sdOpt.DownloadRate/int64(m.sdOpt.ConcurrentLimit * 2)
+
+	return 1 << (blockOrder + 2)
 }
