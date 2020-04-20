@@ -121,7 +121,11 @@ func (sm *Manager) SyncSchedulerInfo(nodes []*types.Node) {
 }
 
 func (sm *Manager) AddLocalSeedInfo(task *types.TaskFetchInfo) {
-	sm.localSeedContainer.add(task.Task.TaskURL, &localTaskState{task: task})
+	if len(task.Pieces) == 0 || task.Pieces[0].Path == "" {
+		return
+	}
+
+	sm.localSeedContainer.add(task.Task.TaskURL, &localTaskState{task: task, path: task.Pieces[0].Path})
 }
 
 func (sm *Manager) DeleteLocalSeedInfo(url string) {
@@ -131,6 +135,10 @@ func (sm *Manager) DeleteLocalSeedInfo(url string) {
 func (sm *Manager) syncSeedContainerPerNode(node *types.Node, seedContainer *dataMap) {
 	for _, task := range node.Tasks {
 		if !task.Task.AsSeed {
+			continue
+		}
+
+		if len(task.Pieces) == 0 || task.Pieces[0].Path == "" {
 			continue
 		}
 

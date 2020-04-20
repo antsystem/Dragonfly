@@ -3,10 +3,12 @@ package p2p
 import (
 	"context"
 	"fmt"
+	"github.com/dragonflyoss/Dragonfly/dfget/config"
 	"github.com/dragonflyoss/Dragonfly/dfget/core/api"
 	"github.com/dragonflyoss/Dragonfly/pkg/httputils"
 	"github.com/sirupsen/logrus"
 	"io"
+	"path/filepath"
 	"time"
 )
 
@@ -51,7 +53,7 @@ func (sd *SeedDownloader) downloadRange(ctx context.Context, info *downloadNodeI
 	}
 
 	req := &api.DownloadRequest{
-		Path:  info.path,
+		Path:  filepath.Join(config.PeerHTTPPathPrefix, info.path),
 		PieceRange: fmt.Sprintf("%d-%d", sd.reqRange.StartIndex, sd.reqRange.EndIndex),
 		PieceNum: 0,
 		PieceSize: int32(sd.reqRange.EndIndex - sd.reqRange.StartIndex + 1),
