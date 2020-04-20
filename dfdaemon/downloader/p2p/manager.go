@@ -29,9 +29,16 @@ var(
 	once sync.Once
 )
 
+const(
+	defaultUploadRate = 100 * 1024 * 1024
+
+	defaultDownloadRate = 100 * 1024 * 1024
+)
+
 // Manager control the
 type Manager struct {
 	cfg          *Config
+	sdOpt        *seed.NewSeedManagerOpt
 	superNodes	 []string
 	sm 			 *scheduler.Manager
 	seedManager  seed.SeedManager
@@ -87,14 +94,18 @@ func newManager(cfg *Config, superNodes []string) *Manager {
 		cancel: cancel,
 	}
 
-	seedManager := seed.NewSeedManager(seed.NewSeedManagerOpt{
+	m.sdOpt = &seed.NewSeedManagerOpt{
 		StoreDir: filepath.Join(cfg.MetaDir, "seedStore"),
 		TotalLimit: 50,
+		ConcurrentLimit: 4,
 		DownloadBlockOrder: 17,
 		OpenMemoryCache: true,
-		DownloadRate: 0,
-		UploadRate: 0,
-	})
+		// todo: set rate of download and upload by config.
+		DownloadRate: defaultDownloadRate,
+		UploadRate: defaultUploadRate,
+	}
+
+	seedManager := seed.NewSeedManager(*m.sdOpt)
 
 	m.seedManager = seedManager
 
@@ -375,7 +386,7 @@ func (m *Manager) registerLocalSeed(url string, header map[string][]string, path
 
 // tryToPrefetchSeedFile will try to prefetch the seed file
 func (m *Manager) tryToPrefetchSeedFile(ctx context.Context, path string, taskID string) {
-	finishCh, err := m.seedManager.Prefetch(path, 512 * 1024)
+	finishCh, err := m.seedManager.Prefetch(path, m.computePerDownloadSize())
 	if err != nil {
 		logrus.Errorf("failed to prefetch: %v", err)
 		return
@@ -430,4 +441,8 @@ func (m *Manager) monitorExpiredSeed(ctx context.Context, path string) {
 	//}else {
 	//	logrus.Infof("success to report resource %s deleted", sd.TaskID())
 	//}
+}
+
+func (m *Manager) computePerDownloadSize() int64 {
+	return m.sdOpt.DownloadRate/int64(m.sdOpt.ConcurrentLimit * 2)
 }
