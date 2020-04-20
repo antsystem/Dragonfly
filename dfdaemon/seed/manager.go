@@ -102,8 +102,13 @@ func (sw *seedWrapObj) isExpired() bool {
 	sw.RLock()
 	defer sw.RUnlock()
 
+	// if not finished, do not gc.
+	if sw.sd.GetStatus() != FINISHED_STATUS {
+		return false
+	}
+
 	// if expire time dur is 0, never expired.
-	if sw.ExpireTimeDur == 0 {
+	if sw.ExpireTimeDur == 0 || sw.ExpireTime.IsZero() {
 		return false
 	}
 
@@ -221,9 +226,9 @@ func newSeedManager(opt NewSeedManagerOpt) (SeedManager, error) {
 	}
 
 	// if DownloadRate sets 0, means default limit
-	if opt.DownloadRate == 0 {
-		opt.DownloadRate = defaultDownloadRate
-	}
+	//if opt.DownloadRate == 0 {
+	//	opt.DownloadRate = defaultDownloadRate
+	//}
 
 	// if DownloadRate < 0, means no limit
 	if opt.DownloadRate < 0 {
@@ -231,9 +236,9 @@ func newSeedManager(opt NewSeedManagerOpt) (SeedManager, error) {
 	}
 
 	// if UploadRate sets 0, means default limit
-	if opt.UploadRate == 0 {
-		opt.UploadRate = defaultUploadRate
-	}
+	//if opt.UploadRate == 0 {
+	//	opt.UploadRate = defaultUploadRate
+	//}
 
 	// if UploadRate < 0, means no limit
 	if opt.UploadRate < 0 {
@@ -399,15 +404,20 @@ func (sm *seedManager) Prefetch(key string, perDownloadSize int64) (<- chan stru
 	}
 
 	sw.Lock()
+	defer sw.Unlock()
 	if !sw.prefetch {
 		sw.prefetch = true
 		sw.PerDownloadSize = perDownloadSize
 		sw.prefetchCh = make(chan struct{})
+		err = sw.storeMetaDataWithoutLock()
+		if err != nil {
+			return nil, err
+		}
 
 		// add seed to waitQueue, it will be polled out by handles goroutine to start to prefetch
 		sm.waitQueue.Put(sw)
 	}
-	sw.Unlock()
+
 	return sw.prefetchCh, nil
 }
 
