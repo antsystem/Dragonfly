@@ -297,11 +297,16 @@ func (api *supernodeAPI) FetchP2PNetworkInfo(node string, start int, limit int, 
 	if !httputils.HTTPStatusOk(code) {
 		return nil, fmt.Errorf("%d:%s", code, body)
 	}
-	resp = new(api_types.NetworkInfoFetchResponse)
-	if err = json.Unmarshal(body, resp); err != nil {
+	rr := new(types.FetchP2PNetworkInfoResponse)
+	if err = json.Unmarshal(body, rr); err != nil {
 		return nil, err
 	}
-	return resp, err
+
+	if rr.Code != constants.Success {
+		return nil, fmt.Errorf("%d:%s", code, rr.Msg)
+	}
+
+	return rr.Data, nil
 }
 
 func (api *supernodeAPI) HeartBeat(node string, req *api_types.HeartBeatRequest) (resp *types.BaseResponse, err error) {
