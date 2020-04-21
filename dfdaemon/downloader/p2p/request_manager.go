@@ -1,8 +1,6 @@
 package p2p
 
 import (
-	"time"
-
 	"github.com/dragonflyoss/Dragonfly/pkg/errortypes"
 	"github.com/dragonflyoss/Dragonfly/pkg/queue"
 
@@ -20,7 +18,7 @@ func newRequestManager() *requestManager {
 	}
 }
 
-func (rm *requestManager) addRequest(url string, directReturnSrc bool) error {
+func (rm *requestManager) addRequest(url string) error {
 	data, err := rm.q.GetItemByKey(url)
 	if err != nil && err != errortypes.ErrDataNotFound {
 		return err
@@ -28,7 +26,7 @@ func (rm *requestManager) addRequest(url string, directReturnSrc bool) error {
 
 	var rs *requestState = nil
 	if err == errortypes.ErrDataNotFound {
-		rs = newRequestState(url, directReturnSrc)
+		rs = newRequestState(url)
 	}else {
 		ors, ok := data.(*requestState)
 		if !ok {
@@ -37,11 +35,6 @@ func (rm *requestManager) addRequest(url string, directReturnSrc bool) error {
 
 		rs = ors.copy()
 		rs.updateRecentTime()
-		// if directReturnSrc == true, update first time to extend the returnSrc time interval
-		if directReturnSrc {
-			rs.directReturnSrc = directReturnSrc
-			rs.firstTime = time.Now()
-		}
 	}
 
 	rs.updateRecentTime()

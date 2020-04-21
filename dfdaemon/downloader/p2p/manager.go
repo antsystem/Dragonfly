@@ -129,7 +129,7 @@ func (m *Manager) DownloadStreamContext(ctx context.Context, url string, header 
 		return nil, err
 	}
 
-	m.rm.addRequest(url, false)
+	m.rm.addRequest(url)
 
 	logrus.Debugf("start to download stream in seed pattern, url: %s, header: %v, range: [%d, %d]", url,
 		header, reqRange.StartIndex, reqRange.EndIndex)
@@ -460,18 +460,8 @@ func (m *Manager) monitorExpiredSeed(ctx context.Context, path string) {
 
 	// try to clear resource and report to super node
 	m.sm.DeleteLocalSeedInfo(sd.URL())
-
-	// report super node seed has been deleted
-	//resp, err := lm.spProxy.ReportResourceDeleted(sd.TaskID(), lm.dfGetConfig.RV.Cid)
-	//if err != nil || resp.Code != constants.CodeGetPeerDown {
-	//	logrus.Errorf("failed to report resource %s deleted, resp: %v, err: %v", sd.TaskID(), resp, err)
-	//}else {
-	//	logrus.Infof("success to report resource %s deleted", sd.TaskID())
-	//}
 }
 
 func (m *Manager) computePerDownloadSize(blockOrder uint32) int64 {
-	//return m.sdOpt.DownloadRate/int64(m.sdOpt.ConcurrentLimit * 2)
-
 	return 1 << (blockOrder + 2)
 }

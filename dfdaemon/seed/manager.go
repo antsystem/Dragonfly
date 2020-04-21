@@ -225,22 +225,11 @@ func newSeedManager(opt NewSeedManagerOpt) (SeedManager, error) {
 		return nil, fmt.Errorf("downloadBlockOrder should be in range[10, 31]")
 	}
 
-	// if DownloadRate sets 0, means default limit
-	//if opt.DownloadRate == 0 {
-	//	opt.DownloadRate = defaultDownloadRate
-	//}
-
-	// if DownloadRate < 0, means no limit
 	if opt.DownloadRate < 0 {
 		opt.DownloadRate = 0
 	}
 
 	// if UploadRate sets 0, means default limit
-	//if opt.UploadRate == 0 {
-	//	opt.UploadRate = defaultUploadRate
-	//}
-
-	// if UploadRate < 0, means no limit
 	if opt.UploadRate < 0 {
 		opt.UploadRate = 0
 	}
