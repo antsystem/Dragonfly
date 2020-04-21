@@ -117,7 +117,7 @@ func (sw *seedWrapObj) refreshExpireTime(expireTimeDur time.Duration) error {
 	sw.Lock()
 	defer sw.Unlock()
 
-	if sw.prepareExpiredCh != nil {
+	if sw.prepareExpiredCh == nil {
 		sw.prepareExpiredCh = make(chan struct{})
 	}
 
@@ -640,7 +640,7 @@ func (sm *seedManager) getSeedWrapObj(key string) (*seedWrapObj, error) {
 }
 
 // prepareGcSeed will notify the user, then let user decide to unregister the seed.
-// By the way, user could control the seed when to release the seed.
+// By the way, user could control the time when to release the seed.
 func (sm *seedManager) prepareGcSeed(key string, sd Seed) {
 	logrus.Infof("prepare gc seed SeedKey  %s, Url %s", key, sd.URL())
 	sw, err := sm.getSeedWrapObj(key)
@@ -740,7 +740,7 @@ func (sm *seedManager) downloadSeed(ctx context.Context, sw *seedWrapObj) {
 func (sm *seedManager) updateLRU(key string, sd Seed) {
 	obsoleteKey, obsoleteData := sm.lru.Put(key, sd)
 	if obsoleteKey != "" {
-		go sm.gcSeed(obsoleteKey, obsoleteData.(*seed))
+		go sm.prepareGcSeed(obsoleteKey, obsoleteData.(Seed))
 	}
 }
 

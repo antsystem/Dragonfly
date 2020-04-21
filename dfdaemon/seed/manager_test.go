@@ -95,9 +95,6 @@ func (suite *SeedTestSuite) TestOneSeed(c *check.C) {
 	// gc expired seed
 	lsm.gcExpiredSeed()
 
-	_, err = sd.Download(0, -1)
-	c.Assert(err, check.NotNil)
-
 	receiveExpired := false
 	select {
 	case <-expiredCh:
@@ -106,6 +103,15 @@ func (suite *SeedTestSuite) TestOneSeed(c *check.C) {
 	}
 
 	c.Assert(receiveExpired, check.Equals, true)
+
+	rc, err = sd.Download(0, -1)
+	c.Assert(err, check.IsNil)
+	rc.Close()
+
+	sm.UnRegister(taskID)
+
+	_, err = sd.Download(0, -1)
+	c.Assert(err, check.NotNil)
 
 	_, err = sm.Get(taskID)
 	c.Assert(err, check.NotNil)
@@ -166,18 +172,19 @@ func (suite *SeedTestSuite) TestManySeed(c *check.C) {
 	c.Assert(err, check.IsNil)
 	suite.checkSeedFileBySeedManager(c, filePaths[4], fileLens[4], taskIDArr[4], 64 * 1024, seedArr[4], sm, nil)
 
-	// check the oldest one taskIDArr[0], it should be wide out
-	_, err = sm.Get(taskIDArr[0])
-	c.Assert(err, check.NotNil)
-
 	receiveExpired := false
 	select {
 	case <-expireChs[0]:
 		receiveExpired = true
+		sm.UnRegister(taskIDArr[0])
 	default:
 	}
 
 	c.Assert(receiveExpired, check.Equals, true)
+
+	// check the oldest one taskIDArr[0], it should be wide out
+	_, err = sm.Get(taskIDArr[0])
+	c.Assert(err, check.NotNil)
 
 	// refresh taskIDArr[1]
 	sm.RefreshExpireTime(taskIDArr[1], 0)
@@ -191,6 +198,7 @@ func (suite *SeedTestSuite) TestManySeed(c *check.C) {
 		select {
 		case <-expireChs[i]:
 			receiveExpired = true
+			sm.UnRegister(taskIDArr[i])
 		default:
 		}
 
