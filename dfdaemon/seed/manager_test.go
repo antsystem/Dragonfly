@@ -87,7 +87,7 @@ func (suite *SeedTestSuite) TestOneSeed(c *check.C) {
 
 	suite.checkFileWithSeed(c, fileName, fileLength, sd)
 
-	expiredCh, err := sm.NotifyExpired(taskID)
+	expiredCh, err := sm.NotifyPrepareExpired(taskID)
 	c.Assert(err, check.IsNil)
 	// try to gc
 	time.Sleep(time.Second * 11)
@@ -141,7 +141,7 @@ func (suite *SeedTestSuite) TestManySeed(c *check.C) {
 			TaskID: taskIDArr[i], ExpireTimeDur: 30 * time.Second})
 		c.Assert(err, check.IsNil)
 		seedArr[i] = sd
-		expireChs[i], err = sm.NotifyExpired(taskIDArr[i])
+		expireChs[i], err = sm.NotifyPrepareExpired(taskIDArr[i])
 		c.Assert(err, check.IsNil)
 
 		go func(lsd Seed, path string, fileLength int64, taskID string) {
@@ -162,7 +162,7 @@ func (suite *SeedTestSuite) TestManySeed(c *check.C) {
 	seedArr[4], err = sm.Register(taskIDArr[4], PreFetchInfo{URL: fmt.Sprintf("http://%s/%s", suite.host, filePaths[4]),
 		TaskID: taskIDArr[4], ExpireTimeDur: 30 * time.Second})
 	c.Assert(err, check.IsNil)
-	expireChs[4], err = sm.NotifyExpired(taskIDArr[4])
+	expireChs[4], err = sm.NotifyPrepareExpired(taskIDArr[4])
 	c.Assert(err, check.IsNil)
 	suite.checkSeedFileBySeedManager(c, filePaths[4], fileLens[4], taskIDArr[4], 64 * 1024, seedArr[4], sm, nil)
 
@@ -229,7 +229,7 @@ func (suite *SeedTestSuite) TestSeedRestoreInManager(c *check.C) {
 		c.Assert(err, check.IsNil)
 		seedArr[i] = sd
 
-		expireChs[i], err = sm.NotifyExpired(taskIDArr[i])
+		expireChs[i], err = sm.NotifyPrepareExpired(taskIDArr[i])
 		c.Assert(err, check.IsNil)
 
 		go func(lsd Seed, path string, fileLength int64, taskID string) {

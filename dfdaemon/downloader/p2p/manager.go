@@ -134,6 +134,7 @@ func (m *Manager) DownloadStreamContext(ctx context.Context, url string, header 
 	logrus.Debugf("start to download stream in seed pattern, url: %s, header: %v, range: [%d, %d]", url,
 		header, reqRange.StartIndex, reqRange.EndIndex)
 
+	// 改为for循环
 schedule:
 	// try to get the peer by internal schedule
 	result := m.sm.Scheduler(ctx, url)
@@ -444,7 +445,7 @@ func (m *Manager) monitorExpiredSeed(ctx context.Context, path string) {
 		return
 	}
 
-	expiredCh, err := m.seedManager.NotifyExpired(path)
+	expiredCh, err := m.seedManager.NotifyPrepareExpired(path)
 	if err != nil {
 		logrus.Errorf("failed to get expired chan of seed, url:%s, key: %s: %v", sd.URL(), sd.TaskID(), err)
 		return

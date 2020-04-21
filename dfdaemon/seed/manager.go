@@ -34,10 +34,6 @@ const (
 
 	defaultGcInterval = 2 * time.Minute
 
-	defaultUploadRate = 10 * 1024 * 1024
-
-	defaultDownloadRate = 100 * 1024 * 1024
-
 	defaultTimeLayout = time.RFC3339Nano
 
 	// 128KB
@@ -55,8 +51,9 @@ type SeedManager interface {
 	// refresh expire time of seed
 	RefreshExpireTime(key string, expireTimeDur time.Duration) error
 
-	// NotifyExpired
-	NotifyExpired(key string) (<-chan struct{}, error)
+	// NotifyPrepareExpired notify the user the seed should be deleted later, and user decides when
+	// to unregister it.
+	NotifyPrepareExpired(key string) (<-chan struct{}, error)
 
 	// Prefetch will add seed to the prefetch list by key, and then prefetch by the concurrent limit.
 	Prefetch(key string, perDownloadSize int64) (<- chan struct{}, error)
@@ -82,8 +79,9 @@ type seedWrapObj struct {
 	sd     		Seed
 	// if seed prefetch
 	prefetchCh 	chan struct{}
-	// if seed is expired, the expiredCh will be closed.
-	expiredCh   chan struct{}
+
+	// if seed is prepared to be expired, the prepareExpiredCh will be closed.
+	prepareExpiredCh chan struct{}
 
 	prefetchRs  PreFetchResult
 
@@ -119,6 +117,10 @@ func (sw *seedWrapObj) refreshExpireTime(expireTimeDur time.Duration) error {
 	sw.Lock()
 	defer sw.Unlock()
 
+	if sw.prepareExpiredCh != nil {
+		sw.prepareExpiredCh = make(chan struct{})
+	}
+
 	if expireTimeDur != 0 {
 		sw.ExpireTimeDur = expireTimeDur
 	}
@@ -127,11 +129,32 @@ func (sw *seedWrapObj) refreshExpireTime(expireTimeDur time.Duration) error {
 	return sw.storeMetaDataWithoutLock()
 }
 
+func (sw *seedWrapObj) notifyPrepareExpired() {
+	sw.Lock()
+	defer sw.Unlock()
+
+	if  sw.prepareExpiredCh != nil {
+		close(sw.prepareExpiredCh)
+	}
+
+	sw.prepareExpiredCh = nil
+}
+
+func (sw *seedWrapObj) getNotifyPrepareExpiredCh() chan struct{} {
+	sw.RLock()
+	defer sw.RUnlock()
+
+	return sw.prepareExpiredCh
+}
+
 func (sw *seedWrapObj) release() {
 	sw.Lock()
 	defer sw.Unlock()
 
-	close(sw.expiredCh)
+	if sw.prepareExpiredCh != nil {
+		close(sw.prepareExpiredCh)
+	}
+
 	sw.sd.Stop()
 	sw.sd.Delete()
 }
@@ -326,13 +349,13 @@ func (sm *seedManager) Register(key string, info PreFetchInfo) (Seed, error) {
 	}
 
 	sm.seedContainer[key] = &seedWrapObj{
-		sd:  sd,
-		prefetchCh: make(chan struct{}),
-		expiredCh:  make(chan struct{}),
-		Key: key,
-		metaPath: sm.seedWrapMetaPath(key),
-		metaBakPath: sm.seedWrapMetaBakPath(key),
-		ExpireTimeDur: info.ExpireTimeDur,
+		sd:               sd,
+		prefetchCh:       make(chan struct{}),
+		prepareExpiredCh: make(chan struct{}),
+		Key:              key,
+		metaPath:         sm.seedWrapMetaPath(key),
+		metaBakPath:      sm.seedWrapMetaBakPath(key),
+		ExpireTimeDur:    info.ExpireTimeDur,
 	}
 
 	return sd, nil
@@ -363,13 +386,20 @@ func (sm *seedManager) RefreshExpireTime(key string, expireTimeDur time.Duration
 	return nil
 }
 
-func (sm *seedManager) NotifyExpired(key string) (<-chan struct{}, error) {
+func (sm *seedManager) NotifyPrepareExpired(key string) (<-chan struct{}, error) {
 	sw, err := sm.getSeedWrapObj(key)
 	if  err != nil {
 		return nil, err
 	}
 
-	return sw.expiredCh, nil
+	ch := sw.getNotifyPrepareExpiredCh()
+	// if chan is nil, new and close one, and return.
+	if ch == nil {
+		ch = make(chan struct{})
+		close(ch)
+	}
+
+	return ch, nil
 }
 
 func (sm *seedManager) List() ([]Seed, error) {
@@ -577,7 +607,7 @@ func (sm *seedManager) restoreSeedWrapObj(key, path string) (*seedWrapObj, error
 	sw.Key = key
 	sw.metaPath = sm.seedWrapMetaPath(key)
 	sw.metaBakPath = sm.seedWrapMetaBakPath(key)
-	sw.expiredCh = make(chan struct{})
+	sw.prepareExpiredCh = make(chan struct{})
 	sw.prefetchCh = make(chan struct{})
 
 	return sw, nil
@@ -609,6 +639,24 @@ func (sm *seedManager) getSeedWrapObj(key string) (*seedWrapObj, error) {
 	return obj, nil
 }
 
+// prepareGcSeed will notify the user, then let user decide to unregister the seed.
+// By the way, user could control the seed when to release the seed.
+func (sm *seedManager) prepareGcSeed(key string, sd Seed) {
+	logrus.Infof("prepare gc seed SeedKey  %s, Url %s", key, sd.URL())
+	sw, err := sm.getSeedWrapObj(key)
+	if err != nil {
+		return
+	}
+
+	// delete the seed from lru queue.
+	sm.Lock()
+	sm.lru.Delete(key)
+	sm.Unlock()
+
+	sw.notifyPrepareExpired()
+}
+
+// gcSeed will release the seed resource.
 func (sm *seedManager) gcSeed(key string, sd Seed) {
 	logrus.Infof("gc seed SeedKey  %s, Url %s", key, sd.URL())
 	sw, err := sm.getSeedWrapObj(key)
@@ -719,7 +767,7 @@ func (sm *seedManager) gcExpiredSeed() {
 	list := sm.listSeedWrapObj()
 	for _, sw := range list {
 		if sw.isExpired() {
-			sm.gcSeed(sw.Key, sw.sd)
+			sm.prepareGcSeed(sw.Key, sw.sd)
 		}
 	}
 }
