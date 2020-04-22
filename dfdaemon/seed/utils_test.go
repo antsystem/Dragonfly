@@ -179,7 +179,7 @@ func (suite *SeedTestSuite) checkSeedFile(c *check.C, path string, fileLength in
 	blockOrder := uint32(order)
 
 	sOpt := SeedBaseOpt{
-		MetaDir: metaDir,
+		BaseDir: metaDir,
 		Info:  PreFetchInfo{
 			URL: fmt.Sprintf("http://%s/%s", suite.host, path),
 			TaskID: uuid.New(),

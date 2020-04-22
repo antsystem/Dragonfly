@@ -151,8 +151,13 @@ func (sw *seedWrapObj) release() {
 		close(sw.prepareExpiredCh)
 	}
 
-	sw.sd.Stop()
-	sw.sd.Delete()
+	if sw.sd != nil {
+		sw.sd.Stop()
+		sw.sd.Delete()
+	}
+
+	os.Remove(sw.metaBakPath)
+	os.Remove(sw.metaPath)
 }
 
 func (sw *seedWrapObj) storeMetaData() error {
@@ -363,8 +368,8 @@ func (sm *seedManager) Register(key string, info PreFetchInfo) (Seed, error) {
 	}
 
 	opt := SeedBaseOpt{
-		MetaDir:  filepath.Join(sm.storeDir, "seed",  key),
-		Info: info,
+		BaseDir: filepath.Join(sm.storeDir, "seed",  key),
+		Info:    info,
 		downPreFunc: func(sd Seed) {
 			sm.downPreFunc(key, sd)
 		},
@@ -583,11 +588,16 @@ func (sm *seedManager) restoreSeeds() {
 			continue
 		}
 
-		sd, err := RestoreSeed(filepath.Join(seedDir, key), RateOpt{DownloadRateLimiter: sm.downRate}, func(sd Seed) {
+		sd, remove, err := RestoreSeed(filepath.Join(seedDir, key), RateOpt{DownloadRateLimiter: sm.downRate}, func(sd Seed) {
 			sm.downPreFunc(key, sd)
 		})
 		if err != nil {
 			logrus.Errorf("failed to restore seed %s: %v", key, err)
+			continue
+		}
+
+		if remove {
+			sd.Delete()
 			continue
 		}
 
@@ -604,6 +614,7 @@ func (sm *seedManager) restoreSeeds() {
 		if !ok {
 			logrus.Errorf("seed key %s, found the metadata, but not found seed file", sw.Key)
 			delete(sm.seedContainer, sw.Key)
+			sw.release()
 			// todo: remove the seedWrapObj from local file system if seed file not found.
 			continue
 		}

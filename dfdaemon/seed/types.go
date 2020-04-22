@@ -31,8 +31,8 @@ type DownloadStatus struct {
 }
 
 type SeedBaseOpt struct {
-	MetaDir		string
-	Info        PreFetchInfo
+	BaseDir string
+	Info    PreFetchInfo
 
 	downPreFunc func(sd Seed)
 }

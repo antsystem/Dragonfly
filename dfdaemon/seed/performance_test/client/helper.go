@@ -30,12 +30,12 @@ func Run(host string, cacheDir string, directSrc bool, cacheRun bool, fileCache 
 	// 128 KB
 	blockOrder := uint32(17)
 	sOpt := seed.SeedBaseOpt{
-		MetaDir:	 metaDir,
-		BlockOrder:  blockOrder,
-		Info:  &seed.PreFetchInfo{
+		BaseDir:    metaDir,
+		Info:  seed.PreFetchInfo{
 			URL: urlF,
 			TaskID: uuid.New(),
 			FullLength: fileLength,
+			BlockOrder: blockOrder,
 		},
 	}
 

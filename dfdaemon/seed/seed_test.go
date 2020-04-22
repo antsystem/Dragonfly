@@ -19,7 +19,7 @@ func (suite *SeedTestSuite) TestNormalSeed(c *check.C) {
 	blockOrder := uint32(13)
 
 	sOpt := SeedBaseOpt{
-		MetaDir: metaDir,
+		BaseDir: metaDir,
 		Info:  PreFetchInfo{
 			URL: urlA,
 			TaskID: uuid.New(),
@@ -61,7 +61,7 @@ func (suite *SeedTestSuite) TestSeedSyncRead(c *check.C) {
 	blockOrder := uint32(16)
 
 	sOpt := SeedBaseOpt{
-		MetaDir: metaDir,
+		BaseDir: metaDir,
 		Info:  PreFetchInfo{
 			URL: urlF,
 			TaskID: uuid.New(),
@@ -134,7 +134,7 @@ func (suite *SeedTestSuite) TestSeedSyncReadPerformance(c *check.C) {
 	// 128 KB
 	blockOrder := uint32(17)
 	sOpt := SeedBaseOpt{
-		MetaDir: metaDir,
+		BaseDir: metaDir,
 		Info:  PreFetchInfo{
 			URL: urlF,
 			TaskID: uuid.New(),
@@ -212,11 +212,11 @@ func (suite *SeedTestSuite) TestSeedRestore(c *check.C)  {
 	fileName := "fileH"
 	fileLength := int64(100*1024*1024)
 	urlF := fmt.Sprintf("http://%s/%s", suite.host, fileName)
-	metaDir := filepath.Join(suite.cacheDir, "TestSeedSyncReadPerformance")
+	metaDir := filepath.Join(suite.cacheDir, "TestSeedRestore")
 	// 128 KB
 	blockOrder := uint32(17)
 	sOpt := SeedBaseOpt{
-		MetaDir: metaDir,
+		BaseDir: metaDir,
 		Info:  PreFetchInfo{
 			URL: urlF,
 			TaskID: uuid.New(),
@@ -266,12 +266,19 @@ func (suite *SeedTestSuite) TestSeedRestore(c *check.C)  {
 	sd.Stop()
 
 	// restore seed
-	sd, err = RestoreSeed(metaDir, RateOpt{DownloadRateLimiter: ratelimiter.NewRateLimiter(0, 0)}, nil)
+	sd, remove, err := RestoreSeed(metaDir, RateOpt{DownloadRateLimiter: ratelimiter.NewRateLimiter(0, 0)}, nil)
+	c.Assert(err, check.IsNil)
+	c.Assert(remove, check.Equals, true)
+	err = sd.Delete()
 	c.Assert(err, check.IsNil)
 
-	localSd, ok := sd.(*seed)
-	c.Assert(ok, check.Equals, true)
-	cb := localSd.cache
+	// new again
+	sd, err = NewSeed(sOpt, RateOpt{DownloadRateLimiter: ratelimiter.NewRateLimiter(0, 0)}, true)
+	c.Assert(err, check.IsNil)
+
+	//localSd, ok := sd.(*seed)
+	//c.Assert(ok, check.Equals, true)
+	//cb := localSd.cache
 
 	// read again from local file
 	start := int64(0)
@@ -288,7 +295,7 @@ func (suite *SeedTestSuite) TestSeedRestore(c *check.C)  {
 		}
 
 		startTime := time.Now()
-		rc, err := cb.ReadStream(start, end-start+1)
+		rc, err := sd.Download(start, end-start+1)
 		logrus.Infof("in TestSeedSyncReadPerformance, Download 100KB costs time: %f second", time.Now().Sub(startTime).Seconds())
 		c.Assert(err, check.IsNil)
 		obtainedData, err := ioutil.ReadAll(rc)
@@ -335,15 +342,21 @@ func (suite *SeedTestSuite) TestSeedRestore(c *check.C)  {
 		start = end + 1
 	}
 
+	localSd, ok := sd.(*seed)
+	c.Assert(ok, check.Equals, true)
+	localSd.syncCache()
+	localSd.setFinished()
+
 	sd.Stop()
 
 	// restore again, and try to read all from local file.
-	sd, err = RestoreSeed(metaDir, RateOpt{DownloadRateLimiter: ratelimiter.NewRateLimiter(0, 0)}, nil)
+	sd, remove, err = RestoreSeed(metaDir, RateOpt{DownloadRateLimiter: ratelimiter.NewRateLimiter(0, 0)}, nil)
 	c.Assert(err, check.IsNil)
+	c.Assert(remove, check.Equals, false)
 
 	localSd, ok = sd.(*seed)
 	c.Assert(ok, check.Equals, true)
-	cb = localSd.cache
+	cb := localSd.cache
 
 	// read again from local file
 	start = int64(0)
