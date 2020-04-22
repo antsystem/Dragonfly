@@ -445,6 +445,7 @@ func (m *Manager) monitorExpiredSeed(ctx context.Context, path string) {
 		return
 	}
 
+	// if a seed is prepared to be expired, the expired chan will be notified.
 	expiredCh, err := m.seedManager.NotifyPrepareExpired(path)
 	if err != nil {
 		logrus.Errorf("failed to get expired chan of seed, url:%s, key: %s: %v", sd.URL(), sd.TaskID(), err)
@@ -459,10 +460,51 @@ func (m *Manager) monitorExpiredSeed(ctx context.Context, path string) {
 		break
 	}
 
+	for {
+
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+
+		// report the seed prepare to delete to super node
+		if m.reportSeedPrepareDelete(sd.TaskID()) {
+			break
+		}
+
+		time.Sleep(20 * time.Second)
+	}
+
 	// try to clear resource and report to super node
 	m.sm.DeleteLocalSeedInfo(sd.URL())
+
+	// unregister the seed file
+	m.seedManager.UnRegister(path)
 }
 
 func (m *Manager) computePerDownloadSize(blockOrder uint32) int64 {
 	return 1 << (blockOrder + 2)
+}
+
+func (m *Manager) reportSeedPrepareDelete(taskID string) bool {
+	deleted := m.reportSeedPrepareDeleteToSuperNodes(taskID)
+	if !deleted {
+		return false
+	}
+	time.Sleep(20 * time.Second)
+	return m.reportSeedPrepareDeleteToSuperNodes(taskID)
+}
+
+func (m *Manager) reportSeedPrepareDeleteToSuperNodes(taskID string) bool {
+	for _, node := range m.superNodes {
+		resp, err := m.supernodeAPI.ReportResourceDeleted(node, taskID, m.cfg.Cid)
+		if err != nil {
+			continue
+		}
+
+		return resp.Code == constants.CodeGetPeerDown
+	}
+
+	return false
 }
