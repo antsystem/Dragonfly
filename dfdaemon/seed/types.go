@@ -51,4 +51,11 @@ type NewSeedManagerOpt struct {
 	// if download rate < 0, means no rate limit; else default limit
 	DownloadRate int64
 	UploadRate   int64
+
+	// water level which is used to expire the seed
+	// if HighLevel is reached, start to prepare the expire
+	HighLevel    uint
+
+	// expire will be stopped util water level is smaller than LowLevel.
+	LowLevel     uint
 }

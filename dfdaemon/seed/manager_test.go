@@ -19,6 +19,8 @@ func (suite *SeedTestSuite) TestOneSeed(c *check.C) {
 		OpenMemoryCache:    true,
 		DownloadRate:       -1,
 		UploadRate:         -1,
+		HighLevel:          100,
+		LowLevel:           90,
 	}
 
 	sm, err := newSeedManager(smOpt)
@@ -121,11 +123,13 @@ func (suite *SeedTestSuite) TestManySeed(c *check.C) {
 	smOpt := NewSeedManagerOpt{
 		StoreDir:           filepath.Join(suite.cacheDir, "TestManySeed"),
 		ConcurrentLimit:    2,
-		TotalLimit:         4,
+		TotalLimit:         6,
 		DownloadBlockOrder: 14,
 		OpenMemoryCache:    true,
 		DownloadRate:       -1,
 		UploadRate:         -1,
+		HighLevel:          90,
+		LowLevel:           85,
 	}
 
 	sm, err := newSeedManager(smOpt)
@@ -172,6 +176,7 @@ func (suite *SeedTestSuite) TestManySeed(c *check.C) {
 	c.Assert(err, check.IsNil)
 	suite.checkSeedFileBySeedManager(c, filePaths[4], fileLens[4], taskIDArr[4], 64 * 1024, seedArr[4], sm, nil)
 
+	time.Sleep(2 * time.Second)
 	receiveExpired := false
 	select {
 	case <-expireChs[0]:
@@ -210,11 +215,13 @@ func (suite *SeedTestSuite) TestSeedRestoreInManager(c *check.C) {
 	smOpt := NewSeedManagerOpt{
 		StoreDir:           filepath.Join(suite.cacheDir, "TestSeedRestoreInManager"),
 		ConcurrentLimit:    2,
-		TotalLimit:         4,
+		TotalLimit:         6,
 		DownloadBlockOrder: 14,
 		OpenMemoryCache:    true,
 		DownloadRate:       -1,
 		UploadRate:         -1,
+		HighLevel:          90,
+		LowLevel:           85,
 	}
 
 	sm, err := newSeedManager(smOpt)
@@ -283,11 +290,13 @@ func (suite *SeedTestSuite) TestSeedSyncWriteAndRead(c *check.C) {
 	smOpt := NewSeedManagerOpt{
 		StoreDir:           filepath.Join(suite.cacheDir, "TestSeedSyncWriteAndRead"),
 		ConcurrentLimit:    2,
-		TotalLimit:         4,
+		TotalLimit:         6,
 		DownloadBlockOrder: 14,
 		OpenMemoryCache:    true,
 		DownloadRate:       -1,
 		UploadRate:         -1,
+		HighLevel:          90,
+		LowLevel:           85,
 	}
 	sm, err := newSeedManager(smOpt)
 	c.Assert(err, check.IsNil)

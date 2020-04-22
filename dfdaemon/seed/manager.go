@@ -30,7 +30,7 @@ var (
 const (
 	DefaultDownloadConcurrency = 4
 	MaxDownloadConcurrency     = 8
-	MinTotalLimit              = 2
+	MinTotalLimit              = 4
 
 	defaultGcInterval = 2 * time.Minute
 
@@ -60,10 +60,6 @@ type SeedManager interface {
 
 	// GetPrefetchResult should be called after notify by prefetch chan.
 	GetPrefetchResult(key string) (PreFetchResult, error)
-
-	// SetPrefetchLimit limits the concurrency of downloading seed.
-	// default is DefaultDownloadConcurrency.
-	SetConcurrentLimit(limit int) (validLimit int)
 
 	Get(key string) (Seed, error)
 
@@ -192,6 +188,14 @@ type seedManager struct {
 	concurrentLimit int
 	totalLimit      int
 
+	// if current limit overheads or equal than highLimit, it will started to weed out process.
+	highLimit       int
+
+	// expire process will be stopped util current limit lows lowLimit.
+	lowLimit        int
+
+	startWeedOutCh  chan struct{}
+
 	seedContainer map[string]*seedWrapObj
 	// lru queue which wide out the seed file, it is thread safe
 	lru *queue.LRUQueue
@@ -236,8 +240,12 @@ func newSeedManager(opt NewSeedManagerOpt) (SeedManager, error) {
 		opt.ConcurrentLimit = DefaultDownloadConcurrency
 	}
 
-	if opt.TotalLimit < MinTotalLimit {
+	if opt.TotalLimit == 0 {
 		opt.TotalLimit = MinTotalLimit
+	}
+
+	if opt.TotalLimit < MinTotalLimit {
+		return nil, fmt.Errorf("TotalLimit should be in bigger than %d", MinTotalLimit)
 	}
 
 	if opt.DownloadBlockOrder == 0 {
@@ -255,6 +263,21 @@ func newSeedManager(opt NewSeedManagerOpt) (SeedManager, error) {
 	// if UploadRate sets 0, means default limit
 	if opt.UploadRate < 0 {
 		opt.UploadRate = 0
+	}
+
+	if opt.HighLevel > 100 || opt.HighLevel < 50 {
+		return nil, fmt.Errorf("high level should be in range [50, 100]")
+	}
+
+	if opt.LowLevel >= opt.HighLevel || opt.LowLevel < 10 {
+		return nil, fmt.Errorf("low level should be small than high level, and should be bigger than 10")
+	}
+
+	highLimit := int(opt.TotalLimit * int(opt.HighLevel) / 100)
+	lowLimit := int(opt.TotalLimit * int(opt.LowLevel) / 100)
+
+	if lowLimit < 2 {
+		return nil, fmt.Errorf("LowLevel * TotalLimit should be bigger or euqal than 2, but now is %d", lowLimit)
 	}
 
 	downloadCh := make(chan struct{}, opt.ConcurrentLimit)
@@ -297,12 +320,16 @@ func newSeedManager(opt NewSeedManagerOpt) (SeedManager, error) {
 		downRate:          ratelimiter.NewRateLimiter(opt.DownloadRate/100, 100),
 		defaultBlockOrder: opt.DownloadBlockOrder,
 		openMemoryCache:   opt.OpenMemoryCache,
+		highLimit:         highLimit,
+		lowLimit:		   lowLimit,
+		startWeedOutCh:    make(chan struct{}, 10),
 	}
 
 	sm.restore(ctx)
 
 	go sm.prefetchLoop(ctx)
 	go sm.gcLoop(ctx)
+	go sm.weedOutLoop(ctx)
 
 	return sm, nil
 }
@@ -456,10 +483,6 @@ func (sm *seedManager) Get(key string) (Seed, error) {
 	}
 
 	return obj.sd, nil
-}
-
-func (sm *seedManager) SetConcurrentLimit(limit int) (validLimit int) {
-	return 0
 }
 
 func (sm *seedManager) Stop() {
@@ -742,6 +765,10 @@ func (sm *seedManager) updateLRU(key string, sd Seed) {
 	if obsoleteKey != "" {
 		go sm.prepareGcSeed(obsoleteKey, obsoleteData.(Seed))
 	}
+
+	if sm.needWeedOut() {
+		go sm.startWeedOut()
+	}
 }
 
 // gcLoop runs the loop to gc the seed file.
@@ -803,4 +830,63 @@ func (sm *seedManager) getHTTPFileLength(key, url string, headers map[string]str
 
 func (sm *seedManager) downPreFunc(key string, sd Seed) {
 	sm.RefreshExpireTime(key, 0)
+}
+
+// needWeedOut checks whether to start to weed out seed.
+func (sm *seedManager) needWeedOut() bool {
+	currentLen := sm.lru.Len()
+	return currentLen >= sm.highLimit
+}
+
+func (sm *seedManager) startWeedOut() {
+	sm.startWeedOutCh <- struct{}{}
+}
+
+// runWeedOut will weed out the seed util current count of seeds lows than low limit
+func (sm *seedManager) runWeedOut(ctx context.Context) {
+	for{
+		select {
+			case <- ctx.Done():
+				return
+			default:
+		}
+
+		currentLen := sm.lru.Len()
+		if currentLen < sm.lowLimit {
+			return
+		}
+
+		key, sd := sm.lru.Poll()
+		if key == "" {
+			return
+		}
+
+		sm.prepareGcSeed(key, sd.(Seed))
+	}
+}
+
+func (sm *seedManager) weedOutLoop(ctx context.Context) {
+	runWeedOutProcess := false
+	weedOutProcessEndCh := make(chan struct{})
+
+	for{
+		select {
+			case <- ctx.Done():
+				return
+			case <- sm.startWeedOutCh:
+				if runWeedOutProcess {
+					continue
+				}
+				runWeedOutProcess = true
+				go func() {
+					sm.runWeedOut(ctx)
+					// if process is end, notify by weedOutProcessEndCh.
+					weedOutProcessEndCh <- struct{}{}
+				}()
+				break
+			case <- weedOutProcessEndCh:
+				runWeedOutProcess = false
+				break
+		}
+	}
 }

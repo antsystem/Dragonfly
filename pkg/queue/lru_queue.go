@@ -13,7 +13,7 @@ type cQElementData struct {
 }
 
 type LRUQueue struct {
-	lock     sync.Mutex
+	lock     sync.RWMutex
 	capacity int
 
 	itemMap map[string]*list.Element
@@ -53,6 +53,29 @@ func (q *LRUQueue) Put(key string, data interface{}) (obsoleteKey string, obsole
 	i := q.internalPutValue(&cQElementData{key: key, data: data})
 	q.itemMap[key] = i
 	return
+}
+
+// Poll will poll out the tail item.
+func (q *LRUQueue) Poll() (key string, data interface{}) {
+	q.lock.Lock()
+	defer q.lock.Unlock()
+
+	// remove the earliest item
+	i := q.internalRemoveTail()
+	if i != nil {
+		delete(q.itemMap, i.Value.(*cQElementData).key)
+		key = i.Value.(*cQElementData).key
+		data = i.Value.(*cQElementData).data
+	}
+
+	return
+}
+
+func (q *LRUQueue) Len() int {
+	q.lock.RLock()
+	defer q.lock.RUnlock()
+
+	return len(q.itemMap)
 }
 
 // getFront will get several item from front and not poll out them.
