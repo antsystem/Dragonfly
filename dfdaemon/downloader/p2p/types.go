@@ -1,5 +1,7 @@
 package p2p
 
+import "github.com/dragonflyoss/Dragonfly/pkg/rate"
+
 type downloadNodeInfo struct {
 	ip 		string
 	port    int
@@ -21,4 +23,23 @@ type Config struct {
 	RootCAs     [][]byte `json:"rootCAs,omitempty"`
 
 	MetaDir string
+
+	// seed pattern config
+	// high level of water level which to control the weed out seed file
+	HighLevel 		int
+
+	// low level of water level which to control the weed out seed file
+	LowLevel 		int
+
+	// DefaultBlockOrder represents the default block order of seed file. it should be in range [10-31].
+	DefaultBlockOrder int
+
+	//
+	PerDownloadBlocks int
+
+	DownRate 		 rate.Rate
+	UploadRate       rate.Rate
+
+	TotalLimit       int
+	ConcurrentLimit  int
 }

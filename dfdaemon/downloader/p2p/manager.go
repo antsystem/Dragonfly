@@ -102,17 +102,45 @@ func newManager(cfg *Config, superNodes []string) *Manager {
 		cancel: cancel,
 	}
 
+	if cfg.HighLevel <= 0 {
+		cfg.HighLevel = 90
+	}
+
+	if cfg.LowLevel <= 0 {
+		cfg.LowLevel = 80
+	}
+
+	if cfg.DefaultBlockOrder <= 0 {
+		cfg.DefaultBlockOrder = defaultBlockOrder
+	}
+
+	if cfg.PerDownloadBlocks <= 0 {
+		cfg.PerDownloadBlocks = 4
+	}
+
+	if cfg.PerDownloadBlocks >= 1000 {
+		cfg.PerDownloadBlocks = 1000
+	}
+
+	if cfg.TotalLimit <= 0 {
+		cfg.TotalLimit = 50
+	}
+
+	if cfg.ConcurrentLimit <= 0 {
+		cfg.ConcurrentLimit = 4
+	}
+
 	m.sdOpt = &seed.NewSeedManagerOpt{
 		StoreDir: filepath.Join(cfg.MetaDir, "seedStore"),
-		TotalLimit: 40,
-		ConcurrentLimit: 4,
-		DownloadBlockOrder: defaultBlockOrder,
+		TotalLimit: cfg.TotalLimit,
+		ConcurrentLimit: cfg.ConcurrentLimit,
+		DownloadBlockOrder: uint32(cfg.DefaultBlockOrder),
 		OpenMemoryCache: true,
 		// todo: set rate of download and upload by config.
-		DownloadRate: defaultDownloadRate,
-		UploadRate: defaultUploadRate,
-		HighLevel:  90,
-		LowLevel:   80,
+		DownloadRate: int64(cfg.DownRate),
+		UploadRate: int64(cfg.DownRate),
+		HighLevel:  uint(cfg.HighLevel),
+		LowLevel:   uint(cfg.LowLevel),
 	}
 
 	seedManager := seed.NewSeedManager(*m.sdOpt)
@@ -497,7 +525,7 @@ func (m *Manager) monitorExpiredSeed(ctx context.Context, path string) {
 }
 
 func (m *Manager) computePerDownloadSize(blockOrder uint32) int64 {
-	return 1 << (blockOrder + 2)
+	return (1 << blockOrder) * int64(m.cfg.PerDownloadBlocks)
 }
 
 func (m *Manager) reportSeedPrepareDelete(taskID string) bool {
