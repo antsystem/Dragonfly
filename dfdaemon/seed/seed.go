@@ -28,6 +28,10 @@ const (
 	DEAD_STATUS     = "dead"
 )
 
+var(
+	doneErr = fmt.Errorf("context done")
+)
+
 type Seed interface {
 	// Prefetch will start to download to local cache.
 	Prefetch(perDownloadSize int64) (<- chan struct{}, error)
@@ -248,7 +252,7 @@ func (sd *seed) Prefetch(perDownloadSize int64) (<- chan struct{}, error) {
 	}
 
 	go func() {
-		err := sd.prefetch(perDownloadSize)
+		err := sd.prefetch(sd.doneCtx, perDownloadSize)
 
 		sd.Lock()
 		defer sd.Unlock()
@@ -435,36 +439,39 @@ func (sd *seed) tryDownloadAndWaitReady(start, end int64, rateLimit bool) error 
 			"metaCosts costs time: %f seconds.\n", start, end, startBlock, endBlock, waitCount, allCosts.Seconds(), metaCosts.Seconds())
 	}()
 
-check:
+	for {
+		waitChs := sd.tryDownload(startBlock, endBlock, rateLimit)
+		if len(waitChs) == 0 {
+			return nil
+		}
+
+		metaCosts = time.Now().Sub(allStartTime)
+		waitCount++
+
+		// wait for the chan
+		for _, ch := range waitChs {
+			// todo: set the timeout, if timeout, try to direct download again.
+			select {
+			case <-ch:
+				break
+			}
+		}
+	}
+}
+
+func (sd *seed) tryDownload(startBlock, endBlock int32, rateLimit bool) (waitChs []chan struct{}) {
 	rs := sd.blockMeta.get(startBlock, endBlock, false)
 	// if all bits is set, it means the range has been downloaded.
 	if len(rs) == 0 {
 		return nil
 	}
 
-	waitChs := []chan struct{}{}
-
 	nextDownloadBlocks := sd.lockBlocksForPrepareDownload(startBlock, endBlock)
 
 	// downloadBlocks will download blocks asynchronously.
 	sd.downloadBlocks(nextDownloadBlocks, rateLimit)
 
-	waitChs = sd.getWaitChans(startBlock, endBlock)
-
-	metaCosts = time.Now().Sub(allStartTime)
-	waitCount ++
-
-	// wait for the chan
-	for _, ch := range waitChs {
-		// todo: set the timeout, if timeout, try to direct download again.
-		select {
-		case <- ch:
-			break
-		}
-	}
-
-	// check again, the wait range may be download failed
-	goto check
+	return sd.getWaitChans(startBlock, endBlock)
 }
 
 func (sd *seed) downloadToFile(start, end int64, rateLimit bool) error {
@@ -606,24 +613,7 @@ func (sd *seed) syncCacheLoop(ctx context.Context) {
 
 // syncCache will sync the memory cache to local file
 func (sd *seed) syncCache() error {
-
-
 	return sd.cache.Sync()
-	//err := sd.cache.Sync()
-	//if err != nil {
-	//	return err
-	//}
-
-	//tmpFile := filepath.Join(sd.baseDir, "blockBits.tmp")
-	//err = ioutil.WriteFile(tmpFile, out, 0644)
-	//if err != nil {
-	//	return err
-	//}
-	//
-	//err = os.Rename(tmpFile, sd.blockMetaPath)
-	//if err != nil {
-	//	return err
-	//}
 
 	// store the metadata
 	//sd.RLock()
@@ -654,43 +644,132 @@ func (sd *seed) storeMetaData() error {
 	return os.Rename(sd.metaBakPath, sd.metaPath)
 }
 
-func (sd *seed) prefetch(perDownloadSize int64) error {
-	block := int32(perDownloadSize >> sd.BlockOrder)
-	if block == 0 {
-		block = 1
+func (sd *seed) prefetch(ctx context.Context, perDownloadSize int64) error {
+	blocks := int32(perDownloadSize >> sd.BlockOrder)
+	if blocks == 0 {
+		blocks = 1
 	}
-	blockSize := int64(block) << sd.BlockOrder
-	var start, end int64
+
 	var err error
 	var try int
-	var maxTry int = 3
+	var maxTry int = 10
+
+	//pendingCh := make(chan struct{}, blocks)
+	//for i = 0; i < blocks; i ++ {
+	//	pendingCh <- struct{}{}
+	//}
+	//
+	//for{
+	//	//if start >= sd.FullSize {
+	//	//	break
+	//	//}
+	//	//
+	//	//end = start + blockSize - 1
+	//	//if end >= sd.FullSize {
+	//	//	end = sd.FullSize - 1
+	//	//}
+	//	//
+	//	//err = sd.tryDownloadAndWaitReady(start, end, true)
+	//	//if err != nil {
+	//	//	//todo: try again
+	//	//	logrus.Errorf("failed to download: %v", err)
+	//	//	if try > maxTry {
+	//	//		err = fmt.Errorf("try %d times to download file %s, range (%d-%d) failed: %v",
+	//	//			try, sd.Url, start, end, err)
+	//	//		break
+	//	//	}
+	//	//	try ++
+	//	//	continue
+	//	//}
+	//
+	//	maxTry = 0
+	//	//start = end + 1
+	//}
 
 	for{
-		if start >= sd.FullSize {
-			break
+		if try > maxTry {
+			return fmt.Errorf("try %d times to download file %s failed", try, sd.Url)
 		}
 
-		end = start + blockSize - 1
-		if end >= sd.FullSize {
-			end = sd.FullSize - 1
+		try ++
+
+		err = sd.prefetchAllBlocks(ctx, blocks)
+		if err == doneErr {
+			return doneErr
 		}
 
-		err = sd.tryDownloadAndWaitReady(start, end, true)
 		if err != nil {
-			//todo: try again
-			logrus.Errorf("failed to download: %v", err)
-			if try > maxTry {
-				err = fmt.Errorf("try %d times to download file %s, range (%d-%d) failed: %v",
-					try, sd.Url, start, end, err)
-				break
-			}
-			try ++
+			logrus.Errorf("failed to prefetch file %s: %v", sd.Url, err)
 			continue
 		}
 
-		maxTry = 0
-		start = end + 1
+		// prefetch success, try to check all blocks
+		rs := sd.blockMeta.get(0, int32(sd.blocks - 1), false)
+		if len(rs) == 0 {
+			break
+		}
+		//else try again
 	}
 
-	return err
+	return nil
+}
+
+func (sd *seed) prefetchAllBlocks(ctx context.Context, perDownloadBlocks int32) error {
+	var(
+		blockIndex int32
+		i int32
+	)
+
+	// pendingCh is a queue which uses for producer/consumer model.
+	// when a block try to download, it consumes from pendingCh;
+	// after a block download finish, it produces to pendingCh;
+	pendingCh := make(chan struct{}, perDownloadBlocks)
+	for i = 0; i < perDownloadBlocks; i ++ {
+		pendingCh <- struct{}{}
+	}
+
+	for{
+		if blockIndex >= int32(sd.blocks) {
+			break
+		}
+
+		select {
+		case <- ctx.Done():
+			return doneErr
+		case <- pendingCh:
+			break
+		}
+
+		waitChs := sd.tryDownload(blockIndex, blockIndex, true)
+		if len(waitChs) > 0 {
+			go func(chs []chan struct{}) {
+				for _, ch := range chs {
+					select {
+					case <-ctx.Done():
+						return
+					case <- ch:
+						break
+					}
+				}
+
+				pendingCh <- struct{}{}
+			}(waitChs)
+		}else{
+			pendingCh <- struct{}{}
+		}
+
+		blockIndex ++
+	}
+
+	// wait for all downloading goroutine
+	for i = 0; i < perDownloadBlocks; i ++ {
+		select {
+			case <- ctx.Done():
+				return doneErr
+			case <- pendingCh:
+				break
+		}
+	}
+
+	return nil
 }

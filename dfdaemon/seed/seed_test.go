@@ -31,15 +31,15 @@ func (suite *SeedTestSuite) TestNormalSeed(c *check.C) {
 	sd, err := NewSeed(sOpt, RateOpt{DownloadRateLimiter: ratelimiter.NewRateLimiter(0, 0)}, false)
 	c.Assert(err, check.IsNil)
 
-	notifyCh, err := sd.Prefetch(16 * 1024)
+	notifyCh, err := sd.Prefetch(32 * 1024)
 	c.Assert(err, check.IsNil)
 
 	// wait for prefetch ok
 	<- notifyCh
 	rs, err := sd.GetPrefetchResult()
 	c.Assert(err, check.IsNil)
-	c.Assert(rs.Success, check.Equals, true)
 	c.Assert(rs.Err , check.IsNil)
+	c.Assert(rs.Success, check.Equals, true)
 
 	suite.checkFileWithSeed(c, "fileA", 500*1024, sd)
 
