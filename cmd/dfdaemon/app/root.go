@@ -235,5 +235,12 @@ func getSeedConfig(cfg *config.Properties) *p2p.Config {
 		Port: int(cfg.PeerPort),
 		MetaDir: filepath.Join(cfg.WorkHome , "seed-pattern"),
 		Cid: fmt.Sprintf("%s-%s", cfg.LocalIP, sign),
+
+		HighLevel: cfg.SeedPatternCfg.HighLevel,
+		LowLevel: cfg.SeedPatternCfg.LowLevel,
+		DefaultBlockOrder: cfg.SeedPatternCfg.DefaultBlockOrder,
+		PerDownloadBlocks: cfg.SeedPatternCfg.PerDownloadBlocks,
+		DownRate: cfg.RateLimit,
+		UploadRate: cfg.RateLimit,
 	}
 }

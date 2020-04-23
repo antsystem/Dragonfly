@@ -114,6 +114,8 @@ type Properties struct {
 	LocalIP    string          `yaml:"localIP" json:"localIP"`
 	PeerPort   int             `yaml:"peerPort" json:"peerPort"`
 	StreamMode bool            `yaml:"streamMode" json:"streamMode"`
+
+	SeedPatternCfg SeedPatternConfig `yaml:"seedPatternCfg" json:"seedPatternCfg"`
 }
 
 // Validate validates the config
@@ -412,4 +414,22 @@ func NewProxy(regx string, useHTTPS bool, direct bool, redirect string) (*Proxy,
 // Match checks if the given url matches the rule.
 func (r *Proxy) Match(url string) bool {
 	return r.Regx != nil && r.Regx.MatchString(url)
+}
+
+// SeedPatternConfig represents dfdaemon how to config for seed pattern.
+type SeedPatternConfig struct {
+	// high level of water level which to control the weed out seed file
+	HighLevel 		int		`yaml:"highLevel" json:"highLevel"`
+
+	// low level of water level which to control the weed out seed file
+	LowLevel 		int		`yaml:"lowLevel" json:"lowLevel"`
+
+	// DefaultBlockOrder represents the default block order of seed file. it should be in range [10-31].
+	DefaultBlockOrder int  `yaml:"defaultBlockOrder" json:"defaultBlockOrder"`
+
+	//
+	PerDownloadBlocks int  `yaml:"perDownloadBlocks" json:"perDownloadBlocks"`
+
+	TotalLimit       int	`yaml:"totalLimit" json:"totalLimit"`
+	ConcurrentLimit  int	`yaml:"concurrentLimit" json:"concurrentLimit"`
 }
