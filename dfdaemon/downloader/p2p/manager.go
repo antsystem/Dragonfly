@@ -460,12 +460,23 @@ func (m *Manager) monitorExpiredSeed(ctx context.Context, path string) {
 		break
 	}
 
-	for {
+	timer := time.NewTimer(60 *time.Second)
+	defer timer.Stop()
 
+	for {
+		needBreak := false
 		select {
 		case <-ctx.Done():
 			return
+		case <- timer.C:
+			logrus.Infof("seed %s, url %s will be deleted after %d seconds", path, sd.URL(), 60)
+			needBreak = true
+			break
 		default:
+		}
+
+		if needBreak {
+			break
 		}
 
 		// report the seed prepare to delete to super node
@@ -492,8 +503,10 @@ func (m *Manager) reportSeedPrepareDelete(taskID string) bool {
 	if !deleted {
 		return false
 	}
-	time.Sleep(20 * time.Second)
-	return m.reportSeedPrepareDeleteToSuperNodes(taskID)
+
+	return true
+	//time.Sleep(20 * time.Second)
+	//return m.reportSeedPrepareDeleteToSuperNodes(taskID)
 }
 
 func (m *Manager) reportSeedPrepareDeleteToSuperNodes(taskID string) bool {
