@@ -104,13 +104,15 @@ func newManager(cfg *Config, superNodes []string) *Manager {
 
 	m.sdOpt = &seed.NewSeedManagerOpt{
 		StoreDir: filepath.Join(cfg.MetaDir, "seedStore"),
-		TotalLimit: 50,
+		TotalLimit: 40,
 		ConcurrentLimit: 4,
-		DownloadBlockOrder: 17,
+		DownloadBlockOrder: defaultBlockOrder,
 		OpenMemoryCache: true,
 		// todo: set rate of download and upload by config.
 		DownloadRate: defaultDownloadRate,
 		UploadRate: defaultUploadRate,
+		HighLevel:  90,
+		LowLevel:   80,
 	}
 
 	seedManager := seed.NewSeedManager(*m.sdOpt)
