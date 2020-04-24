@@ -22,14 +22,19 @@ type SeedDownloader struct {
 	downloadAPI		api.DownloadAPI
 }
 
-func (sd *SeedDownloader) RunStream(ctx context.Context) (io.Reader, error) {
+func (sd *SeedDownloader) RunStream(ctx context.Context) (io.ReadCloser, error) {
 	return sd.tryDownloadByCandidates(ctx)
 }
 
 func (sd *SeedDownloader) tryDownloadByCandidates(ctx context.Context) (io.ReadCloser, error) {
+	var(
+		lastErr  error
+	)
+
 	for _, info := range sd.selectNodes {
 		rc, _, err := sd.downloadRange(ctx, info)
 		if err != nil {
+			lastErr = err
 			logrus.Errorf("failed to download, url: %v, range: %v, from node %v: %v", sd.url, sd.reqRange, info, err)
 			// todo: analysis the error, and if peer node is unavailable, try to update in internal scheduler.
 			continue
@@ -38,7 +43,7 @@ func (sd *SeedDownloader) tryDownloadByCandidates(ctx context.Context) (io.ReadC
 		return rc, nil
 	}
 
-	return nil, fmt.Errorf("")
+	return nil, lastErr
 }
 
 func (sd *SeedDownloader) downloadRange(ctx context.Context, info *downloadNodeInfo) (io.ReadCloser, int, error) {

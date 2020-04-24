@@ -36,6 +36,8 @@ const(
 
 	// 512KB
 	defaultBlockOrder = 19
+
+	maxTry = 20
 )
 
 // Manager control the
@@ -147,13 +149,16 @@ func newManager(cfg *Config, superNodes []string) *Manager {
 
 	m.seedManager = seedManager
 
+	// report local seed to supernode
+	m.restoreLocalSeed()
+
 	go m.fetchP2PNetworkInfoLoop(ctx)
 	go m.heartBeatLoop(ctx)
 
 	return m
 }
 
-func (m *Manager) DownloadStreamContext(ctx context.Context, url string, header map[string][]string, name string) (io.Reader, error) {
+func (m *Manager) DownloadStreamContext(ctx context.Context, url string, header map[string][]string, name string) (io.ReadCloser, error) {
 	reqRange, err := m.getRangeFromHeader(header)
 	if err != nil {
 		return nil, err
@@ -164,35 +169,37 @@ func (m *Manager) DownloadStreamContext(ctx context.Context, url string, header 
 	logrus.Debugf("start to download stream in seed pattern, url: %s, header: %v, range: [%d, %d]", url,
 		header, reqRange.StartIndex, reqRange.EndIndex)
 
-	// 改为for循环
-schedule:
-	// try to get the peer by internal schedule
-	result := m.sm.Scheduler(ctx, url)
-	if len(result) == 0 {
-		// try to apply to be the seed node
-		m.tryToApplyForSeedNode(m.ctx, url, header)
-		goto schedule
+	for i := 0; i < maxTry; i ++ {
+		// try to get the peer by internal schedule
+		result := m.sm.Scheduler(ctx, url)
+		if len(result) == 0 {
+			// try to apply to be the seed node
+			m.tryToApplyForSeedNode(m.ctx, url, header)
+			continue
+		}
+
+		dwInfos := []*downloadNodeInfo{}
+		for _, r := range result {
+			dwInfos = append(dwInfos, &downloadNodeInfo{
+				ip:     r.PeerInfo.IP.String(),
+				port:   int(r.PeerInfo.Port),
+				path:   r.Path,
+				peerID: r.DstCid,
+			})
+		}
+
+		dw := &SeedDownloader{
+			selectNodes: dwInfos,
+			reqRange:    reqRange,
+			url:         url,
+			header:      header,
+			downloadAPI: m.downloadAPI,
+		}
+
+		return dw.RunStream(ctx)
 	}
 
-	dwInfos := []*downloadNodeInfo{}
-	for _, r := range result {
-		dwInfos = append(dwInfos, &downloadNodeInfo{
-			ip: r.PeerInfo.IP.String(),
-			port: int(r.PeerInfo.Port),
-			path: r.Path,
-			peerID: r.DstCid,
-		})
-	}
-
-	dw := &SeedDownloader{
-		selectNodes: dwInfos,
-		reqRange: reqRange,
-		url: url,
-		header: header,
-		downloadAPI: m.downloadAPI,
-	}
-
-	return dw.RunStream(ctx)
+	return nil, errortypes.NewHttpError(http.StatusInternalServerError, "failed to select a peer to download")
 }
 
 func (m *Manager) tryToApplyForSeedNode(ctx context.Context, url string, header map[string][]string)  {
@@ -550,4 +557,45 @@ func (m *Manager) reportSeedPrepareDeleteToSuperNodes(taskID string) bool {
 	}
 
 	return false
+}
+
+func (m *Manager) reportLocalSeedToSuperNode(path string, sd seed.Seed) {
+	req := &types.RegisterRequest{
+		RawURL: sd.URL(),
+		TaskURL: sd.URL(),
+		TaskId: sd.TaskID(),
+		Cid:  m.cfg.Cid,
+		Headers: FlattenHeader(sd.Headers()),
+		Dfdaemon: m.cfg.Dfdaemon,
+		IP:  m.cfg.IP,
+		Port: m.cfg.Port,
+		Version: m.cfg.Version,
+		Identifier: m.cfg.Identifier,
+		RootCAs: m.cfg.RootCAs,
+		HostName: m.cfg.HostName,
+		AsSeed: true,
+		Path: path,
+	}
+
+	for _, node := range m.superNodes {
+		resp, err := m.supernodeAPI.ReportResource(node, req)
+		if err != nil || resp.Code != constants.Success {
+			logrus.Errorf("failed to report resouce to supernode, resp: %v, err: %v", resp, err)
+			continue
+		}
+	}
+}
+
+// restoreLocalSeed will report local seed to supernode
+func (m *Manager) restoreLocalSeed() {
+	keys, sds, err := m.seedManager.List()
+	if err != nil {
+		logrus.Errorf("failed to list local seeds : %v", err)
+		return
+	}
+
+	for i := 0; i < len(keys); i ++ {
+		m.reportLocalSeedToSuperNode(keys[i], sds[i])
+		m.syncLocalSeed(keys[i], sds[i].TaskID(), sds[i])
+	}
 }

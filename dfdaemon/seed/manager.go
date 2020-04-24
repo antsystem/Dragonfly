@@ -63,7 +63,7 @@ type SeedManager interface {
 
 	Get(key string) (Seed, error)
 
-	List() ([]Seed, error)
+	List() ([]string, []Seed, error)
 
 	// stop the SeedManager
 	Stop()
@@ -434,18 +434,20 @@ func (sm *seedManager) NotifyPrepareExpired(key string) (<-chan struct{}, error)
 	return ch, nil
 }
 
-func (sm *seedManager) List() ([]Seed, error) {
+func (sm *seedManager) List() ([]string, []Seed, error) {
 	sm.Lock()
 	defer sm.Unlock()
 
 	ret := make([]Seed, len(sm.seedContainer))
+	keys := make([]string, len(sm.seedContainer))
 	i := 0
 	for _, obj := range sm.seedContainer {
 		ret[i] = obj.sd
+		keys[i] = obj.Key
 		i++
 	}
 
-	return ret, nil
+	return keys, ret, nil
 }
 
 func (sm *seedManager) Prefetch(key string, perDownloadSize int64) (<- chan struct{}, error) {
