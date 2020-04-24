@@ -209,6 +209,8 @@ func (proxy *Proxy) mirrorRegistry(w http.ResponseWriter, r *http.Request) {
 		transport.WithDownloader(proxy.downloadFactory()),
 		transport.WithTLS(proxy.registry.TLSConfig()),
 		transport.WithCondition(proxy.shouldUseDfgetForMirror),
+		transport.WithStreamDownloader(proxy.streamDownloadFactory()),
+		transport.WithStreamMode(proxy.streamMode),
 	)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("failed to get transport: %v", err), http.StatusInternalServerError)
