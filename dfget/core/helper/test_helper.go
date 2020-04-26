@@ -184,7 +184,7 @@ func (m *MockSupernodeAPI) ReportMetrics(ip string, req *api_types.TaskMetricsRe
 	return nil, nil
 }
 
-func (m *MockSupernodeAPI) HeartBeat(node string, req *api_types.HeartBeatRequest) (resp *types.BaseResponse, e error) {
+func (m *MockSupernodeAPI) HeartBeat(node string, req *api_types.HeartBeatRequest) (resp *types.HeartBeatResponse, e error) {
 	return nil, nil
 }
 
