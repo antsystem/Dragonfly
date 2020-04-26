@@ -93,7 +93,7 @@ func initDfdaemon(cfg *config.Properties) error {
 			"ensure local repo %s exists", cfg.DFRepo,
 		)
 	}
-	cfg.SuperNodes = adjustSupernodeList(cfg.SuperNodes)
+	//cfg.SuperNodes = adjustSupernodeList(cfg.SuperNodes)
 	if stringutils.IsEmptyStr(cfg.LocalIP) {
 		cfg.LocalIP = getLocalIP(cfg.SuperNodes)
 	}
