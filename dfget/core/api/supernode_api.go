@@ -59,7 +59,7 @@ type SupernodeAPI interface {
 	ServiceDown(node string, taskID string, cid string) (resp *types.BaseResponse, e error)
 	ReportClientError(node string, req *types.ClientErrorRequest) (resp *types.BaseResponse, e error)
 	ReportMetrics(node string, req *api_types.TaskMetricsRequest) (resp *types.BaseResponse, e error)
-	HeartBeat(node string, req *api_types.HeartBeatRequest) (resp *types.BaseResponse, e error)
+	HeartBeat(node string, req *api_types.HeartBeatRequest) (resp *types.HeartBeatResponse, err error)
 	FetchP2PNetworkInfo(node string, start int, limit int, req *api_types.NetworkInfoFetchRequest) (resp *api_types.NetworkInfoFetchResponse, e error)
 	ReportResource(node string, req *types.RegisterRequest) (resp *types.RegisterResponse, err error)
 	ApplyForSeedNode(node string, req *types.RegisterRequest) (resp *types.RegisterResponse, err error)
@@ -309,7 +309,7 @@ func (api *supernodeAPI) FetchP2PNetworkInfo(node string, start int, limit int, 
 	return rr.Data, nil
 }
 
-func (api *supernodeAPI) HeartBeat(node string, req *api_types.HeartBeatRequest) (resp *types.BaseResponse, err error) {
+func (api *supernodeAPI) HeartBeat(node string, req *api_types.HeartBeatRequest) (resp *types.HeartBeatResponse, err error) {
 	var (
 		code int
 		body []byte
@@ -318,7 +318,6 @@ func (api *supernodeAPI) HeartBeat(node string, req *api_types.HeartBeatRequest)
 	url := fmt.Sprintf("%s://%s%s",
 		api.Scheme, node, peerHeartBeatPath)
 
-	resp = new(types.BaseResponse)
 	if code, body, err = api.HTTPClient.PostJSON(url, req, api.Timeout); err != nil {
 		return nil, err
 	}
@@ -328,7 +327,9 @@ func (api *supernodeAPI) HeartBeat(node string, req *api_types.HeartBeatRequest)
 		return nil, fmt.Errorf("%d:%s", code, string(body))
 	}
 
-	resp = new(types.BaseResponse)
+	logrus.Debugf("heart beat resp: %s", string(body))
+
+	resp = new(types.HeartBeatResponse)
 	if err = json.Unmarshal(body, resp); err != nil {
 		return nil, err
 	}
