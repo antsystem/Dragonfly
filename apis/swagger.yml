@@ -1481,6 +1481,23 @@ definitions:
           This dfget is treated a client and carries a client ID.
           Thus, multiple dfget processes on the same peer have different CIDs.
 
+  HeartBeatResponse:
+    type: "object"
+    description: ""
+    properties:
+      version:
+        type: "string"
+        description: |
+          The version of supernode. If supernode restarts, version should be different, so dfdaemon could know
+          the restart of supernode.
+      seedTaskIDs:
+        type: "array"
+        description: |
+          The array of seed taskID which now are selected as seed for the peer. If peer have other seed file which
+          is not included in the array, these seed file should be weed out.
+        items:
+          type: "string"
+
   ErrorResponse:
     type: "object"
     description: |
