@@ -15,6 +15,10 @@ import (
 // swagger:model HeartBeatResponse
 type HeartBeatResponse struct {
 
+	// If peer do not register in supernode, set needRegister to be true, else set to be false.
+	//
+	NeedRegister bool `json:"needRegister,omitempty"`
+
 	// The array of seed taskID which now are selected as seed for the peer. If peer have other seed file which
 	// is not included in the array, these seed file should be weed out.
 	//

@@ -1520,6 +1520,10 @@ definitions:
         description: |
           The version of supernode. If supernode restarts, version should be different, so dfdaemon could know
           the restart of supernode.
+      needRegister:
+        type: "boolean"
+        description: |
+          If peer do not register in supernode, set needRegister to be true, else set to be false.
       seedTaskIDs:
         type: "array"
         description: |
