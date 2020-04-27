@@ -43,8 +43,10 @@ const(
 type superNodeWrapper struct {
 	superNode      string
 
-	// the supernode version, if changed, supernode has been restarted.
+	// version of supernode, if changed, it indicates supernode has been restarted.
 	version		   string
+
+	
 }
 
 func (s *superNodeWrapper) versionChanged(version string) bool {
@@ -500,7 +502,6 @@ func (m *Manager) tryToPrefetchSeedFile(ctx context.Context, path string, taskID
 	}
 
 	go m.monitorExpiredSeed(ctx, path)
-	//go lm.reportSeedToSuperNode(sd)
 }
 
 // monitor the expired event of seed
