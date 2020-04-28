@@ -7,6 +7,7 @@ import (
 	"github.com/dragonflyoss/Dragonfly/dfdaemon/seed"
 	dfgetcfg "github.com/dragonflyoss/Dragonfly/dfget/config"
 	"github.com/dragonflyoss/Dragonfly/pkg/errortypes"
+	"github.com/dragonflyoss/Dragonfly/pkg/hash_circler"
 	"github.com/go-openapi/strfmt"
 	"github.com/pborman/uuid"
 	"path/filepath"
@@ -46,7 +47,8 @@ type superNodeWrapper struct {
 	// version of supernode, if changed, it indicates supernode has been restarted.
 	version		   string
 
-	
+	// scheduler which the task is belong to the supernode.
+	sm			   *scheduler.Manager
 }
 
 func (s *superNodeWrapper) versionChanged(version string) bool {
@@ -57,12 +59,13 @@ func (s *superNodeWrapper) versionChanged(version string) bool {
 type Manager struct {
 	cfg          *Config
 	sdOpt        *seed.NewSeedManagerOpt
-	superNodes	 []*superNodeWrapper
-	sm 			 *scheduler.Manager
+	//sm 			 *scheduler.Manager
 	seedManager  seed.SeedManager
 	supernodeAPI api.SupernodeAPI
 	downloadAPI  api.DownloadAPI
 	uploaderAPI  api.UploaderAPI
+
+	superNodeMap map[string]*superNodeWrapper
 
 	rm		 *requestManager
 
@@ -75,6 +78,8 @@ type Manager struct {
 
 	// recentFetchUrls is the urls which as the parameters to fetch the p2p network recently
 	recentFetchUrls     []string
+
+	hc 					hash_circler.PreSetHashCircler
 }
 
 type activeFetchSt struct {
@@ -98,22 +103,31 @@ func NewManager(cfg *Config, superNodes []string) *Manager {
 func newManager(cfg *Config, superNodes []string) *Manager {
 	ctx, cancel := context.WithCancel(context.Background())
 
-	superNodesWrappers := []*superNodeWrapper{}
+	localPeerInfo := &api_types.PeerInfo{
+		ID: cfg.Cid,
+		IP: strfmt.IPv4(cfg.IP),
+		Port: int32(cfg.Port),
+		HostName: strfmt.Hostname(cfg.HostName),
+	}
+
+	superNodesMap := make(map[string]*superNodeWrapper)
 	for _, s := range superNodes {
-		superNodesWrappers = append(superNodesWrappers, &superNodeWrapper{
+		superNodesMap[s] = &superNodeWrapper{
 			superNode: s,
-		})
+			sm: scheduler.NewScheduler(localPeerInfo),
+		}
+	}
+
+	// todo: remove the dup supernode.
+
+	hc, err := hash_circler.NewPreSetHashCircler(superNodes, nil)
+	if err != nil {
+		panic(err)
 	}
 
 	m := &Manager{
 		cfg: cfg,
-		superNodes: superNodesWrappers,
-		sm: scheduler.NewScheduler(&api_types.PeerInfo{
-			ID: cfg.Cid,
-			IP: strfmt.IPv4(cfg.IP),
-			Port: int32(cfg.Port),
-			HostName: strfmt.Hostname(cfg.HostName),
-		}),
+		superNodeMap: superNodesMap,
 		supernodeAPI: api.NewSupernodeAPI(),
 		uploaderAPI: api.NewUploaderAPI(time.Duration(0)),
 		downloadAPI: api.NewDownloadAPI(),
@@ -122,6 +136,7 @@ func newManager(cfg *Config, superNodes []string) *Manager {
 		recentFetchUrls: []string{},
 		ctx: ctx,
 		cancel: cancel,
+		hc:  hc,
 	}
 
 	if cfg.HighLevel <= 0 {
@@ -191,21 +206,11 @@ func (m *Manager) DownloadStreamContext(ctx context.Context, url string, header 
 
 	for i := 0; i < maxTry; i ++ {
 		// try to get the peer by internal schedule
-		result := m.sm.Scheduler(ctx, url)
-		if len(result) == 0 {
+		dwInfos := m.scheduler(ctx, url)
+		if len(dwInfos) == 0 {
 			// try to apply to be the seed node
 			m.tryToApplyForSeedNode(m.ctx, url, header)
 			continue
-		}
-
-		dwInfos := []*downloadNodeInfo{}
-		for _, r := range result {
-			dwInfos = append(dwInfos, &downloadNodeInfo{
-				ip:     r.PeerInfo.IP.String(),
-				port:   int(r.PeerInfo.Port),
-				path:   r.Path,
-				peerID: r.DstCid,
-			})
 		}
 
 		dw := &SeedDownloader{
@@ -220,6 +225,24 @@ func (m *Manager) DownloadStreamContext(ctx context.Context, url string, header 
 	}
 
 	return nil, errortypes.NewHttpError(http.StatusInternalServerError, "failed to select a peer to download")
+}
+
+func (m *Manager) scheduler(ctx context.Context, url string) []*downloadNodeInfo {
+	dwInfos := []*downloadNodeInfo{}
+
+	for _, sw := range m.superNodeMap {
+		result := sw.sm.Scheduler(ctx, url)
+		for _, r := range result {
+			dwInfos = append(dwInfos, &downloadNodeInfo{
+				ip:     r.PeerInfo.IP.String(),
+				port:   int(r.PeerInfo.Port),
+				path:   r.Path,
+				peerID: r.DstCid,
+			})
+		}
+	}
+
+	return dwInfos
 }
 
 func (m *Manager) tryToApplyForSeedNode(ctx context.Context, url string, header map[string][]string)  {
@@ -247,19 +270,31 @@ func (m *Manager) syncP2PNetworkInfo(urls []string) {
 		return
 	}
 
-	resp, err := m.fetchP2PNetwork(urls)
+	for node, sw := range m.superNodeMap {
+		m.syncP2PNetworkInfoFromSuperNode(node, sw, urls)
+	}
+
+	m.syncTimeLock.Lock()
+	defer m.syncTimeLock.Unlock()
+	m.syncTime = time.Now()
+	m.recentFetchUrls = urls
+}
+
+// sync p2p network to local scheduler from supernode
+func (m *Manager) syncP2PNetworkInfoFromSuperNode(supernode string, sw *superNodeWrapper, urls []string) {
+	if len(urls) == 0 {
+		logrus.Debugf("no urls to syncP2PNetworkInfo")
+		return
+	}
+
+	resp, err := m.fetchP2PNetwork(supernode, urls)
 	if err != nil {
 		logrus.Error(err)
 		return
 	}
 
 	// update nodes info to internal scheduler
-	m.sm.SyncSchedulerInfo(resp.Nodes)
-
-	m.syncTimeLock.Lock()
-	defer m.syncTimeLock.Unlock()
-	m.syncTime = time.Now()
-	m.recentFetchUrls = urls
+	sw.sm.SyncSchedulerInfo(resp.Nodes)
 }
 
 func (m *Manager) fetchP2PNetworkInfoLoop(ctx context.Context) {
@@ -358,64 +393,75 @@ func (m *Manager) applyForSeedNode(url string, header map[string][]string, path 
 		Path: path,
 	}
 
-	for _, node := range m.superNodes {
-		resp, err := m.supernodeAPI.ApplyForSeedNode(node.superNode, req)
-		if err != nil {
-			logrus.Errorf("failed to apply for seed node: %v", err)
-			continue
-		}
-
-		logrus.Debugf("ApplyForSeedNode resp body: %v", resp)
-
-		if resp.Code != constants.Success {
-			continue
-		}
-
-		return resp.Data.AsSeed,  resp.Data.SeedTaskID
+	node, err := m.hc.Hash(url)
+	if err != nil {
+		logrus.Errorf("failed to hash url %s: %v", url, err)
+		return false, ""
 	}
 
-	return false, ""
+	_, ok := m.superNodeMap[node]
+	if ! ok {
+		logrus.Errorf("failed to found supernode %s in register map", node)
+		return false, ""
+	}
+
+	resp, err := m.supernodeAPI.ApplyForSeedNode(node, req)
+	if err != nil {
+		logrus.Errorf("failed to apply for seed node: %v", err)
+		return false, ""
+	}
+
+	logrus.Debugf("ApplyForSeedNode resp body: %v", resp)
+
+	if resp.Code != constants.Success {
+		return false, ""
+	}
+
+	return resp.Data.AsSeed,  resp.Data.SeedTaskID
 }
 
-func (m *Manager) fetchP2PNetwork(urls []string) (resp *api_types.NetworkInfoFetchResponse, e error) {
-	var(
-		lastErr  error
-	)
+func (m *Manager) fetchP2PNetwork(supernode string, urls []string) (resp *api_types.NetworkInfoFetchResponse, e error) {
+	//var(
+	//	lastErr  error
+	//)
 
 	req := &api_types.NetworkInfoFetchRequest{
 		Urls: urls,
 	}
 
-	for _, node := range m.superNodes {
-		resp, err := m.supernodeAPI.FetchP2PNetworkInfo(node.superNode, 0, 0, req)
-		if err != nil {
-			lastErr = err
-			logrus.Errorf("failed to apply for seed node: %v", err)
-			continue
-		}
+	//for _, node := range m.superNodes {
+	//	resp, err := m.supernodeAPI.FetchP2PNetworkInfo(node.superNode, 0, 0, req)
+	//	if err != nil {
+	//		lastErr = err
+	//		logrus.Errorf("failed to apply for seed node: %v", err)
+	//		continue
+	//	}
+	//
+	//	logrus.Debugf("FetchP2PNetworkInfo resp body: %v", resp)
+	//	return resp, nil
+	//}
 
-		logrus.Debugf("FetchP2PNetworkInfo resp body: %v", resp)
-		return resp, nil
-	}
-
-	return nil, lastErr
+	return m.supernodeAPI.FetchP2PNetworkInfo(supernode, 0, 0, req)
 }
 
+// syncLocalSeed will sync local seed to all scheduler.
 func (m *Manager) syncLocalSeed (path string, taskID string, sd seed.Seed) {
-	m.sm.AddLocalSeedInfo(&api_types.TaskFetchInfo{
-		Task: &api_types.TaskInfo{
-			ID: taskID,
-			AsSeed: true,
-			FileLength: sd.GetFullSize(),
-			RawURL: sd.URL(),
-			TaskURL: sd.URL(),
-		},
-		Pieces: []*api_types.PieceInfo{
-			{
-				Path: path,
+	for _, sw := range m.superNodeMap {
+		sw.sm.AddLocalSeedInfo(&api_types.TaskFetchInfo{
+			Task: &api_types.TaskInfo{
+				ID:         taskID,
+				AsSeed:     true,
+				FileLength: sd.GetFullSize(),
+				RawURL:     sd.URL(),
+				TaskURL:    sd.URL(),
 			},
-		},
-	})
+			Pieces: []*api_types.PieceInfo{
+				{
+					Path: path,
+				},
+			},
+		})
+	}
 }
 
 func (m *Manager) heartBeatLoop(ctx context.Context) {
@@ -433,8 +479,8 @@ func (m *Manager) heartBeatLoop(ctx context.Context) {
 }
 
 func (m *Manager) heartbeat() {
-	for _,node := range m.superNodes {
-		resp, err := m.supernodeAPI.HeartBeat(node.superNode, &api_types.HeartBeatRequest{
+	for node, sw := range m.superNodeMap {
+		resp, err := m.supernodeAPI.HeartBeat(node, &api_types.HeartBeatRequest{
 			IP: m.cfg.IP,
 			Port: int32(m.cfg.Port),
 			CID: m.cfg.Cid,
@@ -451,11 +497,11 @@ func (m *Manager) heartbeat() {
 			continue
 		}
 
-		if node.versionChanged(resp.Data.Version) {
-			go m.reportLocalSeedsToSuperNode(node.superNode)
+		if sw.versionChanged(resp.Data.Version) {
+			go m.reportLocalSeedsToSuperNode(node)
 		}
 
-		node.version = resp.Data.Version
+		sw.version = resp.Data.Version
 	}
 }
 
@@ -555,10 +601,16 @@ func (m *Manager) monitorExpiredSeed(ctx context.Context, path string) {
 	}
 
 	// try to clear resource and report to super node
-	m.sm.DeleteLocalSeedInfo(sd.URL())
+	m.removeLocalSeedFromScheduler(sd.URL())
 
 	// unregister the seed file
 	m.seedManager.UnRegister(path)
+}
+
+func (m *Manager) removeLocalSeedFromScheduler(url string) {
+	for _, sw := range m.superNodeMap {
+		sw.sm.DeleteLocalSeedInfo(url)
+	}
 }
 
 func (m *Manager) computePerDownloadSize(blockOrder uint32) int64 {
@@ -575,8 +627,8 @@ func (m *Manager) reportSeedPrepareDelete(taskID string) bool {
 }
 
 func (m *Manager) reportSeedPrepareDeleteToSuperNodes(taskID string) bool {
-	for _, node := range m.superNodes {
-		resp, err := m.supernodeAPI.ReportResourceDeleted(node.superNode, taskID, m.cfg.Cid)
+	for node, _ := range m.superNodeMap {
+		resp, err := m.supernodeAPI.ReportResourceDeleted(node, taskID, m.cfg.Cid)
 		if err != nil {
 			continue
 		}
@@ -605,16 +657,9 @@ func (m *Manager) reportLocalSeedToSuperNode(path string, sd seed.Seed, targetSu
 		Path: path,
 	}
 
-	for _, node := range m.superNodes {
-		if targetSuperNode != "" && node.superNode != targetSuperNode {
-			continue
-		}
-
-		resp, err := m.supernodeAPI.ReportResource(node.superNode, req)
-		if err != nil || resp.Code != constants.Success {
-			logrus.Errorf("failed to report resouce to supernode, resp: %v, err: %v", resp, err)
-			continue
-		}
+	resp, err := m.supernodeAPI.ReportResource(targetSuperNode, req)
+	if err != nil || resp.Code != constants.Success {
+		logrus.Errorf("failed to report resouce to supernode, resp: %v, err: %v", resp, err)
 	}
 }
 
@@ -645,6 +690,11 @@ func (m *Manager) reportLocalSeedsToSuperNode(node string)  {
 	}
 
 	for i := 0; i < len(keys); i ++ {
+		targetNode, err := m.hc.Hash(sds[i].URL())
+		if err != nil || targetNode != node {
+			continue
+		}
+
 		m.reportLocalSeedToSuperNode(keys[i], sds[i], node)
 	}
 }
