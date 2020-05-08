@@ -60,7 +60,7 @@ type Manager struct {
 	cfg          *Config
 	sdOpt        *seed.NewSeedManagerOpt
 	//sm 			 *scheduler.Manager
-	seedManager  seed.SeedManager
+	seedManager  seed.Manager
 	supernodeAPI api.SupernodeAPI
 	downloadAPI  api.DownloadAPI
 	uploaderAPI  api.UploaderAPI
@@ -224,7 +224,7 @@ func (m *Manager) DownloadStreamContext(ctx context.Context, url string, header 
 		return dw.RunStream(ctx)
 	}
 
-	return nil, errortypes.NewHttpError(http.StatusInternalServerError, "failed to select a peer to download")
+	return nil, errortypes.NewHTTPError(http.StatusInternalServerError, "failed to select a peer to download")
 }
 
 func (m *Manager) scheduler(ctx context.Context, url string) []*downloadNodeInfo {
@@ -452,8 +452,8 @@ func (m *Manager) syncLocalSeed (path string, taskID string, sd seed.Seed) {
 				ID:         taskID,
 				AsSeed:     true,
 				FileLength: sd.GetFullSize(),
-				RawURL:     sd.URL(),
-				TaskURL:    sd.URL(),
+				RawURL:     sd.GetURL(),
+				TaskURL:    sd.GetURL(),
 			},
 			Pieces: []*api_types.PieceInfo{
 				{
@@ -481,7 +481,7 @@ func (m *Manager) heartBeatLoop(ctx context.Context) {
 func (m *Manager) heartbeat() {
 	for node, sw := range m.superNodeMap {
 		resp, err := m.supernodeAPI.HeartBeat(node, &api_types.HeartBeatRequest{
-			IP: m.cfg.IP,
+			IP: strfmt.IPv4(m.cfg.IP),
 			Port: int32(m.cfg.Port),
 			CID: m.cfg.Cid,
 		})
@@ -506,7 +506,7 @@ func (m *Manager) heartbeat() {
 }
 
 func (m *Manager) registerLocalSeed(url string, header map[string][]string, path string, taskID string, blockOrder uint32) {
-	info := seed.PreFetchInfo{
+	info := seed.BaseInfo{
 		URL: url,
 		Header: header,
 		BlockOrder: blockOrder,
@@ -561,7 +561,7 @@ func (m *Manager) monitorExpiredSeed(ctx context.Context, path string) {
 	// if a seed is prepared to be expired, the expired chan will be notified.
 	expiredCh, err := m.seedManager.NotifyPrepareExpired(path)
 	if err != nil {
-		logrus.Errorf("failed to get expired chan of seed, url:%s, key: %s: %v", sd.URL(), sd.TaskID(), err)
+		logrus.Errorf("failed to get expired chan of seed, url:%s, key: %s: %v", sd.GetURL(), sd.GetTaskID(), err)
 		return
 	}
 
@@ -569,7 +569,7 @@ func (m *Manager) monitorExpiredSeed(ctx context.Context, path string) {
 	case <- ctx.Done():
 		return
 	case <- expiredCh:
-		logrus.Infof("seed url: %s, key: %s, has been expired, try to clear resource of it", sd.URL(), sd.TaskID())
+		logrus.Infof("seed url: %s, key: %s, has been expired, try to clear resource of it", sd.GetURL(), sd.GetTaskID())
 		break
 	}
 
@@ -582,7 +582,7 @@ func (m *Manager) monitorExpiredSeed(ctx context.Context, path string) {
 		case <-ctx.Done():
 			return
 		case <- timer.C:
-			logrus.Infof("seed %s, url %s will be deleted after %d seconds", path, sd.URL(), 60)
+			logrus.Infof("seed %s, url %s will be deleted after %d seconds", path, sd.GetURL(), 60)
 			needBreak = true
 			break
 		default:
@@ -593,7 +593,7 @@ func (m *Manager) monitorExpiredSeed(ctx context.Context, path string) {
 		}
 
 		// report the seed prepare to delete to super node
-		if m.reportSeedPrepareDelete(sd.TaskID()) {
+		if m.reportSeedPrepareDelete(sd.GetTaskID()) {
 			break
 		}
 
@@ -601,7 +601,7 @@ func (m *Manager) monitorExpiredSeed(ctx context.Context, path string) {
 	}
 
 	// try to clear resource and report to super node
-	m.removeLocalSeedFromScheduler(sd.URL())
+	m.removeLocalSeedFromScheduler(sd.GetURL())
 
 	// unregister the seed file
 	m.seedManager.UnRegister(path)
@@ -641,11 +641,11 @@ func (m *Manager) reportSeedPrepareDeleteToSuperNodes(taskID string) bool {
 
 func (m *Manager) reportLocalSeedToSuperNode(path string, sd seed.Seed, targetSuperNode string) {
 	req := &types.RegisterRequest{
-		RawURL: sd.URL(),
-		TaskURL: sd.URL(),
-		TaskId: sd.TaskID(),
+		RawURL: sd.GetURL(),
+		TaskURL: sd.GetURL(),
+		TaskID: sd.GetTaskID(),
 		Cid:  m.cfg.Cid,
-		Headers: FlattenHeader(sd.Headers()),
+		Headers: FlattenHeader(sd.GetHeaders()),
 		Dfdaemon: m.cfg.Dfdaemon,
 		IP:  m.cfg.IP,
 		Port: m.cfg.Port,
@@ -674,7 +674,7 @@ func (m *Manager) restoreLocalSeed(ctx context.Context, syncLocal bool, monitor 
 	for i := 0; i < len(keys); i ++ {
 		m.reportLocalSeedToSuperNode(keys[i], sds[i], "")
 		if syncLocal {
-			m.syncLocalSeed(keys[i], sds[i].TaskID(), sds[i])
+			m.syncLocalSeed(keys[i], sds[i].GetTaskID(), sds[i])
 		}
 		if monitor {
 			go m.monitorExpiredSeed(ctx, keys[i])
@@ -690,7 +690,7 @@ func (m *Manager) reportLocalSeedsToSuperNode(node string)  {
 	}
 
 	for i := 0; i < len(keys); i ++ {
-		targetNode, err := m.hc.Hash(sds[i].URL())
+		targetNode, err := m.hc.Hash(sds[i].GetURL())
 		if err != nil || targetNode != node {
 			continue
 		}

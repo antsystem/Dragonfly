@@ -87,7 +87,7 @@ type peerServer struct {
 
 	// syncTaskMap stores the meta name of tasks on the host
 	syncTaskMap sync.Map
-	sm 			seed.SeedManager
+	sm 			seed.Manager
 }
 
 // taskConfig refers to some name about peer task.
