@@ -545,7 +545,7 @@ func (sd *seed) downloadBlock(blockStartIndex, blockEndIndex uint32, rateLimit b
 		sd.unlockBlocks(blockStartIndex, blockEndIndex)
 	}()
 
-	fmt.Printf("start to download file range [%d, %d]\n", startBytes, endBytes)
+	logrus.Debugf("start to download file range [%d, %d]\n", startBytes, endBytes)
 	err := sd.downloadToFile(startBytes, endBytes, rateLimit)
 	if err != nil {
 		logrus.Errorf("failed to download to file: %v", err)
