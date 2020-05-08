@@ -17,6 +17,7 @@
 package transport
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"io/ioutil"
@@ -152,6 +153,12 @@ func (roundTripper *DFRoundTripper) RoundTrip(req *http.Request) (*http.Response
 // download uses dfget to download.
 func (roundTripper *DFRoundTripper) download(req *http.Request, urlString string) (*http.Response, error) {
 	if roundTripper.streamMode {
+		if req.Header.Get("x-nydus-proxy-healthcheck") != "" {
+			return &http.Response{
+					StatusCode: 200,
+					Body: ioutil.NopCloser(bytes.NewReader([]byte{})),
+			}, nil
+		}
 		return roundTripper.downloadByStream(req.Context(), urlString, req.Header, uuid.New())
 	}
 
@@ -185,7 +192,7 @@ func (roundTripper *DFRoundTripper) downloadByGetter(ctx context.Context, url st
 
 func (roundTripper *DFRoundTripper) downloadByStream(ctx context.Context, url string, header map[string][]string, name string) (*http.Response, error) {
 	logrus.Infof("start download url:%s to %s in repo", url, name)
-	reader, err := roundTripper.StreamDownloader.DownloadStreamContext(ctx, url, header, name)
+	rc, err := roundTripper.StreamDownloader.DownloadStreamContext(ctx, url, header, name)
 	if err != nil {
 		logrus.Errorf("download fail: %v", err)
 		return nil, err
@@ -193,7 +200,7 @@ func (roundTripper *DFRoundTripper) downloadByStream(ctx context.Context, url st
 
 	resp := &http.Response{
 		StatusCode: 200,
-		Body:       ioutil.NopCloser(reader),
+		Body:       rc,
 	}
 	return resp, nil
 }

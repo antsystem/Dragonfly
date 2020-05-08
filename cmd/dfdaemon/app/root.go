@@ -18,6 +18,8 @@ package app
 
 import (
 	"encoding/json"
+	"fmt"
+	"github.com/dragonflyoss/Dragonfly/dfdaemon/downloader/p2p"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -74,6 +76,9 @@ var rootCmd = &cobra.Command{
 		}
 		// if stream mode, launch peer server in dfdaemon progress
 		if cfg.StreamMode {
+			// new Seed Manager
+			seedConfig := getSeedConfig(cfg)
+			_ = p2p.NewManager(seedConfig, cfg.SuperNodes)
 			go dfdaemon.LaunchPeerServer(*cfg)
 		}
 		return s.Start()
@@ -218,5 +223,24 @@ func decodeWithYAML(types ...reflect.Type) mapstructure.DecodeHookFunc {
 			}
 		}
 		return data, nil
+	}
+}
+
+func getSeedConfig(cfg *config.Properties) *p2p.Config {
+	sign := fmt.Sprintf("%d-%.3f",
+		os.Getpid(), float64(time.Now().UnixNano())/float64(time.Second))
+
+	return &p2p.Config{
+		IP: cfg.LocalIP,
+		Port: int(cfg.PeerPort),
+		MetaDir: filepath.Join(cfg.WorkHome , "seed-pattern"),
+		Cid: fmt.Sprintf("%s-%s", cfg.LocalIP, sign),
+
+		HighLevel: cfg.SeedPatternCfg.HighLevel,
+		LowLevel: cfg.SeedPatternCfg.LowLevel,
+		DefaultBlockOrder: cfg.SeedPatternCfg.DefaultBlockOrder,
+		PerDownloadBlocks: cfg.SeedPatternCfg.PerDownloadBlocks,
+		DownRate: cfg.RateLimit,
+		UploadRate: cfg.RateLimit,
 	}
 }

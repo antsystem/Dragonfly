@@ -21,6 +21,7 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	"github.com/dragonflyoss/Dragonfly/dfdaemon/seed"
 	"io"
 	"net"
 	"net/http"
@@ -51,6 +52,7 @@ func newPeerServer(cfg *config.Config, port int) *peerServer {
 		host:     cfg.RV.LocalIP,
 		port:     port,
 		api:      api.NewSupernodeAPI(),
+		sm:       seed.GetSeedManager(),
 	}
 
 	r := s.initRouter()
@@ -85,6 +87,7 @@ type peerServer struct {
 
 	// syncTaskMap stores the meta name of tasks on the host
 	syncTaskMap sync.Map
+	sm 			seed.SeedManager
 }
 
 // taskConfig refers to some name about peer task.
@@ -150,6 +153,17 @@ func (ps *peerServer) uploadHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if sd, exist := ps.isSeedFile(taskFileName); exist {
+		err = ps.uploadSeedFile(w, up, sd)
+		if  err != nil {
+			rangeErrorResponse(w, err)
+			logrus.Errorf("failed to upload seed file:%s, %v", taskFileName, err)
+			return
+		}
+
+		return
+	}
+
 	// Step2: get task file
 	if f, size, err = ps.getTaskFile(taskFileName); err != nil {
 		rangeErrorResponse(w, err)
@@ -169,6 +183,38 @@ func (ps *peerServer) uploadHandler(w http.ResponseWriter, r *http.Request) {
 	if err := ps.uploadPiece(f, w, up); err != nil {
 		logrus.Errorf("failed to send range(%s) of file(%s): %v", rangeStr, taskFileName, err)
 	}
+}
+
+func (ps *peerServer) isSeedFile(taskFileName string) (seed.Seed, bool) {
+	sd, err := ps.sm.Get(taskFileName)
+	if err != nil {
+		return nil, false
+	}
+
+	return sd, true
+}
+
+func (ps *peerServer) uploadSeedFile(w http.ResponseWriter, up *uploadParam, sd seed.Seed) (e error) {
+	rc, err := sd.Download(up.start, up.length)
+	if err != nil {
+		return err
+	}
+
+	defer rc.Close()
+
+	buf := make([]byte, 256*1024)
+
+	w.Header().Set(config.StrContentLength, strconv.FormatInt(up.length, 10))
+	sendHeader(w, http.StatusPartialContent)
+
+	if ps.rateLimiter != nil {
+		lr := limitreader.NewLimitReaderWithLimiter(ps.rateLimiter, rc, false)
+		_, e = io.CopyBuffer(w, lr, buf)
+	} else {
+		_, e = io.CopyBuffer(w, rc, buf)
+	}
+
+	return
 }
 
 func (ps *peerServer) parseRateHandler(w http.ResponseWriter, r *http.Request) {

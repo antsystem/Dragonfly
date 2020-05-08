@@ -14,28 +14,12 @@
  * limitations under the License.
  */
 
-package p2p
+package types
 
-import (
-	"context"
-	"errors"
-	"io"
+import "github.com/dragonflyoss/Dragonfly/apis/types"
 
-	"github.com/dragonflyoss/Dragonfly/dfdaemon/config"
-)
-
-type Client struct {
-}
-
-func (c *Client) DownloadContext(ctx context.Context, url string, header map[string][]string, name string) (string, error) {
-	return "", errors.New("Not Implementation")
-}
-
-func (c *Client) DownloadStreamContext(ctx context.Context, url string, header map[string][]string, name string) (io.ReadCloser, error) {
-	m := GetManager()
-	return m.DownloadStreamContext(ctx, url, header, name)
-}
-
-func NewClient(cfg config.DFGetConfig) *Client {
-	return &Client{}
+// HeartBeatResponse is the response of heart beat.
+type HeartBeatResponse struct {
+	*BaseResponse
+	Data *types.HeartBeatResponse `json:"data,omitempty"`
 }

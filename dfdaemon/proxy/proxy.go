@@ -209,6 +209,8 @@ func (proxy *Proxy) mirrorRegistry(w http.ResponseWriter, r *http.Request) {
 		transport.WithDownloader(proxy.downloadFactory()),
 		transport.WithTLS(proxy.registry.TLSConfig()),
 		transport.WithCondition(proxy.shouldUseDfgetForMirror),
+		transport.WithStreamDownloader(proxy.streamDownloadFactory()),
+		transport.WithStreamMode(proxy.streamMode),
 	)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("failed to get transport: %v", err), http.StatusInternalServerError)
@@ -269,6 +271,8 @@ func (proxy *Proxy) handleHTTP(w http.ResponseWriter, req *http.Request) {
 func (proxy *Proxy) roundTripper(tlsConfig *tls.Config) http.RoundTripper {
 	rt, _ := transport.New(
 		transport.WithStreamDownloader(proxy.streamDownloadFactory()),
+		transport.WithStreamMode(proxy.streamMode),
+		transport.WithDownloader(proxy.downloadFactory()),
 		transport.WithTLS(tlsConfig),
 		transport.WithCondition(proxy.shouldUseDfget),
 	)
