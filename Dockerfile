@@ -7,7 +7,8 @@ COPY . /go/src/github.com/dragonflyoss/Dragonfly
 
 # make build dfdaemon and dfget.
 # write the resulting executable to the dir /opt/dragonfly/df-client.
-RUN make build-client && make install-client
+RUN cd /go/src/github.com/dragonflyoss/Dragonfly && \
+    CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -mod vendor -a --ldflags="-s" -o /opt/dragonfly/df-client/dfdaemon ./cmd/dfdaemon
 
 FROM reg.docker.alibaba-inc.com/alibase/alios7u2-min:1.15
 
