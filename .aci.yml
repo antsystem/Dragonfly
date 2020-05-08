@@ -36,14 +36,14 @@ stages:
       inputs:
         filePath: result/cover.xml #指定上报文件的路径
   checkRule: # 设置覆盖率卡点
-    - passRate = 50
+    - passRate > 90
   publisher:
     archiveArtifacts:
       artifacts: "result/"
       allowEmptyArchive: true
     junit: '**/TEST-*.xml' #junit-report存放地址
 
-构建镜像:
+构建dfdaemon镜像:
   stage: 镜像构建
   plugin: ANT-BUILD
   only:
@@ -64,3 +64,25 @@ stages:
         type: image
         tag: ${ACI_COMMIT_TAG}
         desc: "dragonfly dfdaemon plugin"
+
+构建supernode镜像:
+  stage: 镜像构建
+  plugin: ANT-BUILD
+  only:
+    triggerType:
+      - tagPush
+    targetBranch:
+      - develop
+  pluginConfig:
+    image: reg.docker.alibaba-inc.com/antsys/golang-builder:1.13.0
+    inputs:
+      params:
+        - name: DOCKERFILE
+          value: Dockerfile.supernode
+    outputs:
+      - name: supernode
+        namespace: antsys
+        repository: reg.docker.alibaba-inc.com
+        type: image
+        tag: ${ACI_COMMIT_TAG}
+        desc: "dragonfly supernode plugin"
