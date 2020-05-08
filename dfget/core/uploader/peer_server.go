@@ -153,15 +153,17 @@ func (ps *peerServer) uploadHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if sd, exist := ps.isSeedFile(taskFileName); exist {
-		err = ps.uploadSeedFile(w, up, sd)
-		if  err != nil {
-			rangeErrorResponse(w, err)
-			logrus.Errorf("failed to upload seed file:%s, %v", taskFileName, err)
+	if ps.sm != nil {
+		if sd, exist := ps.isSeedFile(taskFileName); exist {
+			err = ps.uploadSeedFile(w, up, sd)
+			if err != nil {
+				rangeErrorResponse(w, err)
+				logrus.Errorf("failed to upload seed file:%s, %v", taskFileName, err)
+				return
+			}
+
 			return
 		}
-
-		return
 	}
 
 	// Step2: get task file
