@@ -1,5 +1,6 @@
 stages:
   - 代码检查
+  - 构建test镜像
   - 镜像构建
 
 静态扫描:
@@ -43,6 +44,38 @@ stages:
       allowEmptyArchive: true
     junit: '**/TEST-*.xml' #junit-report存放地址
 
+构建dfdaemon test镜像:
+  stage: 构建test镜像
+  plugin: ANT-BUILD
+  pluginConfig:
+    image: reg.docker.alibaba-inc.com/antsys/golang-builder:1.13.0
+    inputs:
+      params:
+        - name: DOCKERFILE
+          value: Dockerfile
+    outputs:
+      - name: dfdaemon
+        namespace: antsys
+        repository: reg.docker.alibaba-inc.com
+        type: image
+        desc: "dragonfly dfdaemon plugin"
+
+构建supernode test镜像:
+  stage: 构建test镜像
+  plugin: ANT-BUILD
+  pluginConfig:
+    image: reg.docker.alibaba-inc.com/antsys/golang-builder:1.13.0
+    inputs:
+      params:
+        - name: DOCKERFILE
+          value: Dockerfile.supernode
+    outputs:
+      - name: supernode
+        namespace: antsys
+        repository: reg.docker.alibaba-inc.com
+        type: image
+        desc: "dragonfly supernode plugin"
+
 构建dfdaemon镜像:
   stage: 镜像构建
   plugin: ANT-BUILD
@@ -64,6 +97,7 @@ stages:
         type: image
         tag: ${ACI_COMMIT_TAG}
         desc: "dragonfly dfdaemon plugin"
+
 
 构建supernode镜像:
   stage: 镜像构建
