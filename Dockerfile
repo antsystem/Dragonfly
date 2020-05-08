@@ -1,4 +1,4 @@
-FROM golang:1.12.10-alpine as builder
+FROM reg.docker.alibaba-inc.com/antsys/golang-builder:1.13.0 as builder
 
 WORKDIR /go/src/github.com/dragonflyoss/Dragonfly
 RUN apk --no-cache add bash make gcc libc-dev git
@@ -9,9 +9,9 @@ COPY . /go/src/github.com/dragonflyoss/Dragonfly
 # write the resulting executable to the dir /opt/dragonfly/df-client.
 RUN make build-client && make install-client
 
-FROM alpine:3.8
+FROM reg.docker.alibaba-inc.com/alibase/alios7u2-min:1.15
 
-RUN apk --no-cache add ca-certificates bash
+# RUN apk --no-cache add ca-certificates bash
 
 COPY --from=builder /opt/dragonfly/df-client /opt/dragonfly/df-client
 

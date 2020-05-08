@@ -32,7 +32,7 @@ create-dirs() {
 build-local() {
     test -f "${BUILD_SOURCE_HOME}/${BUILD_PATH}/$1" && rm -f "${BUILD_SOURCE_HOME}/${BUILD_PATH}/$1"
     cd "${BUILD_SOURCE_HOME}/cmd/$2" || return
-    go build -o "${BUILD_SOURCE_HOME}/${BUILD_PATH}/$1" -ldflags "${LDFLAGS}"
+    go build -mod vendor -o "${BUILD_SOURCE_HOME}/${BUILD_PATH}/$1" -ldflags "${LDFLAGS}"
     chmod a+x "${BUILD_SOURCE_HOME}/${BUILD_PATH}/$1"
     echo "BUILD: $2 in ${BUILD_SOURCE_HOME}/${BUILD_PATH}/$1"
 }

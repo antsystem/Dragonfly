@@ -1,5 +1,6 @@
 stages:
   - 代码检查
+  - 镜像构建
 
 静态扫描:
   stage: 代码检查
@@ -14,17 +15,21 @@ stages:
   steps:
     - plugin: clone
     - plugin: shell
+      resources:
+        cpu: 4
+        mem: 8
+        disk: 20
       inputs:
         image: reg.docker.alibaba-inc.com/sigma-x/golang-cover:86461e2b9fd492a7c0d8a756b7a4bc00a69a75d0
         command:
           - |
             mkdir -p $WORKSPACE/result
-            GO111MODULE=on go test -v -mod vendor ./... -coverprofile cover.out | tee coverage.log
+            GO111MODULE=on go test -v -mod vendor ./apis/... ./client/... ./cmd/... ./dfdaemon/... ./dfget/... ./pkg/... ./supernode/... -coverprofile cover.out | tee coverage.log
             cat coverage.log| go-junit-report > $WORKSPACE/result/TEST-all.xml  # --> junit-report
             GOFLAGS="-mod=vendor" go tool cover -html=cover.out -o coverage.html
             GOFLAGS="-mod=vendor" go tool cover -func=cover.out -o func.out
             echo test func-coverage $(tail -1 func.out | awk '{print $3}')
-            sed -i 's?gitlab.alipay-inc.com/antsys/Dragonfly/??g' cover.out
+            sed -i 's?github.com/dragonflyoss/Dragonfly/??g' cover.out
             cat cover.out | gocover-cobertura > $WORKSPACE/result/cover.xml  # --> cobertura格式的xml
             cp  cover.out $WORKSPACE/result
     - plugin: coverage-client-upload-compass
@@ -37,3 +42,25 @@ stages:
       artifacts: "result/"
       allowEmptyArchive: true
     junit: '**/TEST-*.xml' #junit-report存放地址
+
+构建镜像:
+  stage: 镜像构建
+  plugin: ANT-BUILD
+  only:
+    triggerType:
+      - tagPush
+    targetBranch:
+      - develop
+  pluginConfig:
+    image: reg.docker.alibaba-inc.com/antsys/golang-builder:1.13.0
+    inputs:
+      params:
+        - name: DOCKERFILE
+          value: Dockerfile
+    outputs:
+      - name: dfdaemon
+        namespace: antsys
+        repository: reg.docker.alibaba-inc.com
+        type: image
+        tag: ${ACI_COMMIT_TAG}
+        desc: "dragonfly dfdaemon plugin"
