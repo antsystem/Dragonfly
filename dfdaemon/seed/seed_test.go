@@ -114,7 +114,7 @@ func (suite *SeedTestSuite) TestSeedSyncRead(c *check.C) {
 
 		startTime := time.Now()
 		rc, err := sd.Download(start, end-start+1)
-		logrus.Infof("in TestSeedSyncRead, Download 100KB costs time: %f second", time.Now().Sub(startTime).Seconds())
+		logrus.Debugf("in TestSeedSyncRead, Download 100KB costs time: %f second", time.Now().Sub(startTime).Seconds())
 		c.Assert(err, check.IsNil)
 		obtainedData, err := ioutil.ReadAll(rc)
 		rc.Close()
@@ -123,7 +123,7 @@ func (suite *SeedTestSuite) TestSeedSyncRead(c *check.C) {
 		startTime = time.Now()
 		_, err = suite.readFromFileServer("fileF", start, end-start+1)
 		c.Assert(err, check.IsNil)
-		logrus.Infof("in TestSeedSyncRead, Download from source 100KB costs time: %f second", time.Now().Sub(startTime).Seconds())
+		logrus.Debugf("in TestSeedSyncRead, Download from source 100KB costs time: %f second", time.Now().Sub(startTime).Seconds())
 
 		suite.checkDataWithFileServer(c, "fileF", start, end-start+1, obtainedData)
 		start = end + 1
@@ -192,7 +192,7 @@ func (suite *SeedTestSuite) TestSeedSyncReadPerformance(c *check.C) {
 
 				startTime := time.Now()
 				rc, err := sd.Download(start, end-start+1)
-				logrus.Infof("in TestSeedSyncReadPerformance, Download 100KB costs time: %f second", time.Now().Sub(startTime).Seconds())
+				logrus.Debugf("in TestSeedSyncReadPerformance, Download 100KB costs time: %f second", time.Now().Sub(startTime).Seconds())
 				c.Assert(err, check.IsNil)
 				obtainedData, err := ioutil.ReadAll(rc)
 				rc.Close()
@@ -201,7 +201,7 @@ func (suite *SeedTestSuite) TestSeedSyncReadPerformance(c *check.C) {
 				startTime = time.Now()
 				_, err = suite.readFromFileServer(fileName, start, end-start+1)
 				c.Assert(err, check.IsNil)
-				logrus.Infof("in TestSeedSyncReadPerformance, Download from source 100KB costs time: %f second", time.Now().Sub(startTime).Seconds())
+				logrus.Debugf("in TestSeedSyncReadPerformance, Download from source 100KB costs time: %f second", time.Now().Sub(startTime).Seconds())
 
 				suite.checkDataWithFileServer(c, fileName, start, end-start+1, obtainedData)
 				start = end + 1
@@ -265,7 +265,7 @@ func (suite *SeedTestSuite) TestSeedRestore(c *check.C) {
 
 			startTime := time.Now()
 			rc, err := sd.Download(start, end-start+1)
-			logrus.Infof("in TestSeedSyncReadPerformance, Download 100KB costs time: %f second", time.Now().Sub(startTime).Seconds())
+			logrus.Debugf("in TestSeedSyncReadPerformance, Download 100KB costs time: %f second", time.Now().Sub(startTime).Seconds())
 			c.Assert(err, check.IsNil)
 			obtainedData, err := ioutil.ReadAll(rc)
 			rc.Close()
@@ -274,7 +274,7 @@ func (suite *SeedTestSuite) TestSeedRestore(c *check.C) {
 			startTime = time.Now()
 			_, err = suite.readFromFileServer(fileName, start, end-start+1)
 			c.Assert(err, check.IsNil)
-			logrus.Infof("in TestSeedSyncReadPerformance, Download from source 100KB costs time: %f second", time.Now().Sub(startTime).Seconds())
+			logrus.Debugf("in TestSeedSyncReadPerformance, Download from source 100KB costs time: %f second", time.Now().Sub(startTime).Seconds())
 
 			suite.checkDataWithFileServer(c, fileName, start, end-start+1, obtainedData)
 			start = end + 1
@@ -314,7 +314,7 @@ func (suite *SeedTestSuite) TestSeedRestore(c *check.C) {
 
 		startTime := time.Now()
 		rc, err := sd.Download(start, end-start+1)
-		logrus.Infof("in TestSeedSyncReadPerformance, Download 100KB costs time: %f second", time.Now().Sub(startTime).Seconds())
+		logrus.Debugf("in TestSeedSyncReadPerformance, Download 100KB costs time: %f second", time.Now().Sub(startTime).Seconds())
 		c.Assert(err, check.IsNil)
 		obtainedData, err := ioutil.ReadAll(rc)
 		rc.Close()
@@ -323,7 +323,7 @@ func (suite *SeedTestSuite) TestSeedRestore(c *check.C) {
 		startTime = time.Now()
 		_, err = suite.readFromFileServer(fileName, start, end-start+1)
 		c.Assert(err, check.IsNil)
-		logrus.Infof("in TestSeedSyncReadPerformance, Download from source 100KB costs time: %f second", time.Now().Sub(startTime).Seconds())
+		logrus.Debugf("in TestSeedSyncReadPerformance, Download from source 100KB costs time: %f second", time.Now().Sub(startTime).Seconds())
 
 		suite.checkDataWithFileServer(c, fileName, start, end-start+1, obtainedData)
 		start = end + 1
@@ -345,7 +345,7 @@ func (suite *SeedTestSuite) TestSeedRestore(c *check.C) {
 
 		startTime := time.Now()
 		rc, err := sd.Download(start, end-start+1)
-		logrus.Infof("in TestSeedSyncReadPerformance, Download 100KB costs time: %f second", time.Now().Sub(startTime).Seconds())
+		logrus.Debugf("in TestSeedSyncReadPerformance, Download 100KB costs time: %f second", time.Now().Sub(startTime).Seconds())
 		c.Assert(err, check.IsNil)
 		obtainedData, err := ioutil.ReadAll(rc)
 		rc.Close()
@@ -354,7 +354,7 @@ func (suite *SeedTestSuite) TestSeedRestore(c *check.C) {
 		startTime = time.Now()
 		_, err = suite.readFromFileServer(fileName, start, end-start+1)
 		c.Assert(err, check.IsNil)
-		logrus.Infof("in TestSeedSyncReadPerformance, Download from source 100KB costs time: %f second", time.Now().Sub(startTime).Seconds())
+		logrus.Debugf("in TestSeedSyncReadPerformance, Download from source 100KB costs time: %f second", time.Now().Sub(startTime).Seconds())
 
 		suite.checkDataWithFileServer(c, fileName, start, end-start+1, obtainedData)
 		start = end + 1
@@ -392,7 +392,7 @@ func (suite *SeedTestSuite) TestSeedRestore(c *check.C) {
 
 		startTime := time.Now()
 		rc, err := cb.ReadStream(start, end-start+1)
-		logrus.Infof("in TestSeedSyncReadPerformance, Download 100KB costs time: %f second", time.Now().Sub(startTime).Seconds())
+		logrus.Debugf("in TestSeedSyncReadPerformance, Download 100KB costs time: %f second", time.Now().Sub(startTime).Seconds())
 		c.Assert(err, check.IsNil)
 		obtainedData, err := ioutil.ReadAll(rc)
 		rc.Close()
@@ -401,7 +401,7 @@ func (suite *SeedTestSuite) TestSeedRestore(c *check.C) {
 		startTime = time.Now()
 		_, err = suite.readFromFileServer(fileName, start, end-start+1)
 		c.Assert(err, check.IsNil)
-		logrus.Infof("in TestSeedSyncReadPerformance, Download from source 100KB costs time: %f second", time.Now().Sub(startTime).Seconds())
+		logrus.Debugf("in TestSeedSyncReadPerformance, Download from source 100KB costs time: %f second", time.Now().Sub(startTime).Seconds())
 
 		suite.checkDataWithFileServer(c, fileName, start, end-start+1, obtainedData)
 		start = end + 1
