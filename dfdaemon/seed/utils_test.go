@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"github.com/dragonflyoss/Dragonfly/pkg/ratelimiter"
 	"github.com/pborman/uuid"
+	"github.com/sirupsen/logrus"
 	"io/ioutil"
 	"math/rand"
 	"os"
@@ -48,8 +49,9 @@ type SeedTestSuite struct {
 }
 
 func init() {
-	rand.Seed(time.Now().Unix())
+	rand.Seed(time.Now().Unix() + 100)
 	check.Suite(&SeedTestSuite{})
+	logrus.SetLevel(logrus.InfoLevel)
 }
 
 func (suite *SeedTestSuite) SetUpSuite(c *check.C) {
@@ -61,7 +63,7 @@ func (suite *SeedTestSuite) SetUpSuite(c *check.C) {
 	err = os.MkdirAll(suite.cacheDir, 0774)
 	c.Assert(err, check.IsNil)
 
-	suite.port = rand.Intn(1000) + 63000
+	suite.port = rand.Intn(1000) + 63000 + 10
 	suite.host = fmt.Sprintf("127.0.0.1:%d", suite.port)
 
 	suite.server = helper.NewMockFileServer()
