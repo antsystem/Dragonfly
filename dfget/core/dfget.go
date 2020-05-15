@@ -11,6 +11,7 @@ import (
 	backDown "github.com/dragonflyoss/Dragonfly/dfget/core/downloader/back_downloader"
 	p2pDown "github.com/dragonflyoss/Dragonfly/dfget/core/downloader/p2p_downloader"
 	"github.com/dragonflyoss/Dragonfly/dfget/core/regist"
+	"github.com/dragonflyoss/Dragonfly/dfget/locator"
 	"github.com/dragonflyoss/Dragonfly/pkg/errortypes"
 	"github.com/dragonflyoss/Dragonfly/pkg/printer"
 )
@@ -35,20 +36,21 @@ func (df *dfGet) GetReader(ctx context.Context, cfg *config.Config) (io.Reader, 
 	cfg.RV.StreamMode = true
 
 	var (
-		supernodeAPI = api.NewSupernodeAPI()
-		register     = regist.NewSupernodeRegister(cfg, supernodeAPI)
-		err          error
-		result       *regist.RegisterResult
+		supernodeAPI     = api.NewSupernodeAPI()
+		supernodeLocator = locator.CreateLocator(cfg)
+		register         = regist.NewSupernodeRegister(cfg, supernodeAPI, supernodeLocator)
+		err              error
+		result           *regist.RegisterResult
 	)
 
 	printer.Println(fmt.Sprintf("--%s--  %s",
 		cfg.StartTime.Format(config.DefaultTimestampFormat), cfg.URL))
 
-	if err = prepareStream(cfg); err != nil {
+	if err = prepareStream(cfg, supernodeLocator); err != nil {
 		return nil, errortypes.New(config.CodePrepareError, err.Error())
 	}
 
-	if result, err = registerToSuperNode(cfg, register); err != nil {
+	if result, err = registerToSuperNode(cfg, register, supernodeLocator); err != nil {
 		return nil, errortypes.New(config.CodeRegisterError, err.Error())
 	}
 

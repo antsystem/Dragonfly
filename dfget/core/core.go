@@ -118,14 +118,14 @@ func prepare(cfg *config.Config, locator locator.SupernodeLocator) (err error) {
 }
 
 // prepareStream the RV-related information.
-func prepareStream(cfg *config.Config) (err error) {
+func prepareStream(cfg *config.Config, locator locator.SupernodeLocator) (err error) {
 	printer.Printf("dfget version:%s", version.DFGetVersion)
 	printer.Printf("sign:%s", cfg.Sign)
 
 	rv := &cfg.RV
 	cfg.Nodes = adjustSupernodeList(cfg.Nodes)
 	if stringutils.IsEmptyStr(rv.LocalIP) {
-		rv.LocalIP = checkConnectSupernode(cfg.Nodes)
+		rv.LocalIP = checkConnectSupernode(locator)
 	}
 	rv.Cid = getCid(rv.LocalIP, cfg.Sign)
 	rv.TaskFileName = getTaskFileName(rv.RealTarget, cfg.Sign)
