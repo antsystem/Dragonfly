@@ -115,7 +115,7 @@ type Properties struct {
 	PeerPort   int             `yaml:"peerPort" json:"peerPort"`
 	StreamMode bool            `yaml:"streamMode" json:"streamMode"`
 
-	ProtocolConf ProtocolConfig `yaml:"protocolConf" json:"protocolConf"`
+	ProtocolConf []ProtocolConfig `yaml:"protocolConf" json:"protocolConf"`
 }
 
 // Validate validates the config
