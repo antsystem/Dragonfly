@@ -84,6 +84,14 @@ func (d *downloadAPI) Download(ip string, port int, req *DownloadRequest, timeou
 	headers[config.StrRange] = httputils.ConstructRangeStr(rangeStr)
 
 	return httputils.HTTPGetTimeout(url, headers, timeout)
+	//code, data, err := httputils.GetWithHeaders(url, headers, timeout)
+	//if err != nil {
+	//	return nil, err
+	//}
+	//return &http.Response{
+	//	StatusCode: code,
+	//	Body: ioutil.NopCloser(bytes.NewBuffer(data)),
+	//}, nil
 }
 
 func isFromSource(req *DownloadRequest) bool {

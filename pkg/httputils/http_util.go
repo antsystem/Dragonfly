@@ -52,6 +52,22 @@ const (
 	DefaultTimeout = 500 * time.Millisecond
 )
 
+var defaultHttpClient = &http.Client{
+	Transport: &http.Transport{
+		Proxy: http.ProxyFromEnvironment,
+		DialContext: (&net.Dialer{
+			Timeout:   30 * time.Second,
+			KeepAlive: 30 * time.Second,
+			DualStack: true,
+		}).DialContext,
+		MaxIdleConns:          100,
+		IdleConnTimeout:       90 * time.Second,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
+	},
+	Timeout: 2 * time.Second,
+}
+
 // DefaultHTTPClient is the default implementation of SimpleHTTPClient.
 var DefaultHTTPClient SimpleHTTPClient = &defaultHTTPClient{}
 
@@ -265,32 +281,32 @@ func HTTPWithHeaders(method, url string, headers map[string]string, timeout time
 	}
 
 	// copy from http.DefaultTransport
-	transport := &http.Transport{
-		Proxy: http.ProxyFromEnvironment,
-		DialContext: (&net.Dialer{
-			Timeout:   30 * time.Second,
-			KeepAlive: 30 * time.Second,
-			DualStack: true,
-		}).DialContext,
-		MaxIdleConns:          100,
-		IdleConnTimeout:       90 * time.Second,
-		TLSHandshakeTimeout:   10 * time.Second,
-		ExpectContinueTimeout: 1 * time.Second,
-	}
-	RegisterProtocolOnTransport(transport)
+	//transport := &http.Transport{
+	//	Proxy: http.ProxyFromEnvironment,
+	//	DialContext: (&net.Dialer{
+	//		Timeout:   30 * time.Second,
+	//		KeepAlive: 30 * time.Second,
+	//		DualStack: true,
+	//	}).DialContext,
+	//	MaxIdleConns:          100,
+	//	IdleConnTimeout:       90 * time.Second,
+	//	TLSHandshakeTimeout:   10 * time.Second,
+	//	ExpectContinueTimeout: 1 * time.Second,
+	//}
+	//RegisterProtocolOnTransport(transport)
+	//
+	//if tlsConfig != nil {
+	//	transport.TLSClientConfig = tlsConfig
+	//}
+	//
+	//c := &http.Client{
+	//	Transport: transport,
+	//}
+	//if timeout > 0 {
+	//	c.Timeout = timeout
+	//}
 
-	if tlsConfig != nil {
-		transport.TLSClientConfig = tlsConfig
-	}
-
-	c := &http.Client{
-		Transport: transport,
-	}
-	if timeout > 0 {
-		c.Timeout = timeout
-	}
-
-	return c.Do(req)
+	return defaultHttpClient.Do(req)
 }
 
 // HTTPStatusOk reports whether the http response code is 200.

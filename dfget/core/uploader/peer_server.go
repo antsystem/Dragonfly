@@ -44,6 +44,12 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+var buffPool = sync.Pool{
+	New: func() interface{} {
+		return make([]byte, 64*1024)
+	},
+}
+
 // newPeerServer returns a new P2PServer.
 func newPeerServer(cfg *config.Config, port int) *peerServer {
 	s := &peerServer{
@@ -196,6 +202,10 @@ func (ps *peerServer) isSeedFile(taskFileName string) (seed.Seed, bool) {
 	return sd, true
 }
 
+type writeOnly struct {
+	io.Writer
+}
+
 func (ps *peerServer) uploadSeedFile(w http.ResponseWriter, up *uploadParam, sd seed.Seed) (e error) {
 	rc, err := sd.Download(up.start, up.length)
 	if err != nil {
@@ -204,16 +214,18 @@ func (ps *peerServer) uploadSeedFile(w http.ResponseWriter, up *uploadParam, sd 
 
 	defer rc.Close()
 
-	buf := make([]byte, 256*1024)
+	//buf := make([]byte, 256*1024)
+	buf := buffPool.Get().([]byte)
+	defer buffPool.Put(buf)
 
 	w.Header().Set(config.StrContentLength, strconv.FormatInt(up.length, 10))
 	sendHeader(w, http.StatusPartialContent)
 
 	if ps.rateLimiter != nil {
 		lr := limitreader.NewLimitReaderWithLimiter(ps.rateLimiter, rc, false)
-		_, e = io.CopyBuffer(w, lr, buf)
+		_, e = io.CopyBuffer(writeOnly{w}, lr, buf)
 	} else {
-		_, e = io.CopyBuffer(w, rc, buf)
+		_, e = io.CopyBuffer(writeOnly{w}, rc, buf)
 	}
 
 	return

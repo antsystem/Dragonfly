@@ -60,9 +60,9 @@ func newFileCacheBuffer(path string, fullSize int64, trunc bool, memoryCache boo
 	}
 
 	if trunc {
-		fw, err = os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+		fw, err = os.OpenFile(path, os.O_CREATE|os.O_RDWR|os.O_TRUNC, 0644)
 	} else {
-		fw, err = os.OpenFile(path, os.O_CREATE|os.O_WRONLY, 0644)
+		fw, err = os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0644)
 	}
 
 	if err != nil {
@@ -283,12 +283,12 @@ func (fcb *fileCacheBuffer) openReadCloser(off int64, size int64) (io.ReadCloser
 		return fcb.openReadCloserInMemoryCacheMode(off, size)
 	}
 
-	fr, err := os.Open(fcb.path)
-	if err != nil {
-		return nil, err
-	}
+	//fr, err := os.Open(fcb.path)
+	//if err != nil {
+	//	return nil, err
+	//}
 
-	return newLimitReadCloser(fr, off, size)
+	return newLimitReadCloser(fcb.fw, off, size)
 }
 
 // if in memory cache mode, the reader is multi reader in which some data in memory and others in file.
@@ -403,7 +403,7 @@ func (lr *fileReadCloser) Read(p []byte) (n int, err error) {
 }
 
 func (lr *fileReadCloser) Close() error {
-	return lr.fr.Close()
+	return nil
 }
 
 // multiReadCloser provides multi ReadCloser.

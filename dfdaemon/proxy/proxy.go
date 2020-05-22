@@ -38,6 +38,12 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+var buffPool = sync.Pool{
+	New: func() interface{} {
+		return make([]byte, 64*1024)
+	},
+}
+
 // Option is a functional option for configuring the proxy
 type Option func(p *Proxy) error
 
@@ -254,6 +260,10 @@ func (proxy *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+type writeOnly struct {
+	io.Writer
+}
+
 func (proxy *Proxy) handleHTTP(w http.ResponseWriter, req *http.Request) {
 	resp, err := proxy.roundTripper(nil).RoundTrip(req)
 	if err != nil {
@@ -261,9 +271,11 @@ func (proxy *Proxy) handleHTTP(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	defer resp.Body.Close()
+	buf := buffPool.Get().([]byte)
+	defer buffPool.Put(buf)
 	copyHeader(w.Header(), resp.Header)
 	w.WriteHeader(resp.StatusCode)
-	if _, err := io.Copy(w, resp.Body); err != nil {
+	if _, err := io.CopyBuffer(writeOnly{w}, resp.Body, buf); err != nil {
 		logrus.Errorf("failed to write http body: %v", err)
 	}
 }

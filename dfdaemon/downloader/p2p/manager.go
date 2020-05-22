@@ -172,7 +172,7 @@ func newManager(cfg *Config, superNodes []string) *Manager {
 		TotalLimit: cfg.TotalLimit,
 		ConcurrentLimit: cfg.ConcurrentLimit,
 		DownloadBlockOrder: uint32(cfg.DefaultBlockOrder),
-		OpenMemoryCache: true,
+		OpenMemoryCache: false,
 		// todo: set rate of download and upload by config.
 		DownloadRate: int64(cfg.DownRate),
 		UploadRate: int64(cfg.DownRate),

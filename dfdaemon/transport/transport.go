@@ -197,7 +197,6 @@ func (roundTripper *DFRoundTripper) downloadByStream(ctx context.Context, url st
 		logrus.Errorf("download fail: %v", err)
 		return nil, err
 	}
-
 	resp := &http.Response{
 		StatusCode: 200,
 		Body:       rc,

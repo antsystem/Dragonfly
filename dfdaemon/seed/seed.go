@@ -293,7 +293,7 @@ func (sd *seed) Prefetch(perDownloadSize int64) (<-chan struct{}, error) {
 			sd.Status = FINISHED_STATUS
 		}
 
-		err = sd.cache.Close()
+		//err = sd.cache.Close()
 		close(sd.prefetchCh)
 
 		err = sd.storeMetaData()
@@ -344,9 +344,9 @@ func (sd *seed) Download(off int64, size int64) (io.ReadCloser, error) {
 		}
 	}
 
-	if sd.downPreFunc != nil {
-		sd.downPreFunc(sd)
-	}
+	//if sd.downPreFunc != nil {
+	//	sd.downPreFunc(sd)
+	//}
 
 	return sd.cache.ReadStream(off, size)
 }
