@@ -44,11 +44,11 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-var buffPool = sync.Pool{
-	New: func() interface{} {
-		return make([]byte, 64*1024)
-	},
-}
+//var buffPool = sync.Pool{
+//	New: func() interface{} {
+//		return make([]byte, 64*1024)
+//	},
+//}
 
 // newPeerServer returns a new P2PServer.
 func newPeerServer(cfg *config.Config, port int) *peerServer {
@@ -93,7 +93,7 @@ type peerServer struct {
 
 	// syncTaskMap stores the meta name of tasks on the host
 	syncTaskMap sync.Map
-	sm 			seed.Manager
+	sm          seed.Manager
 }
 
 // taskConfig refers to some name about peer task.
@@ -202,11 +202,16 @@ func (ps *peerServer) isSeedFile(taskFileName string) (seed.Seed, bool) {
 	return sd, true
 }
 
-type writeOnly struct {
-	io.Writer
-}
+//type writeOnly struct {
+//	io.Writer
+//}
 
 func (ps *peerServer) uploadSeedFile(w http.ResponseWriter, up *uploadParam, sd seed.Seed) (e error) {
+	full := false
+	if up.length <= 0 {
+		full = true
+		up.length = sd.GetFullSize()
+	}
 	rc, err := sd.Download(up.start, up.length)
 	if err != nil {
 		return err
@@ -215,18 +220,30 @@ func (ps *peerServer) uploadSeedFile(w http.ResponseWriter, up *uploadParam, sd 
 	defer rc.Close()
 
 	//buf := make([]byte, 256*1024)
-	buf := buffPool.Get().([]byte)
-	defer buffPool.Put(buf)
+	//buf := buffPool.Get().([]byte)
+	//defer buffPool.Put(buf)
 
 	w.Header().Set(config.StrContentLength, strconv.FormatInt(up.length, 10))
-	sendHeader(w, http.StatusPartialContent)
-
-	if ps.rateLimiter != nil {
-		lr := limitreader.NewLimitReaderWithLimiter(ps.rateLimiter, rc, false)
-		_, e = io.CopyBuffer(writeOnly{w}, lr, buf)
+	// TODO: reschedule, choose a new suitable seed
+	w.Header().Set("download_url",
+		fmt.Sprintf("http://%s:%d%s%s",
+			ps.cfg.RV.LocalIP,
+			ps.cfg.RV.PeerPort,
+			config.PeerHTTPPathPrefix,
+			sd.GetPath()))
+	if !full {
+		sendHeader(w, http.StatusPartialContent)
 	} else {
-		_, e = io.CopyBuffer(writeOnly{w}, rc, buf)
+		sendHeader(w, http.StatusOK)
 	}
+
+	//if ps.rateLimiter != nil {
+	//	lr := limitreader.NewLimitReaderWithLimiter(ps.rateLimiter, rc, false)
+	//	_, e = io.CopyBuffer(writeOnly{w}, lr, buf)
+	//} else {
+	//	_, e = io.CopyBuffer(writeOnly{w}, rc, buf)
+	//}
+	_, e = io.Copy(w, rc)
 
 	return
 }
@@ -403,12 +420,19 @@ func parseParams(rangeVal, pieceNumStr, pieceSizeStr string) (*uploadParam, erro
 		up  = &uploadParam{}
 	)
 
-	if up.pieceNum, err = strconv.ParseInt(pieceNumStr, 10, 64); err != nil {
-		return nil, err
+	if pieceNumStr != "" {
+		if up.pieceNum, err = strconv.ParseInt(pieceNumStr, 10, 64); err != nil {
+			return nil, err
+		}
 	}
 
-	if up.pieceSize, err = strconv.ParseInt(pieceSizeStr, 10, 64); err != nil {
-		return nil, err
+	if pieceSizeStr != "" {
+		if up.pieceSize, err = strconv.ParseInt(pieceSizeStr, 10, 64); err != nil {
+			return nil, err
+		}
+	}
+	if rangeVal == "" {
+		return up, nil
 	}
 
 	if strings.Count(rangeVal, "=") != 1 {

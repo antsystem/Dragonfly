@@ -283,12 +283,11 @@ func (fcb *fileCacheBuffer) openReadCloser(off int64, size int64) (io.ReadCloser
 		return fcb.openReadCloserInMemoryCacheMode(off, size)
 	}
 
-	//fr, err := os.Open(fcb.path)
-	//if err != nil {
-	//	return nil, err
-	//}
-
-	return newLimitReadCloser(fcb.fw, off, size)
+	fr, err := os.Open(fcb.path)
+	if err != nil {
+		return nil, err
+	}
+	return newLimitReadCloser(fr, off, size)
 }
 
 // if in memory cache mode, the reader is multi reader in which some data in memory and others in file.
@@ -392,10 +391,21 @@ type fileReadCloser struct {
 
 func newLimitReadCloser(fr *os.File, off int64, size int64) (io.ReadCloser, error) {
 	sr := io.NewSectionReader(fr, off, size)
+	if _, err := fr.Seek(off, io.SeekStart); err != nil {
+		return nil, err
+	}
 	return &fileReadCloser{
 		sr: sr,
 		fr: fr,
 	}, nil
+}
+
+func (lr *fileReadCloser) WriteTo(writer io.Writer) (n int64, err error) {
+	if rf, ok := writer.(io.ReaderFrom); ok {
+		return rf.ReadFrom(io.LimitReader(lr.fr, lr.sr.Size()))
+	}
+	buf := make([]byte, 64 * 1024)
+	return io.CopyBuffer(writer, lr.sr, buf)
 }
 
 func (lr *fileReadCloser) Read(p []byte) (n int, err error) {
@@ -403,7 +413,7 @@ func (lr *fileReadCloser) Read(p []byte) (n int, err error) {
 }
 
 func (lr *fileReadCloser) Close() error {
-	return nil
+	return lr.fr.Close()
 }
 
 // multiReadCloser provides multi ReadCloser.

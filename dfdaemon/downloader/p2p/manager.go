@@ -23,14 +23,15 @@ import (
 	"io"
 	"math"
 	"net/http"
+	"strconv"
 )
 
-var(
-	localManager  *Manager
-	once sync.Once
+var (
+	localManager *Manager
+	once         sync.Once
 )
 
-const(
+const (
 	defaultUploadRate = 100 * 1024 * 1024
 
 	defaultDownloadRate = 100 * 1024 * 1024
@@ -42,13 +43,13 @@ const(
 )
 
 type superNodeWrapper struct {
-	superNode      string
+	superNode string
 
 	// version of supernode, if changed, it indicates supernode has been restarted.
-	version		   string
+	version string
 
 	// scheduler which the task is belong to the supernode.
-	sm			   *scheduler.Manager
+	sm *scheduler.Manager
 }
 
 func (s *superNodeWrapper) versionChanged(version string) bool {
@@ -57,8 +58,8 @@ func (s *superNodeWrapper) versionChanged(version string) bool {
 
 // Manager control the
 type Manager struct {
-	cfg          *Config
-	sdOpt        *seed.NewSeedManagerOpt
+	cfg   *Config
+	sdOpt *seed.NewSeedManagerOpt
 	//sm 			 *scheduler.Manager
 	seedManager  seed.Manager
 	supernodeAPI api.SupernodeAPI
@@ -67,24 +68,24 @@ type Manager struct {
 
 	superNodeMap map[string]*superNodeWrapper
 
-	rm		 *requestManager
+	rm *requestManager
 
-	ctx      context.Context
-	cancel   func()
+	ctx    context.Context
+	cancel func()
 
-	syncP2PNetworkCh	chan activeFetchSt
-	syncTimeLock		sync.Mutex
-	syncTime			time.Time
+	syncP2PNetworkCh chan activeFetchSt
+	syncTimeLock     sync.Mutex
+	syncTime         time.Time
 
 	// recentFetchUrls is the urls which as the parameters to fetch the p2p network recently
-	recentFetchUrls     []string
+	recentFetchUrls []string
 
-	hc 					hash_circler.PreSetHashCircler
+	hc hash_circler.PreSetHashCircler
 }
 
 type activeFetchSt struct {
-	url   	string
-	waitCh  chan struct{}
+	url    string
+	waitCh chan struct{}
 }
 
 func GetManager() *Manager {
@@ -104,9 +105,9 @@ func newManager(cfg *Config, superNodes []string) *Manager {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	localPeerInfo := &api_types.PeerInfo{
-		ID: cfg.Cid,
-		IP: strfmt.IPv4(cfg.IP),
-		Port: int32(cfg.Port),
+		ID:       cfg.Cid,
+		IP:       strfmt.IPv4(cfg.IP),
+		Port:     int32(cfg.Port),
 		HostName: strfmt.Hostname(cfg.HostName),
 	}
 
@@ -114,7 +115,7 @@ func newManager(cfg *Config, superNodes []string) *Manager {
 	for _, s := range superNodes {
 		superNodesMap[s] = &superNodeWrapper{
 			superNode: s,
-			sm: scheduler.NewScheduler(localPeerInfo),
+			sm:        scheduler.NewScheduler(localPeerInfo),
 		}
 	}
 
@@ -126,17 +127,17 @@ func newManager(cfg *Config, superNodes []string) *Manager {
 	}
 
 	m := &Manager{
-		cfg: cfg,
-		superNodeMap: superNodesMap,
-		supernodeAPI: api.NewSupernodeAPI(),
-		uploaderAPI: api.NewUploaderAPI(time.Duration(0)),
-		downloadAPI: api.NewDownloadAPI(),
+		cfg:              cfg,
+		superNodeMap:     superNodesMap,
+		supernodeAPI:     api.NewSupernodeAPI(),
+		uploaderAPI:      api.NewUploaderAPI(time.Duration(0)),
+		downloadAPI:      api.NewDownloadAPI(),
 		syncP2PNetworkCh: make(chan activeFetchSt, 10),
-		rm: newRequestManager(),
-		recentFetchUrls: []string{},
-		ctx: ctx,
-		cancel: cancel,
-		hc:  hc,
+		rm:               newRequestManager(),
+		recentFetchUrls:  []string{},
+		ctx:              ctx,
+		cancel:           cancel,
+		hc:               hc,
 	}
 
 	if cfg.HighLevel <= 0 {
@@ -168,16 +169,16 @@ func newManager(cfg *Config, superNodes []string) *Manager {
 	}
 
 	m.sdOpt = &seed.NewSeedManagerOpt{
-		StoreDir: filepath.Join(cfg.MetaDir, "seedStore"),
-		TotalLimit: cfg.TotalLimit,
-		ConcurrentLimit: cfg.ConcurrentLimit,
+		StoreDir:           filepath.Join(cfg.MetaDir, "seedStore"),
+		TotalLimit:         cfg.TotalLimit,
+		ConcurrentLimit:    cfg.ConcurrentLimit,
 		DownloadBlockOrder: uint32(cfg.DefaultBlockOrder),
-		OpenMemoryCache: false,
+		OpenMemoryCache:    false,
 		// todo: set rate of download and upload by config.
 		DownloadRate: int64(cfg.DownRate),
-		UploadRate: int64(cfg.DownRate),
-		HighLevel:  uint(cfg.HighLevel),
-		LowLevel:   uint(cfg.LowLevel),
+		UploadRate:   int64(cfg.DownRate),
+		HighLevel:    uint(cfg.HighLevel),
+		LowLevel:     uint(cfg.LowLevel),
 	}
 
 	seedManager := seed.NewSeedManager(*m.sdOpt)
@@ -198,7 +199,8 @@ func (m *Manager) DownloadStreamContext(ctx context.Context, url string, header 
 	if err != nil {
 		return nil, err
 	}
-
+	extraInfo := ctx.Value("extra").(map[string]string)
+	extraInfo[dfgetcfg.StrContentLength] = strconv.FormatInt(reqRange.EndIndex-reqRange.StartIndex+1, 10)
 	m.rm.addRequest(url)
 
 	logrus.Debugf("start to download stream in seed pattern, url: %s, header: %v, range: [%d, %d]", url,
@@ -211,6 +213,16 @@ func (m *Manager) DownloadStreamContext(ctx context.Context, url string, header 
 			// try to apply to be the seed node
 			m.tryToApplyForSeedNode(m.ctx, url, header)
 			continue
+		}
+		if dwInfos[0].peerID == m.cfg.Cid { // local
+			sd, err := m.seedManager.Get(dwInfos[0].path)
+			if err == nil {
+				extraInfo["download_url"] = fmt.Sprintf("http://%s:%d%s%s",
+					m.cfg.IP, m.cfg.Port,
+					dfgetcfg.PeerHTTPPathPrefix,
+					dwInfos[0].path)
+				return sd.Download(reqRange.StartIndex, reqRange.EndIndex-reqRange.StartIndex+1)
+			}
 		}
 
 		dw := &SeedDownloader{
@@ -245,7 +257,7 @@ func (m *Manager) scheduler(ctx context.Context, url string) []*downloadNodeInfo
 	return dwInfos
 }
 
-func (m *Manager) tryToApplyForSeedNode(ctx context.Context, url string, header map[string][]string)  {
+func (m *Manager) tryToApplyForSeedNode(ctx context.Context, url string, header map[string][]string) {
 	path := uuid.New()
 	cHeader := CopyHeader(header)
 	hr := http.Header(cHeader)
@@ -255,7 +267,7 @@ func (m *Manager) tryToApplyForSeedNode(ctx context.Context, url string, header 
 	if ! asSeed {
 		waitCh := make(chan struct{})
 		m.syncP2PNetworkCh <- activeFetchSt{url: url, waitCh: waitCh}
-		<- waitCh
+		<-waitCh
 		return
 	}
 
@@ -298,18 +310,18 @@ func (m *Manager) syncP2PNetworkInfoFromSuperNode(supernode string, sw *superNod
 }
 
 func (m *Manager) fetchP2PNetworkInfoLoop(ctx context.Context) {
-	var(
+	var (
 		lastTime time.Time
 	)
 	defaultInterval := 5 * time.Second
 	ticker := time.NewTicker(defaultInterval)
 	defer ticker.Stop()
 
-	for{
+	for {
 		select {
-		case <- ctx.Done():
+		case <-ctx.Done():
 			return
-		case <- ticker.C:
+		case <-ticker.C:
 			m.syncTimeLock.Lock()
 			lastTime = m.syncTime
 			m.syncTimeLock.Unlock()
@@ -319,7 +331,7 @@ func (m *Manager) fetchP2PNetworkInfoLoop(ctx context.Context) {
 			}
 
 			m.syncP2PNetworkInfo(m.rm.getRecentRequest(0))
-		case active := <- m.syncP2PNetworkCh:
+		case active := <-m.syncP2PNetworkCh:
 			if m.isRecentFetch(active.url) {
 				if active.waitCh != nil {
 					close(active.waitCh)
@@ -363,7 +375,7 @@ func (m *Manager) getRangeFromHeader(header map[string][]string) (*httputils.Ran
 
 		// if EndIndex is max int64, set EndIndex to (StartIndex - 1),
 		// so that means the end index is tail of file length.
-		if ds[0].EndIndex == math.MaxInt64 - 1 {
+		if ds[0].EndIndex == math.MaxInt64-1 {
 			ds[0].EndIndex = ds[0].StartIndex - 1
 		}
 
@@ -372,25 +384,25 @@ func (m *Manager) getRangeFromHeader(header map[string][]string) (*httputils.Ran
 
 	return &httputils.RangeStruct{
 		StartIndex: 0,
-		EndIndex: -1,
+		EndIndex:   -1,
 	}, nil
 }
 
 func (m *Manager) applyForSeedNode(url string, header map[string][]string, path string) (asSeed bool, seedTaskID string) {
 	req := &types.RegisterRequest{
-		RawURL: url,
-		TaskURL: url,
-		Cid: m.cfg.Cid,
-		Headers: FlattenHeader(header),
-		Dfdaemon: m.cfg.Dfdaemon,
-		IP:  m.cfg.IP,
-		Port: m.cfg.Port,
-		Version: m.cfg.Version,
+		RawURL:     url,
+		TaskURL:    url,
+		Cid:        m.cfg.Cid,
+		Headers:    FlattenHeader(header),
+		Dfdaemon:   m.cfg.Dfdaemon,
+		IP:         m.cfg.IP,
+		Port:       m.cfg.Port,
+		Version:    m.cfg.Version,
 		Identifier: m.cfg.Identifier,
-		RootCAs: m.cfg.RootCAs,
-		HostName: m.cfg.HostName,
-		AsSeed: true,
-		Path: path,
+		RootCAs:    m.cfg.RootCAs,
+		HostName:   m.cfg.HostName,
+		AsSeed:     true,
+		Path:       path,
 	}
 
 	node, err := m.hc.Hash(url)
@@ -417,7 +429,7 @@ func (m *Manager) applyForSeedNode(url string, header map[string][]string, path 
 		return false, ""
 	}
 
-	return resp.Data.AsSeed,  resp.Data.SeedTaskID
+	return resp.Data.AsSeed, resp.Data.SeedTaskID
 }
 
 func (m *Manager) fetchP2PNetwork(supernode string, urls []string) (resp *api_types.NetworkInfoFetchResponse, e error) {
@@ -445,7 +457,7 @@ func (m *Manager) fetchP2PNetwork(supernode string, urls []string) (resp *api_ty
 }
 
 // syncLocalSeed will sync local seed to all scheduler.
-func (m *Manager) syncLocalSeed (path string, taskID string, sd seed.Seed) {
+func (m *Manager) syncLocalSeed(path string, taskID string, sd seed.Seed) {
 	for _, sw := range m.superNodeMap {
 		sw.sm.AddLocalSeedInfo(&api_types.TaskFetchInfo{
 			Task: &api_types.TaskInfo{
@@ -468,11 +480,11 @@ func (m *Manager) heartBeatLoop(ctx context.Context) {
 	ticker := time.NewTicker(time.Second * 30)
 	defer ticker.Stop()
 
-	for{
+	for {
 		select {
-		case <- ctx.Done():
+		case <-ctx.Done():
 			return
-		case <- ticker.C:
+		case <-ticker.C:
 			m.heartbeat()
 		}
 	}
@@ -481,9 +493,9 @@ func (m *Manager) heartBeatLoop(ctx context.Context) {
 func (m *Manager) heartbeat() {
 	for node, sw := range m.superNodeMap {
 		resp, err := m.supernodeAPI.HeartBeat(node, &api_types.HeartBeatRequest{
-			IP: strfmt.IPv4(m.cfg.IP),
+			IP:   strfmt.IPv4(m.cfg.IP),
 			Port: int32(m.cfg.Port),
-			CID: m.cfg.Cid,
+			CID:  m.cfg.Cid,
 		})
 
 		logrus.Debugf("heart beat resp: %v", resp)
@@ -507,14 +519,15 @@ func (m *Manager) heartbeat() {
 
 func (m *Manager) registerLocalSeed(url string, header map[string][]string, path string, taskID string, blockOrder uint32) {
 	info := seed.BaseInfo{
-		URL: url,
-		Header: header,
-		BlockOrder: blockOrder,
+		URL:           url,
+		Header:        header,
+		BlockOrder:    blockOrder,
 		ExpireTimeDur: time.Hour,
-		TaskID: taskID,
+		TaskID:        taskID,
+		Path:          path,
 	}
 	sd, err := m.seedManager.Register(path, info)
-	if err == errortypes.ErrTaskIDDuplicate{
+	if err == errortypes.ErrTaskIDDuplicate {
 		return
 	}
 
@@ -534,7 +547,7 @@ func (m *Manager) tryToPrefetchSeedFile(ctx context.Context, path string, taskID
 		return
 	}
 
-	<- finishCh
+	<-finishCh
 
 	result, err := m.seedManager.GetPrefetchResult(path)
 	if err != nil {
@@ -566,14 +579,14 @@ func (m *Manager) monitorExpiredSeed(ctx context.Context, path string) {
 	}
 
 	select {
-	case <- ctx.Done():
+	case <-ctx.Done():
 		return
-	case <- expiredCh:
+	case <-expiredCh:
 		logrus.Infof("seed url: %s, key: %s, has been expired, try to clear resource of it", sd.GetURL(), sd.GetTaskID())
 		break
 	}
 
-	timer := time.NewTimer(60 *time.Second)
+	timer := time.NewTimer(60 * time.Second)
 	defer timer.Stop()
 
 	for {
@@ -581,7 +594,7 @@ func (m *Manager) monitorExpiredSeed(ctx context.Context, path string) {
 		select {
 		case <-ctx.Done():
 			return
-		case <- timer.C:
+		case <-timer.C:
 			logrus.Infof("seed %s, url %s will be deleted after %d seconds", path, sd.GetURL(), 60)
 			needBreak = true
 			break
@@ -641,20 +654,20 @@ func (m *Manager) reportSeedPrepareDeleteToSuperNodes(taskID string) bool {
 
 func (m *Manager) reportLocalSeedToSuperNode(path string, sd seed.Seed, targetSuperNode string) {
 	req := &types.RegisterRequest{
-		RawURL: sd.GetURL(),
-		TaskURL: sd.GetURL(),
-		TaskID: sd.GetTaskID(),
-		Cid:  m.cfg.Cid,
-		Headers: FlattenHeader(sd.GetHeaders()),
-		Dfdaemon: m.cfg.Dfdaemon,
-		IP:  m.cfg.IP,
-		Port: m.cfg.Port,
-		Version: m.cfg.Version,
+		RawURL:     sd.GetURL(),
+		TaskURL:    sd.GetURL(),
+		TaskID:     sd.GetTaskID(),
+		Cid:        m.cfg.Cid,
+		Headers:    FlattenHeader(sd.GetHeaders()),
+		Dfdaemon:   m.cfg.Dfdaemon,
+		IP:         m.cfg.IP,
+		Port:       m.cfg.Port,
+		Version:    m.cfg.Version,
 		Identifier: m.cfg.Identifier,
-		RootCAs: m.cfg.RootCAs,
-		HostName: m.cfg.HostName,
-		AsSeed: true,
-		Path: path,
+		RootCAs:    m.cfg.RootCAs,
+		HostName:   m.cfg.HostName,
+		AsSeed:     true,
+		Path:       path,
 	}
 
 	resp, err := m.supernodeAPI.ReportResource(targetSuperNode, req)
@@ -682,7 +695,7 @@ func (m *Manager) restoreLocalSeed(ctx context.Context, syncLocal bool, monitor 
 	}
 }
 
-func (m *Manager) reportLocalSeedsToSuperNode(node string)  {
+func (m *Manager) reportLocalSeedsToSuperNode(node string) {
 	keys, sds, err := m.seedManager.List()
 	if err != nil {
 		logrus.Errorf("failed to list local seeds : %v", err)

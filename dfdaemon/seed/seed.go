@@ -81,6 +81,8 @@ type Seed interface {
 
 	// GetHeaders gets the taskID of seed file.
 	GetTaskID() string
+
+	GetPath() string
 }
 
 // seed represents a seed which could be downloaded by other peers
@@ -133,6 +135,8 @@ type seed struct {
 	doneCtx context.Context
 	cancel  context.CancelFunc
 
+	path string
+
 	// when call Download(), run the downPreFunc first.
 	downPreFunc func(sd Seed)
 }
@@ -169,6 +173,7 @@ func NewSeed(base SeedBaseOpt, rate RateOpt, openMemoryCache bool) (Seed, error)
 		doneCtx:         ctx,
 		cancel:          cancel,
 		downPreFunc:     base.downPreFunc,
+		path:            base.Info.Path,
 	}
 
 	err = sd.initParam(base.BaseDir)
@@ -293,7 +298,7 @@ func (sd *seed) Prefetch(perDownloadSize int64) (<-chan struct{}, error) {
 			sd.Status = FINISHED_STATUS
 		}
 
-		//err = sd.cache.Close()
+		err = sd.cache.Close()
 		close(sd.prefetchCh)
 
 		err = sd.storeMetaData()
@@ -356,6 +361,10 @@ func (sd *seed) GetFullSize() int64 {
 	defer sd.RUnlock()
 
 	return sd.FullSize
+}
+
+func (sd *seed) GetPath() string {
+	return sd.path
 }
 
 func (sd *seed) GetStatus() string {

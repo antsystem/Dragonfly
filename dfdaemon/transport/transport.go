@@ -155,8 +155,8 @@ func (roundTripper *DFRoundTripper) download(req *http.Request, urlString string
 	if roundTripper.streamMode {
 		if req.Header.Get("x-nydus-proxy-healthcheck") != "" {
 			return &http.Response{
-					StatusCode: 200,
-					Body: ioutil.NopCloser(bytes.NewReader([]byte{})),
+				StatusCode: 200,
+				Body:       ioutil.NopCloser(bytes.NewReader([]byte{})),
 			}, nil
 		}
 		return roundTripper.downloadByStream(req.Context(), urlString, req.Header, uuid.New())
@@ -192,14 +192,23 @@ func (roundTripper *DFRoundTripper) downloadByGetter(ctx context.Context, url st
 
 func (roundTripper *DFRoundTripper) downloadByStream(ctx context.Context, url string, header map[string][]string, name string) (*http.Response, error) {
 	logrus.Infof("start download url:%s to %s in repo", url, name)
-	rc, err := roundTripper.StreamDownloader.DownloadStreamContext(ctx, url, header, name)
+	extra := make(map[string]string)
+	newCtx := context.WithValue(ctx,"extra", extra)
+	rc, err := roundTripper.StreamDownloader.DownloadStreamContext(newCtx, url, header, name)
 	if err != nil {
 		logrus.Errorf("download fail: %v", err)
 		return nil, err
 	}
 	resp := &http.Response{
-		StatusCode: 200,
+		Header:     make(http.Header),
+		StatusCode: http.StatusOK,
 		Body:       rc,
+	}
+	if _, ok := header["Range"]; ok {
+		resp.StatusCode = http.StatusPartialContent
+	}
+	for k, v := range extra {
+		resp.Header.Add(k, v)
 	}
 	return resp, nil
 }

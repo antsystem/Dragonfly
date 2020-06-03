@@ -13,13 +13,13 @@ import (
 )
 
 type SeedDownloader struct {
-	selectNodes		[]*downloadNodeInfo
+	selectNodes []*downloadNodeInfo
 
-	reqRange        *httputils.RangeStruct
-	url				string
-	header          map[string][]string
+	reqRange *httputils.RangeStruct
+	url      string
+	header   map[string][]string
 
-	downloadAPI		api.DownloadAPI
+	downloadAPI api.DownloadAPI
 }
 
 func (sd *SeedDownloader) RunStream(ctx context.Context) (io.ReadCloser, error) {
@@ -27,8 +27,8 @@ func (sd *SeedDownloader) RunStream(ctx context.Context) (io.ReadCloser, error) 
 }
 
 func (sd *SeedDownloader) tryDownloadByCandidates(ctx context.Context) (io.ReadCloser, error) {
-	var(
-		lastErr  error
+	var (
+		lastErr error
 	)
 
 	for _, info := range sd.selectNodes {
@@ -39,7 +39,14 @@ func (sd *SeedDownloader) tryDownloadByCandidates(ctx context.Context) (io.ReadC
 			// todo: analysis the error, and if peer node is unavailable, try to update in internal scheduler.
 			continue
 		}
-
+		if ctx.Value("extra") != nil {
+			extraInfo := ctx.Value("extra").(map[string]string)
+			extraInfo["download_url"] = fmt.Sprintf("http://%s:%d%s%s",
+				info.ip,
+				info.port,
+				config.PeerHTTPPathPrefix,
+				info.path)
+		}
 		return rc, nil
 	}
 
@@ -47,7 +54,7 @@ func (sd *SeedDownloader) tryDownloadByCandidates(ctx context.Context) (io.ReadC
 }
 
 func (sd *SeedDownloader) downloadRange(ctx context.Context, info *downloadNodeInfo) (io.ReadCloser, int, error) {
-	var(
+	var (
 		err error
 	)
 
@@ -58,17 +65,17 @@ func (sd *SeedDownloader) downloadRange(ctx context.Context, info *downloadNodeI
 	}
 
 	req := &api.DownloadRequest{
-		Path:  filepath.Join(config.PeerHTTPPathPrefix, info.path),
+		Path:       filepath.Join(config.PeerHTTPPathPrefix, info.path),
 		PieceRange: fmt.Sprintf("%d-%d", sd.reqRange.StartIndex, sd.reqRange.EndIndex),
-		PieceNum: 0,
-		PieceSize: int32(sd.reqRange.EndIndex - sd.reqRange.StartIndex + 1),
-		Headers: hd,
+		PieceNum:   0,
+		PieceSize:  int32(sd.reqRange.EndIndex - sd.reqRange.StartIndex + 1),
+		Headers:    hd,
 	}
 
 	// todo: set a suitable timeout
 	timeout := time.Duration(0)
 	resp, err := sd.downloadAPI.Download(info.ip, info.port, req, timeout)
-	if  err != nil {
+	if err != nil {
 		return nil, 0, err
 	}
 
@@ -82,5 +89,5 @@ func (sd *SeedDownloader) downloadRange(ctx context.Context, info *downloadNodeI
 		return nil, resp.StatusCode, fmt.Errorf("resp code is %d", resp.StatusCode)
 	}
 
-	return resp.Body,  resp.StatusCode, nil
+	return resp.Body, resp.StatusCode, nil
 }
