@@ -97,10 +97,10 @@ func (suite *SeedTestSuite) SetUpSuite(c *check.C) {
 
 func (suite *SeedTestSuite) TearDownSuite(c *check.C) {
 	if suite.tmpDir != "" {
-		os.RemoveAll(suite.tmpDir)
+		//os.RemoveAll(suite.tmpDir)
 	}
 	if suite.cacheDir != "" {
-		os.RemoveAll(suite.cacheDir)
+		//os.RemoveAll(suite.cacheDir)
 	}
 }
 
@@ -235,6 +235,26 @@ func (suite *SeedTestSuite) checkSeedFile(c *check.C, path string, fileLength in
 
 	<-finishCh
 	rs, err := resultAcquirer.Result()
+	c.Assert(err, check.IsNil)
+	c.Assert(rs.Success, check.Equals, true)
+	c.Assert(rs.Err, check.IsNil)
+
+	c.Assert(sd.GetFullSize(), check.Equals, fileLength)
+	suite.checkFileWithSeed(c, path, fileLength, sd)
+}
+
+func (suite *SeedTestSuite) checkSeedFileBySeedManager(c *check.C, path string, fileLength int64, seedName string, perDownloadSize int64, sd Seed, sm Manager, wg *sync.WaitGroup) {
+	defer func() {
+		if wg != nil {
+			wg.Done()
+		}
+	}()
+
+	finishCh, err := sm.Prefetch(seedName, perDownloadSize)
+	c.Assert(err, check.IsNil)
+
+	<-finishCh
+	rs, err := sm.GetPrefetchResult(seedName)
 	c.Assert(err, check.IsNil)
 	c.Assert(rs.Success, check.Equals, true)
 	c.Assert(rs.Err, check.IsNil)
