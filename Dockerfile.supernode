@@ -1,4 +1,4 @@
-FROM golang:1.12.10-alpine as builder
+FROM reg.docker.alibaba-inc.com/antsys/golang-builder:1.13.0 as builder
 
 WORKDIR /go/src/github.com/dragonflyoss/Dragonfly
 RUN apk --no-cache add bash make gcc libc-dev git
@@ -7,12 +7,13 @@ COPY . /go/src/github.com/dragonflyoss/Dragonfly
 
 # go build supernode.
 # write the resulting executable to the dir /opt/dragonfly/df-supernode.
-ARG GOPROXY
-RUN make build-supernode && make install-supernode
+RUN cd /go/src/github.com/dragonflyoss/Dragonfly && \
+    CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -mod vendor -a --ldflags="-s" -o /opt/dragonfly/df-supernode/supernode ./cmd/supernode
 
-FROM dragonflyoss/nginx:apline
 
-RUN apk --no-cache add ca-certificates bash
+FROM reg.docker.alibaba-inc.com/antsys/dragonflyoss-nginx:aplinev2
+
+# RUN apk --no-cache add ca-certificates bash
 
 COPY --from=builder /go/src/github.com/dragonflyoss/Dragonfly/hack/start-supernode.sh /root/start.sh
 COPY --from=builder /go/src/github.com/dragonflyoss/Dragonfly/hack/supernode-nginx.conf /etc/nginx/nginx.conf

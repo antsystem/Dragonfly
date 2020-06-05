@@ -1,0 +1,122 @@
+stages:
+  - 代码检查
+  - 构建test镜像
+  - 镜像构建
+
+静态扫描:
+  stage: 代码检查
+  plugin: CMD
+  pluginConfig:
+    encoding: UTF-8
+    taskKind: CMD_GOLANGCI_LINT
+
+单元测试:
+  aciTags: DOCKER
+  stage: 代码检查
+  steps:
+    - plugin: clone
+    - plugin: shell
+      resources:
+        cpu: 4
+        mem: 8
+        disk: 20
+      inputs:
+        image: reg.docker.alibaba-inc.com/sigma-x/golang-cover:86461e2b9fd492a7c0d8a756b7a4bc00a69a75d0
+        command:
+          - |
+            mkdir -p $WORKSPACE/result
+            GO111MODULE=on go test -v -mod vendor ./apis/... ./client/... ./cmd/... ./dfdaemon/... ./dfget/... ./pkg/... ./supernode/... -coverprofile cover.out | tee coverage.log
+            cat coverage.log| go-junit-report > $WORKSPACE/result/TEST-all.xml  # --> junit-report
+            GOFLAGS="-mod=vendor" go tool cover -html=cover.out -o coverage.html
+            GOFLAGS="-mod=vendor" go tool cover -func=cover.out -o func.out
+            echo test func-coverage $(tail -1 func.out | awk '{print $3}')
+            sed -i 's?github.com/dragonflyoss/Dragonfly/??g' cover.out
+            cat cover.out | gocover-cobertura > $WORKSPACE/result/cover.xml  # --> cobertura格式的xml
+            cp  cover.out $WORKSPACE/result
+    - plugin: coverage-client-upload-compass
+      inputs:
+        filePath: result/cover.xml #指定上报文件的路径
+  checkRule: # 设置覆盖率卡点
+    - passRate > 90
+  publisher:
+    archiveArtifacts:
+      artifacts: "result/"
+      allowEmptyArchive: true
+    junit: '**/TEST-*.xml' #junit-report存放地址
+
+构建dfdaemon test镜像:
+  stage: 构建test镜像
+  plugin: ANT-BUILD
+  pluginConfig:
+    image: reg.docker.alibaba-inc.com/antsys/golang-builder:1.13.0
+    inputs:
+      params:
+        - name: DOCKERFILE
+          value: Dockerfile
+    outputs:
+      - name: dfdaemon
+        namespace: antsys
+        repository: reg.docker.alibaba-inc.com
+        type: image
+        desc: "dragonfly dfdaemon plugin"
+
+构建supernode test镜像:
+  stage: 构建test镜像
+  plugin: ANT-BUILD
+  pluginConfig:
+    image: reg.docker.alibaba-inc.com/antsys/golang-builder:1.13.0
+    inputs:
+      params:
+        - name: DOCKERFILE
+          value: Dockerfile.supernode
+    outputs:
+      - name: supernode
+        namespace: antsys
+        repository: reg.docker.alibaba-inc.com
+        type: image
+        desc: "dragonfly supernode plugin"
+
+构建dfdaemon镜像:
+  stage: 镜像构建
+  plugin: ANT-BUILD
+  only:
+    triggerType:
+      - tagPush
+    targetBranch:
+      - develop
+  pluginConfig:
+    image: reg.docker.alibaba-inc.com/antsys/golang-builder:1.13.0
+    inputs:
+      params:
+        - name: DOCKERFILE
+          value: Dockerfile
+    outputs:
+      - name: dfdaemon
+        namespace: antsys
+        repository: reg.docker.alibaba-inc.com
+        type: image
+        tag: ${ACI_COMMIT_TAG}
+        desc: "dragonfly dfdaemon plugin"
+
+
+构建supernode镜像:
+  stage: 镜像构建
+  plugin: ANT-BUILD
+  only:
+    triggerType:
+      - tagPush
+    targetBranch:
+      - develop
+  pluginConfig:
+    image: reg.docker.alibaba-inc.com/antsys/golang-builder:1.13.0
+    inputs:
+      params:
+        - name: DOCKERFILE
+          value: Dockerfile.supernode
+    outputs:
+      - name: supernode
+        namespace: antsys
+        repository: reg.docker.alibaba-inc.com
+        type: image
+        tag: ${ACI_COMMIT_TAG}
+        desc: "dragonfly supernode plugin"
