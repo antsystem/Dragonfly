@@ -236,6 +236,17 @@ func (m *Manager) DownloadStreamContext(ctx context.Context, url string, header 
 			m.tryToApplyForSeedNode(m.ctx, url, header)
 			continue
 		}
+		if dwInfos[0].ID == m.cfg.Cid { // local seed
+			sd, err := m.seedManager.Get(dwInfos[0].Path)
+			if err == nil {
+				// check length
+				downloadLen := reqRange.EndIndex - reqRange.StartIndex + 1
+				if downloadLen < 0 || downloadLen+reqRange.StartIndex > sd.GetFullSize() {
+					downloadLen = sd.GetFullSize() - reqRange.StartIndex
+				}
+				return sd.Download(reqRange.StartIndex, downloadLen)
+			}
+		}
 
 		return m.runStream(ctx, rr, dwInfos)
 	}
