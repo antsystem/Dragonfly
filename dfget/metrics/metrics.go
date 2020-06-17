@@ -26,8 +26,7 @@ import (
 )
 
 var (
-	prometheusRegistry *prometheus.Registry
-	prometheusHandler  http.Handler
+	prometheusHandler http.Handler
 )
 
 // Unit represents the type or precision of a metric that is appended to
@@ -42,8 +41,7 @@ const (
 )
 
 func init() {
-	prometheusRegistry = prometheus.NewRegistry()
-	prometheusHandler = promhttp.HandlerFor(prometheusRegistry, promhttp.HandlerOpts{})
+	prometheusHandler = promhttp.HandlerFor(prometheus.DefaultGatherer, promhttp.HandlerOpts{})
 }
 
 // SinceInMicroseconds gets the time since the specified start in microseconds.
@@ -100,8 +98,8 @@ func NewLabelTimer(subsystem, name, help string, labels ...string) *prometheus.H
 }
 
 // GetPrometheusRegistry return a resigtry of Prometheus.
-func GetPrometheusRegistry() *prometheus.Registry {
-	return prometheusRegistry
+func GetPrometheusRegistry() prometheus.Registerer {
+	return prometheus.DefaultRegisterer
 }
 
 func GetPrometheusHandler() http.Handler {

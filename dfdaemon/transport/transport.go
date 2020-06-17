@@ -19,6 +19,9 @@ package transport
 import (
 	"context"
 	"crypto/tls"
+	"fmt"
+	"github.com/dragonflyoss/Dragonfly/dfdaemon/metrics"
+	"github.com/dragonflyoss/Dragonfly/pkg/httputils"
 	"net"
 	"net/http"
 	"os"
@@ -183,6 +186,18 @@ func (roundTripper *DFRoundTripper) downloadByGetter(ctx context.Context, url st
 }
 
 func (roundTripper *DFRoundTripper) downloadByStream(ctx context.Context, url string, header map[string][]string, name string) (*http.Response, error) {
+	var (
+		rangeSize int64
+		start = time.Now()
+	)
+
+	rangeSt, err := httputils.GetRangeFromHeader(header)
+	if err == nil {
+		rangeSize = rangeSt.EndIndex - rangeSt.StartIndex + 1
+	}
+
+	metrics.RequestActionCounter.WithLabelValues(url, fmt.Sprintf("%d", rangeSize)).Inc()
+
 	logrus.Infof("start download url:%s to %s in repo", url, name)
 	reader, err := roundTripper.StreamDownloader.DownloadStreamContext(ctx, url, header, name)
 	if err != nil {
@@ -190,9 +205,15 @@ func (roundTripper *DFRoundTripper) downloadByStream(ctx context.Context, url st
 		return nil, err
 	}
 
+	rc := httputils.NewWithFuncReadCloser(reader, func() {
+		costs := time.Now().Sub(start).Seconds()
+		metrics.RequestActionTimer.WithLabelValues(url, fmt.Sprintf("%d", rangeSize)).Observe(costs)
+		metrics.RequestActionBpsTimer.WithLabelValues(url, fmt.Sprintf("%d", rangeSize)).Observe(float64(rangeSize) / costs)
+	})
+
 	resp := &http.Response{
 		StatusCode: 200,
-		Body:       reader,
+		Body:       rc,
 	}
 	return resp, nil
 }

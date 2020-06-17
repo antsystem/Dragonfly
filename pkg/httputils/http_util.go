@@ -25,6 +25,7 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"math"
 	"net"
 	"net/http"
 	"reflect"
@@ -338,7 +339,7 @@ func HTTPWithHeaders(method, url string, headers map[string]string, timeout time
 	}
 
 	// do cancel() when close the body.
-	res.Body = newWithFuncReadCloser(res.Body, cancel)
+	res.Body = NewWithFuncReadCloser(res.Body, cancel)
 	return res, nil
 }
 
@@ -552,7 +553,7 @@ func GetValidURLSchemas() string {
 	return validURLSchemas
 }
 
-func newWithFuncReadCloser(rc io.ReadCloser, f func()) io.ReadCloser {
+func NewWithFuncReadCloser(rc io.ReadCloser, f func()) io.ReadCloser {
 	return &withFuncReadCloser{
 		f:          f,
 		ReadCloser: rc,
@@ -569,4 +570,32 @@ func (wrc *withFuncReadCloser) Close() error {
 		wrc.f()
 	}
 	return wrc.ReadCloser.Close()
+}
+
+func GetRangeFromHeader(header map[string][]string) (*RangeStruct, error) {
+	hr := http.Header(header)
+	if headerStr := hr.Get("Range"); headerStr != "" {
+		ds, err := GetRangeSE(headerStr, math.MaxInt64)
+		if err != nil {
+			return nil, err
+		}
+
+		// todo: support the multi range
+		if len(ds) != 1 {
+			return nil, fmt.Errorf("not support multi range")
+		}
+
+		// if EndIndex is max int64, set EndIndex to (StartIndex - 1),
+		// so that means the end index is tail of file length.
+		if ds[0].EndIndex == math.MaxInt64-1 {
+			ds[0].EndIndex = ds[0].StartIndex - 1
+		}
+
+		return ds[0], nil
+	}
+
+	return &RangeStruct{
+		StartIndex: 0,
+		EndIndex:   -1,
+	}, nil
 }
