@@ -398,6 +398,7 @@ type fileReadCloser struct {
 
 func newLimitReadCloser(fr *os.File, off int64, size int64) (io.ReadCloser, error) {
 	sr := io.NewSectionReader(fr, off, size)
+	fr.Seek(off, io.SeekStart)
 	return &fileReadCloser{
 		sr: sr,
 		fr: fr,
@@ -410,6 +411,14 @@ func (lr *fileReadCloser) Read(p []byte) (n int, err error) {
 
 func (lr *fileReadCloser) Close() error {
 	return lr.fr.Close()
+}
+
+func (lr *fileReadCloser) WriteTo(w io.Writer) (int64, error) {
+	if rf, ok := w.(io.ReaderFrom); ok {
+		return rf.ReadFrom(io.LimitReader(lr.fr, lr.sr.Size()));
+	}
+	buf := make([]byte, 64 * 1024)
+	return io.CopyBuffer(w, lr.sr, buf)
 }
 
 // multiReadCloser provides multi ReadCloser.
