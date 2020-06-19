@@ -184,15 +184,22 @@ func (roundTripper *DFRoundTripper) downloadByGetter(ctx context.Context, url st
 
 func (roundTripper *DFRoundTripper) downloadByStream(ctx context.Context, url string, header map[string][]string, name string) (*http.Response, error) {
 	logrus.Infof("start download url:%s to %s in repo", url, name)
-	reader, err := roundTripper.StreamDownloader.DownloadStreamContext(ctx, url, header, name)
+	extraInfo := make(map[string]string)
+	streamCtx := context.WithValue(ctx, "extra", extraInfo)
+	reader, err := roundTripper.StreamDownloader.DownloadStreamContext(streamCtx, url, header, name)
 	if err != nil {
 		logrus.Errorf("download fail: %v", err)
 		return nil, err
 	}
 
+	respHeader := make(http.Header)
+	for k, v := range extraInfo {
+		respHeader.Set(k, v)
+	}
 	resp := &http.Response{
 		StatusCode: 200,
 		Body:       reader,
+		Header:     respHeader,
 	}
 	return resp, nil
 }

@@ -361,12 +361,16 @@ func parseParams(rangeVal, pieceNumStr, pieceSizeStr string) (*uploadParam, erro
 		up  = &uploadParam{}
 	)
 
-	if up.pieceNum, err = strconv.ParseInt(pieceNumStr, 10, 64); err != nil {
-		return nil, err
+	if pieceNumStr != "" {
+		if up.pieceNum, err = strconv.ParseInt(pieceNumStr, 10, 64); err != nil {
+			return nil, err
+		}
 	}
 
-	if up.pieceSize, err = strconv.ParseInt(pieceSizeStr, 10, 64); err != nil {
-		return nil, err
+	if pieceSizeStr != "" {
+		if up.pieceSize, err = strconv.ParseInt(pieceSizeStr, 10, 64); err != nil {
+			return nil, err
+		}
 	}
 
 	if strings.Count(rangeVal, "=") != 1 {

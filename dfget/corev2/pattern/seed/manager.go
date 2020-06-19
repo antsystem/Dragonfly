@@ -47,6 +47,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/pborman/uuid"
 	"github.com/sirupsen/logrus"
+	"strconv"
 )
 
 type rangeRequestExtra struct {
@@ -204,6 +205,16 @@ func newManager(pCfg config.PatternConfig, commonCfg config.DFGetCommonConfig, c
 	return m
 }
 
+func pushDownloadUrl(ctx context.Context, dw *basic.SchedulePeerInfo, len int64) {
+	extra := ctx.Value("extra")
+	if extra == nil {
+		return
+	}
+	extraMap, _ := extra.(map[string]string)
+	extraMap[dfgetcfg.StrContentLength] = strconv.FormatInt(len, 10)
+	extraMap["download_url"] = fmt.Sprintf("http://%s:%d%s%s", dw.IP.String(), dw.Port, dfgetcfg.PeerHTTPPathPrefix, dw.Path)
+}
+
 // DownloadStreamContext implementation of downloader.Stream.
 func (m *Manager) DownloadStreamContext(ctx context.Context, url string, header map[string][]string, name string) (io.ReadCloser, error) {
 	reqRange, err := m.getRangeFromHeader(header)
@@ -244,6 +255,7 @@ func (m *Manager) DownloadStreamContext(ctx context.Context, url string, header 
 				if downloadLen < 0 || downloadLen+reqRange.StartIndex > sd.GetFullSize() {
 					downloadLen = sd.GetFullSize() - reqRange.StartIndex
 				}
+				pushDownloadUrl(ctx, dwInfos[0], downloadLen)
 				return sd.Download(reqRange.StartIndex, downloadLen)
 			}
 		}
@@ -304,7 +316,7 @@ func (m *Manager) tryToDownload(ctx context.Context, peer *basic.SchedulePeerInf
 	if err != nil {
 		return nil, err
 	}
-
+	pushDownloadUrl(ctx, peer, rr.Size())
 	return rc, nil
 }
 
