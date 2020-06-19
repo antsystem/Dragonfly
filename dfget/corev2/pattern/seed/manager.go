@@ -294,7 +294,14 @@ func (m *Manager) tryToDownload(ctx context.Context, peer *basic.SchedulePeerInf
 		return nil, err
 	}
 
-	return rc, nil
+	start := time.Now()
+	wrapRc := httputils.NewWithFuncReadCloser(rc, func() {
+		peer := fmt.Sprintf("%s:%d", peer.IP, peer.Port)
+		recordDownloadCostTimer(rr.Size(), peer, time.Now().Sub(start))
+		recordDownloadFlowCounter(rr.Size(), peer)
+	})
+
+	return wrapRc, nil
 }
 
 func (m *Manager) getRangeFromHeader(header map[string][]string) (*httputils.RangeStruct, error) {
