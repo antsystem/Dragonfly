@@ -878,7 +878,7 @@ func (sm *seedManager) getHTTPFileLength(key, url string, headers map[string]str
 }
 
 func (sm *seedManager) downPreFunc(key string, sd Seed) {
-	sm.RefreshExpireTime(key, 0)
+	go sm.RefreshExpireTime(key, 0)
 }
 
 // needWeedOut checks whether to start to weed out seed.
