@@ -483,5 +483,5 @@ func (suite *SeedTestSuite) TestSeedSyncReadWithFactory(c *check.C) {
 type mockDownloaderFactory struct{}
 
 func (f *mockDownloaderFactory) Create(opt DownloaderFactoryCreateOpt) Downloader {
-	return newLocalDownloader(opt.URL, opt.Header, opt.RateLimiter, opt.OpenMemoryCache)
+	return newLocalDownloader(opt.URL, opt.Header, opt.RateLimiter, opt.OpenMemoryCache, nil, nil)
 }

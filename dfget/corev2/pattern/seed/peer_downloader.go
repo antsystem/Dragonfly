@@ -88,6 +88,8 @@ func (df *downloaderFactory) Create(opt seed.DownloaderFactoryCreateOpt) seed.Do
 		openMemoryCache: opt.OpenMemoryCache,
 		peer:            targetPeer,
 		downAPI:         df.downloadAPI,
+		flowCounter:     opt.FlowCounter,
+		respTimer:       opt.RespTimer,
 	}
 }
 
@@ -99,6 +101,10 @@ type peerDownloader struct {
 	openMemoryCache bool
 	peer            *basic.SchedulePeerInfo
 	downAPI         api.DownloadAPI
+	// flowCounter counts the net flow when download from other peer.
+	flowCounter func(peerIp string, flows int64)
+	// respTimer records the response data and costs time.
+	respTimer func(dataSize int64, peerIp string, costs time.Duration)
 }
 
 func (ld *peerDownloader) DownloadToWriterAt(ctx context.Context, rangeStruct httputils.RangeStruct, timeout time.Duration, writeOff int64, writerAt io.WriterAt, rateLimit bool) (length int64, err error) {
@@ -108,6 +114,7 @@ func (ld *peerDownloader) DownloadToWriterAt(ctx context.Context, rangeStruct ht
 		written int64
 		n       int
 		rd      io.Reader
+		start   = time.Now()
 	)
 
 	size := rangeStruct.EndIndex - rangeStruct.StartIndex + 1
@@ -117,6 +124,18 @@ func (ld *peerDownloader) DownloadToWriterAt(ctx context.Context, rangeStruct ht
 	}
 
 	expectedLen := rangeStruct.EndIndex - rangeStruct.StartIndex + 1
+	defer func() {
+		if err == nil {
+			peer := fmt.Sprintf("%s:%d", ld.peer.IP, ld.peer.Port)
+			if ld.flowCounter != nil {
+				ld.flowCounter(peer, expectedLen)
+			}
+
+			if ld.respTimer != nil {
+				ld.respTimer(expectedLen, peer, time.Now().Sub(start))
+			}
+		}
+	}()
 
 	defer rc.Close()
 	rd = rc
