@@ -19,6 +19,7 @@ package transport
 import (
 	"context"
 	"crypto/tls"
+	"fmt"
 	"net"
 	"net/http"
 	"os"
@@ -184,7 +185,7 @@ func (roundTripper *DFRoundTripper) downloadByGetter(ctx context.Context, url st
 	return roundTripper.Downloader.DownloadContext(ctx, url, header, name)
 }
 
-func (roundTripper *DFRoundTripper) downloadByStream(ctx context.Context, url string, header map[string][]string, name string) (*http.Response, error) {
+func (roundTripper *DFRoundTripper) downloadByStream(ctx context.Context, url string, header map[string][]string, name string) (resp *http.Response, e error) {
 	var (
 		rangeSize int64
 		start     = time.Now()
@@ -195,7 +196,16 @@ func (roundTripper *DFRoundTripper) downloadByStream(ctx context.Context, url st
 		rangeSize = rangeSt.EndIndex - rangeSt.StartIndex + 1
 	}
 
-	metrics.RequestActionCounter.WithLabelValues().Inc()
+	defer func() {
+		metrics.RequestActionCounter.WithLabelValues().Inc()
+		if e != nil {
+			rangeStr := "-"
+			if rangeSt != nil {
+				rangeStr = fmt.Sprintf("%d-%d", rangeSt.StartIndex, rangeSt.EndIndex)
+			}
+			metrics.RequestActionFailureCounter.WithLabelValues(url, rangeStr, e.Error())
+		}
+	}()
 
 	logrus.Infof("start download url:%s to %s in repo", url, name)
 	reader, err := roundTripper.StreamDownloader.DownloadStreamContext(ctx, url, header, name)
@@ -211,7 +221,7 @@ func (roundTripper *DFRoundTripper) downloadByStream(ctx context.Context, url st
 		metrics.RequestAllFlowCounter.WithLabelValues().Add(float64(rangeSize))
 	})
 
-	resp := &http.Response{
+	resp = &http.Response{
 		StatusCode: 200,
 		Body:       rc,
 	}

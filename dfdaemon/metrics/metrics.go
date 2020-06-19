@@ -39,6 +39,8 @@ var (
 	// RequestAllFlowCounter records the all net flow of response data for request.
 	RequestAllFlowCounter = metricsutils.NewCounter(subsystem, "request_resp_data_flow_total", "records the all net flow of response data for request", nil, nil)
 
+	// RequestActionFailureCounter records number of failure proxy request action.
+	RequestActionFailureCounter = metricsutils.NewCounter(subsystem, "request_action_failure_total", "records number of failure proxy request action", []string{"url", "range", "errorMsg"}, nil)
 	//defaultFlowCalculatorCb = &flowCalculatorCb{}
 )
 

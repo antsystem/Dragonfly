@@ -16,13 +16,20 @@
 
 package seed
 
-import "github.com/dragonflyoss/Dragonfly/pkg/ratelimiter"
+import (
+	"github.com/dragonflyoss/Dragonfly/pkg/ratelimiter"
+	"time"
+)
 
 type DownloaderFactoryCreateOpt struct {
 	URL             string
 	Header          map[string][]string
 	OpenMemoryCache bool
 	RateLimiter     *ratelimiter.RateLimiter
+	// flowCounter counts the net flow when download from other peer.
+	FlowCounter func(peerIp string, flows int64)
+	// respTimer records the response data and costs time.
+	RespTimer func(dataSize int64, peerIp string, costs time.Duration)
 }
 
 // DownloaderFactory creates an instance of Downloader by input.

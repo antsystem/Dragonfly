@@ -198,7 +198,7 @@ func NewSeed(base BaseOpt, rate RateOpt, openMemoryCache bool) (Seed, error) {
 		TaskID:     base.Info.TaskID,
 		BlockOrder: base.Info.BlockOrder,
 		baseDir:    base.BaseDir,
-		down:       newLocalDownloader(base.Info.URL, base.Info.Header, rate.DownloadRateLimiter, openMemoryCache),
+		down:       newLocalDownloader(base.Info.URL, base.Info.Header, rate.DownloadRateLimiter, openMemoryCache, recordPrefetchFlowCounter, recordPrefetchCostTimer),
 		//UploadRate: sm.UploadRate,
 		downRate:        rate.DownloadRateLimiter,
 		prefetchCh:      make(chan struct{}),
@@ -260,7 +260,7 @@ func RestoreSeed(seedDir string, rate RateOpt, downPreFunc func(sd Seed), factor
 	}
 
 	// init downloader and cachebuffer
-	sd.down = newLocalDownloader(sd.URL, sd.Header, rate.DownloadRateLimiter, false)
+	sd.down = newLocalDownloader(sd.URL, sd.Header, rate.DownloadRateLimiter, false, recordPrefetchFlowCounter, recordPrefetchCostTimer)
 	cache, err := newFileCacheBuffer(sd.ContentPath, sd.FullSize, false, false, sd.BlockOrder)
 	if err != nil {
 		return nil, false, err
@@ -847,6 +847,8 @@ func (sd *seed) updateDownloader() {
 			Header:          sd.Header,
 			OpenMemoryCache: sd.OpenMemoryCache,
 			RateLimiter:     sd.downRate,
+			FlowCounter:     recordPrefetchFlowCounter,
+			RespTimer:       recordPrefetchCostTimer,
 		}
 		down := sd.downFactory.Create(opt)
 		if down != nil {

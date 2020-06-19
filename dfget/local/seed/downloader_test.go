@@ -52,7 +52,7 @@ func (mb *mockBufferWriterAt) Bytes() []byte {
 func (suite *SeedTestSuite) checkLocalDownloadDataFromFileServer(c *check.C, path string, off int64, size int64) {
 	buf := newMockBufferWriterAt()
 
-	ld := newLocalDownloader(fmt.Sprintf("http://%s/%s", suite.host, path), nil, ratelimiter.NewRateLimiter(0, 0), false)
+	ld := newLocalDownloader(fmt.Sprintf("http://%s/%s", suite.host, path), nil, ratelimiter.NewRateLimiter(0, 0), false, nil, nil)
 
 	length, err := ld.DownloadToWriterAt(context.Background(), httputils.RangeStruct{StartIndex: off, EndIndex: off + size - 1}, 0, 0, buf, true)
 	c.Check(err, check.IsNil)
@@ -63,7 +63,7 @@ func (suite *SeedTestSuite) checkLocalDownloadDataFromFileServer(c *check.C, pat
 	c.Check(string(buf.Bytes()), check.Equals, string(expectData))
 
 	buf2 := newMockBufferWriterAt()
-	ld2 := newLocalDownloader(fmt.Sprintf("http://%s/%s", suite.host, path), nil, ratelimiter.NewRateLimiter(0, 0), true)
+	ld2 := newLocalDownloader(fmt.Sprintf("http://%s/%s", suite.host, path), nil, ratelimiter.NewRateLimiter(0, 0), true, nil, nil)
 
 	length2, err := ld2.DownloadToWriterAt(context.Background(), httputils.RangeStruct{StartIndex: off, EndIndex: off + size - 1}, 0, 0, buf2, false)
 	c.Check(err, check.IsNil)

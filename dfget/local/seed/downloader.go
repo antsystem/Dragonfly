@@ -39,12 +39,14 @@ type Downloader interface {
 	DownloadToWriterAt(ctx context.Context, rangeStruct httputils.RangeStruct, timeout time.Duration, writeOff int64, writerAt io.WriterAt, rateLimit bool) (length int64, err error)
 }
 
-func newLocalDownloader(url string, header map[string][]string, rate *ratelimiter.RateLimiter, copyCache bool) Downloader {
+func newLocalDownloader(url string, header map[string][]string, rate *ratelimiter.RateLimiter, copyCache bool, flowCounter func(peerIp string, flows int64), respTimer func(dataSize int64, peerIp string, costs time.Duration)) Downloader {
 	return &localDownloader{
-		url:       url,
-		header:    header,
-		rate:      rate,
-		copyCache: copyCache,
+		url:         url,
+		header:      header,
+		rate:        rate,
+		copyCache:   copyCache,
+		flowCounter: flowCounter,
+		respTimer:   respTimer,
 	}
 }
 
@@ -57,6 +59,11 @@ type localDownloader struct {
 
 	// if copyCache sets, the response body will store to memory cache and transfer to writer
 	copyCache bool
+
+	// flowCounter counts the net flow when download from other peer.
+	flowCounter func(peerIp string, flows int64)
+	// respTimer records the response data and costs time.
+	respTimer func(dataSize int64, peerIp string, costs time.Duration)
 }
 
 func (ld *localDownloader) DownloadToWriterAt(ctx context.Context, rangeStruct httputils.RangeStruct, timeout time.Duration,
@@ -70,6 +77,7 @@ func (ld *localDownloader) download(ctx context.Context, rangeStruct httputils.R
 		written int64
 		n       int
 		rd      io.Reader
+		start   = time.Now()
 	)
 
 	header := map[string]string{}
@@ -88,6 +96,18 @@ func (ld *localDownloader) download(ctx context.Context, rangeStruct httputils.R
 	}
 
 	expectedLen := rangeStruct.EndIndex - rangeStruct.StartIndex + 1
+
+	defer func() {
+		if err == nil {
+			if ld.flowCounter != nil {
+				ld.flowCounter("source", expectedLen)
+			}
+
+			if ld.respTimer != nil {
+				ld.respTimer(expectedLen, "source", time.Now().Sub(start))
+			}
+		}
+	}()
 
 	defer resp.Body.Close()
 	rd = resp.Body
