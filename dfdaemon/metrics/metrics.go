@@ -17,40 +17,40 @@
 package metrics
 
 import (
-	"sync"
-
-	"github.com/dragonflyoss/Dragonfly/dfget/metrics"
+	"github.com/dragonflyoss/Dragonfly/pkg/metricsutils"
 )
 
 const (
 	subsystem = "dfdaemon"
-)
 
-func init() {
-	Register()
-}
+	proxyRespModule = "proxy-resp-module"
+)
 
 var (
-	// RequestActionTimer records the time cost of each request action.
-	RequestActionTimer = metrics.NewLabelTimer(subsystem, "requestActionTimer", "records the time cost of each request action",
-		"url", "size")
+	// RequestActionPerTimer records the time cost of each request action.
+	RequestActionPerTimer = metricsutils.NewHistogram(subsystem, "request_cost_time", "records the time cost of each request action", nil, nil, nil)
 
-	// RequestActionCounter records number of request action.
-	RequestActionCounter = metrics.NewLabelCounter(subsystem, "requestActionCounter", "records number of request action",
-		"url", "size")
+	// RequestActionFlowSummary records the net flow of each proxy request.
+	RequestActionFlowSummary = metricsutils.NewSummary(subsystem, "request_resp_data_flow", "records the net flow of response data for each proxy request", nil, nil, nil)
 
-	// RequestActionTimer records the bps of each request action.
-	RequestActionBpsTimer = metrics.NewLabelSummary(subsystem, "RequestActionBpsTimer", "records the bps of each request action",
-		"url", "size")
+	// RequestActionCounter records number of proxy request action.
+	RequestActionCounter = metricsutils.NewCounter(subsystem, "request_number_total", "records number of proxy request action", nil, nil)
+
+	// RequestAllFlowCounter records the all net flow of response data for request.
+	RequestAllFlowCounter = metricsutils.NewCounter(subsystem, "request_resp_data_flow_total", "records the all net flow of response data for request", nil, nil)
+
+	//defaultFlowCalculatorCb = &flowCalculatorCb{}
 )
 
-var registerMetrics sync.Once
-
-func Register() {
-	registry := metrics.GetPrometheusRegistry()
-	registerMetrics.Do(func() {
-		registry.MustRegister(RequestActionTimer)
-		registry.MustRegister(RequestActionCounter)
-		registry.MustRegister(RequestActionBpsTimer)
-	})
-}
+//type flowCalculatorCb struct{}
+//
+//func (fc *flowCalculatorCb) CalculateDurationCallBack(ava float64, sumData int64, duration time.Duration) {
+//	RequestActionBpsTimer.WithLabelValues().Set(ava)
+//	RequestAllFlowCounter.WithLabelValues().Add(ava * duration.Seconds())
+//}
+//
+//func FlowCalculatorReadStream(rc io.ReadCloser) io.ReadCloser {
+//	flowcalculator.DefaultController.NewFlowCalculator(proxyRespModule, defaultFlowCalculatorCb, time.Second)
+//	list, _ := flowcalculator.DefaultController.GetFlowCalculators(proxyRespModule)
+//	return flowcalculator.NewFlowCalculatorReadCloser(rc, list...)
+//}
