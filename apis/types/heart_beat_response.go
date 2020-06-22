@@ -6,8 +6,11 @@ package types
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"strconv"
+
 	strfmt "github.com/go-openapi/strfmt"
 
+	"github.com/go-openapi/errors"
 	"github.com/go-openapi/swag"
 )
 
@@ -18,6 +21,10 @@ type HeartBeatResponse struct {
 	// If peer do not register in supernode, set needRegister to be true, else set to be false.
 	//
 	NeedRegister bool `json:"needRegister,omitempty"`
+
+	// The array shows the tasks which should be preheated by node.
+	//
+	Preheats []*PreHeatInfo `json:"preheats"`
 
 	// The array of seed taskID which now are selected as seed for the peer. If peer have other seed file which
 	// is not included in the array, these seed file should be weed out.
@@ -32,6 +39,40 @@ type HeartBeatResponse struct {
 
 // Validate validates this heart beat response
 func (m *HeartBeatResponse) Validate(formats strfmt.Registry) error {
+	var res []error
+
+	if err := m.validatePreheats(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if len(res) > 0 {
+		return errors.CompositeValidationError(res...)
+	}
+	return nil
+}
+
+func (m *HeartBeatResponse) validatePreheats(formats strfmt.Registry) error {
+
+	if swag.IsZero(m.Preheats) { // not required
+		return nil
+	}
+
+	for i := 0; i < len(m.Preheats); i++ {
+		if swag.IsZero(m.Preheats[i]) { // not required
+			continue
+		}
+
+		if m.Preheats[i] != nil {
+			if err := m.Preheats[i].Validate(formats); err != nil {
+				if ve, ok := err.(*errors.Validation); ok {
+					return ve.ValidateName("preheats" + "." + strconv.Itoa(i))
+				}
+				return err
+			}
+		}
+
+	}
+
 	return nil
 }
 

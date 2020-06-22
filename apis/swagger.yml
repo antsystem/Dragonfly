@@ -1558,6 +1558,22 @@ definitions:
           This dfget is treated a client and carries a client ID.
           Thus, multiple dfget processes on the same peer have different CIDs.
 
+  PreHeatInfo:
+    type: "object"
+    description: |
+      The object shows the info of preheat.
+      The authentication or other external information should be inclueded in url and headers.
+    properties:
+      url:
+        type: "string"
+        description: "The file location"
+      headers:
+        type: "array"
+        items:
+          type: "string"
+      seedTaskID:
+        type: "string"
+
   HeartBeatResponse:
     type: "object"
     description: ""
@@ -1578,6 +1594,12 @@ definitions:
           is not included in the array, these seed file should be weed out.
         items:
           type: "string"
+      preheats:
+        type: "array"
+        description: |
+          The array shows the tasks which should be preheated by node.
+        items:
+          $ref: "#/definitions/PreHeatInfo"
 
   ErrorResponse:
     type: "object"
