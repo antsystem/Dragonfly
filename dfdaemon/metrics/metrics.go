@@ -22,8 +22,6 @@ import (
 
 const (
 	subsystem = "dfdaemon"
-
-	proxyRespModule = "proxy-resp-module"
 )
 
 var (
@@ -41,18 +39,4 @@ var (
 
 	// RequestActionFailureCounter records number of failure proxy request action.
 	RequestActionFailureCounter = metricsutils.NewCounter(subsystem, "request_action_failure_total", "records number of failure proxy request action", []string{"url", "range", "errorMsg"}, nil)
-	//defaultFlowCalculatorCb = &flowCalculatorCb{}
 )
-
-//type flowCalculatorCb struct{}
-//
-//func (fc *flowCalculatorCb) CalculateDurationCallBack(ava float64, sumData int64, duration time.Duration) {
-//	RequestActionBpsTimer.WithLabelValues().Set(ava)
-//	RequestAllFlowCounter.WithLabelValues().Add(ava * duration.Seconds())
-//}
-//
-//func FlowCalculatorReadStream(rc io.ReadCloser) io.ReadCloser {
-//	flowcalculator.DefaultController.NewFlowCalculator(proxyRespModule, defaultFlowCalculatorCb, time.Second)
-//	list, _ := flowcalculator.DefaultController.GetFlowCalculators(proxyRespModule)
-//	return flowcalculator.NewFlowCalculatorReadCloser(rc, list...)
-//}
