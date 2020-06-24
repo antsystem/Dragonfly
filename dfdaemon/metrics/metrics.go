@@ -18,6 +18,7 @@ package metrics
 
 import (
 	"github.com/dragonflyoss/Dragonfly/pkg/metricsutils"
+	"time"
 )
 
 const (
@@ -39,4 +40,18 @@ var (
 
 	// RequestActionFailureCounter records number of failure proxy request action.
 	RequestActionFailureCounter = metricsutils.NewCounter(subsystem, "request_action_failure_total", "records number of failure proxy request action", []string{"url", "range", "errorMsg"}, nil)
+
+	// OnlineCounter records self is online
+	OnlineCounter = metricsutils.NewCounter(subsystem, "online_total", "records self is online", nil, nil)
 )
+
+func init() {
+	OnlineCounter.WithLabelValues().Inc()
+
+	// init
+	RequestActionPerTimer.WithLabelValues().Observe(time.Millisecond.Seconds())
+	RequestActionFlowSummary.WithLabelValues().Observe(0)
+	RequestActionCounter.WithLabelValues().Add(0)
+	RequestAllFlowCounter.WithLabelValues().Add(0)
+	RequestActionFailureCounter.WithLabelValues().Add(0)
+}

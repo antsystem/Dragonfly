@@ -45,6 +45,10 @@ var (
 	downloadFlowCounter = metricsutils.NewCounter(subSystem, "data_flow", "records all data flow of download from seed node", []string{"peer_ip"}, nil)
 )
 
+func init() {
+	downloadFlowCounter.WithLabelValues("").Add(0)
+}
+
 func recordDownloadCostTimer(size int64, peerIp string, duration time.Duration) {
 	index := sort.Search(len(downloadSizeBucket), func(i int) bool {
 		return size <= downloadSizeBucket[i]
