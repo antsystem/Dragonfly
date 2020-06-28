@@ -39,18 +39,13 @@ func init() {
 	logrus.SetLevel(logrus.DebugLevel)
 }
 
-type nodeTaskBinding struct {
-	taskPath string
-
-	task *api_types.TaskInfo
-}
-
 type mockNode struct {
 	cid  string
 	ip   string
 	port int
 	// key is taskID
-	tasks map[string]*api_types.TaskFetchInfo
+	tasks       map[string]*api_types.TaskFetchInfo
+	preheatInfo map[string]*api_types.PreHeatInfo
 }
 
 type mockTaskWrapper struct {
@@ -79,10 +74,11 @@ func (sp *mockSupernode) addNode(cid, ip string, port int) {
 	}
 
 	sp.nodes[cid] = &mockNode{
-		cid:   cid,
-		ip:    ip,
-		port:  port,
-		tasks: make(map[string]*api_types.TaskFetchInfo),
+		cid:         cid,
+		ip:          ip,
+		port:        port,
+		tasks:       make(map[string]*api_types.TaskFetchInfo),
+		preheatInfo: make(map[string]*api_types.PreHeatInfo),
 	}
 }
 
@@ -199,6 +195,48 @@ func (sp *mockSupernode) delTask(task *api_types.TaskInfo, cid string) {
 	}
 }
 
+func (sp *mockSupernode) addPreHeatInfo(cid string, info *api_types.PreHeatInfo) {
+	sp.mutex.Lock()
+	defer sp.mutex.Unlock()
+
+	node, ok := sp.nodes[cid]
+	if !ok {
+		return
+	}
+
+	node.preheatInfo[info.URL] = info
+}
+
+func (sp *mockSupernode) delPreHeatInfo(cid string, url string) {
+	sp.mutex.Lock()
+	defer sp.mutex.Unlock()
+
+	node, ok := sp.nodes[cid]
+	if !ok {
+		return
+	}
+
+	delete(node.preheatInfo, url)
+}
+
+func (sp *mockSupernode) consumePreHeatInfos(cid string) []*api_types.PreHeatInfo {
+	sp.mutex.Lock()
+	defer sp.mutex.Unlock()
+
+	node, ok := sp.nodes[cid]
+	if !ok {
+		return nil
+	}
+
+	ret := []*api_types.PreHeatInfo{}
+	for _, info := range node.preheatInfo {
+		ret = append(ret, info)
+	}
+
+	node.preheatInfo = make(map[string]*api_types.PreHeatInfo)
+	return ret
+}
+
 func (sp *mockSupernode) getTasks(filterURLs []string) *api_types.NetworkInfoFetchResponse {
 	sp.mutex.RLock()
 	defer sp.mutex.RUnlock()
@@ -249,14 +287,6 @@ func (sp *mockSupernode) getTasks(filterURLs []string) *api_types.NetworkInfoFet
 				Port: int32(nInfo.port),
 			},
 		}
-
-		//infos := []*api_types.TaskFetchInfo{}
-		//for _, b := range bd {
-		//	infos = append(infos, &api_types.TaskFetchInfo{
-		//		Task: b.task,
-		//		Path: b.taskPath,
-		//	})
-		//}
 
 		node.Tasks = bd
 		nodes = append(nodes, node)
@@ -349,7 +379,8 @@ func newMockSupernodeAPI(set *mockSupernodeSet) api.SupernodeAPI {
 			return &types.HeartBeatResponse{
 				BaseResponse: types.NewBaseResponse(200, ""),
 				Data: &api_types.HeartBeatResponse{
-					Version: sp.getVersion(),
+					Version:  sp.getVersion(),
+					Preheats: sp.consumePreHeatInfos(req.CID),
 				},
 			}, nil
 		},
@@ -415,6 +446,21 @@ func (suite *seedSuite) TestSupernodeManager(c *check.C) {
 			TaskURL:    "http://task3",
 			FileLength: 3000,
 			AsSeed:     true,
+		},
+	}
+
+	preHeatInfo := []*api_types.PreHeatInfo{
+		{
+			URL:        "http://preheat1",
+			SeedTaskID: "preheat1",
+		},
+		{
+			URL:        "http://preheat2",
+			SeedTaskID: "preheat2",
+		},
+		{
+			URL:        "http://preheat3",
+			SeedTaskID: "preheat3",
 		},
 	}
 
@@ -548,4 +594,19 @@ func (suite *seedSuite) TestSupernodeManager(c *check.C) {
 		c.Assert(node, check.Not(check.Equals), "")
 		c.Assert(node, check.Equals, origins[i])
 	}
+
+	// add preheat info
+	sp = mss.getSupernode(supernodes[1])
+	sp.addPreHeatInfo(nodes[0].Cid, preHeatInfo[0])
+
+	// wait for consume preheat info
+	time.Sleep(10 * time.Second)
+	ev, ok = manager.GetSupernodeEvent(time.Second * 2)
+	c.Assert(ok, check.Equals, true)
+	c.Assert(ev.evType, check.Equals, preheatEv)
+	c.Assert(ev.node, check.Equals, supernodes[1])
+	ifs, ok := ev.data.([]*api_types.PreHeatInfo)
+	c.Assert(ok, check.Equals, true)
+	c.Assert(len(ifs), check.Equals, 1)
+	c.Assert(ifs[0], check.DeepEquals, preHeatInfo[0])
 }
