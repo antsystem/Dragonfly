@@ -28,6 +28,15 @@ type HeartBeatRequest struct {
 	//
 	CID string `json:"cID,omitempty"`
 
+	// fixedSeed shows if the node is fixed as a static seed node which may be selected as seed while
+	// other node could not be seletced in static mode.
+	//
+	FixedSeed bool `json:"fixedSeed,omitempty"`
+
+	// host name of peer client node.
+	// Min Length: 1
+	HostName string `json:"hostName,omitempty"`
+
 	// when registering, dfget will setup one uploader process.
 	// This one acts as a server for peer pulling tasks.
 	// This port is which this server listens on.
@@ -35,6 +44,9 @@ type HeartBeatRequest struct {
 	// Maximum: 65000
 	// Minimum: 15000
 	Port int32 `json:"port,omitempty"`
+
+	// version number of dfget binary.
+	Version string `json:"version,omitempty"`
 }
 
 // Validate validates this heart beat request
@@ -42,6 +54,10 @@ func (m *HeartBeatRequest) Validate(formats strfmt.Registry) error {
 	var res []error
 
 	if err := m.validateIP(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateHostName(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -62,6 +78,19 @@ func (m *HeartBeatRequest) validateIP(formats strfmt.Registry) error {
 	}
 
 	if err := validate.FormatOf("IP", "body", "ipv4", m.IP.String(), formats); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (m *HeartBeatRequest) validateHostName(formats strfmt.Registry) error {
+
+	if swag.IsZero(m.HostName) { // not required
+		return nil
+	}
+
+	if err := validate.MinLength("hostName", "body", string(m.HostName), 1); err != nil {
 		return err
 	}
 

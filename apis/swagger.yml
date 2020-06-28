@@ -1557,6 +1557,18 @@ definitions:
           When user wishes to download an image/file, user would start a dfget process to do this.
           This dfget is treated a client and carries a client ID.
           Thus, multiple dfget processes on the same peer have different CIDs.
+      fixedSeed:
+        type: "boolean"
+        description: |
+          fixedSeed shows if the node is fixed as a static seed node which may be selected as seed while
+          other node could not be seletced in static mode.
+      hostName:
+        type: "string"
+        description: "host name of peer client node."
+        minLength: 1
+      version:
+        type: "string"
+        description: "version number of dfget binary."
 
   PreHeatInfo:
     type: "object"
