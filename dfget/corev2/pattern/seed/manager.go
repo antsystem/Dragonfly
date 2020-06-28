@@ -347,7 +347,7 @@ func (m *Manager) tryToApplyForSeedNode(ctx context.Context, url string, header 
 	hr := http.Header(cHeader)
 	hr.Del(dfgetcfg.StrRange)
 
-	asSeed, taskID := m.applyForSeedNode(url, cHeader, path)
+	asSeed, taskID := m.applyForSeedNode(url, hr, path)
 	if !asSeed {
 		waitCh := make(chan struct{})
 		m.sm.ActiveFetchP2PNetwork(activeFetchSt{url: url, waitCh: waitCh})
@@ -621,5 +621,8 @@ func (m *Manager) handleSuperNodeEventLoop(ctx context.Context) {
 }
 
 func (m *Manager) handleSuperNodeEvent(ev *supernodeEvent) {
-	// todo: handle the event of connected/disconnected/reconnected.
+	h, ok := getSEHandler(ev.evType, m)
+	if ok {
+		h.Handle(ev)
+	}
 }

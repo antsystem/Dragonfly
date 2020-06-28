@@ -64,3 +64,27 @@ func FilterMatch(filter map[string]map[string]bool, firstKey string, secondKey s
 
 	return dv
 }
+
+func UnFlattenHeader(headers []string) map[string][]string {
+	ret := map[string][]string{}
+	for _, value := range headers {
+		kv := strings.Split(value, ":")
+		if len(kv) != 2 {
+			continue
+		}
+
+		key := kv[0]
+		v := kv[1]
+
+		arr, ok := ret[key]
+		if !ok {
+			ret[key] = []string{v}
+			continue
+		}
+
+		arr = append(arr, v)
+		ret[key] = arr
+	}
+
+	return ret
+}
