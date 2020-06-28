@@ -104,7 +104,8 @@ func (mgr *Manager) getOrCreateP2pInfo(ctx context.Context, peerID string, peerR
 				peerID:   peerID,
 				PeerInfo: newPeerInfo,
 				taskIDs:  newIDSet(),
-				hbTime:   time.Now().Unix()})
+				hbTime:   time.Now().Unix(),
+				ph:       newPreheat()})
 		peerInfo, _ = item.(*P2pInfo)
 	}
 	return peerInfo
@@ -139,7 +140,11 @@ func ipPortToStr(ip strfmt.IPv4, port int32) string {
 */
 func (mgr *Manager) Register(ctx context.Context, request *types.TaskRegisterRequest) (*TaskRegistryResponce, error) {
 	logrus.Debugf("registry seed task %v", request)
-	request.TaskID = digest.Sha256(request.TaskURL)
+	onlyPeer := false
+	if request.TaskURL == "" {
+		onlyPeer = true
+		request.TaskID = digest.Sha256(request.TaskURL)
+	}
 	resp := &TaskRegistryResponce{TaskID: request.TaskID}
 
 	peerCreateReq := &types.PeerCreateRequest{
@@ -160,17 +165,33 @@ func (mgr *Manager) Register(ctx context.Context, request *types.TaskRegisterReq
 		mgr.DeRegisterPeer(ctx, oldPeerID)
 		mgr.ipPortMap.add(ipPortStr, peerID)
 	}
+	if onlyPeer {
+		return resp, nil
+	}
 	if p2pInfo.hasTask(request.TaskID) {
 		return resp, nil
 	}
 	taskMap := mgr.getOrCreateTaskMap(ctx, request.TaskID)
 	taskMap.update()
-	if taskMap.tryAddNewTask(p2pInfo, convertToCreateRequest(request, peerID)) {
+	if taskMap.tryAddNewTask(mgr.listAllFixedPeers(ctx), p2pInfo,
+		convertToCreateRequest(request, peerID), mgr.cfg.StaticPeerMode) {
 		resp.AsSeed = true
 		logrus.Infof("peer %s becomes seed of %s", p2pInfo.peerID, request.TaskURL)
 	}
 
 	return resp, nil
+}
+
+func (mgr *Manager) listAllFixedPeers(ctx context.Context) []*P2pInfo {
+	res := make([]*P2pInfo, 0)
+	mgr.p2pInfoStore.Range(func(key, value interface{}) bool {
+		p2pInfo, _ := value.(*P2pInfo)
+		if p2pInfo.fixSeed {
+			res = append(res, p2pInfo)
+		}
+		return true
+	})
+	return res
 }
 
 func (mgr *Manager) DeRegisterTask(ctx context.Context, peerID, taskID string) error {
@@ -239,18 +260,27 @@ func (mgr *Manager) IsSeedTask(ctx context.Context, request *http.Request) bool 
 		request.Header.Get("X-report-resource") != ""
 }
 
-func (mgr *Manager) ReportPeerHealth(ctx context.Context, peerID string) (*types.HeartBeatResponse, error) {
-	p2pInfo, err := mgr.getP2pInfo(ctx, peerID)
+func (mgr *Manager) ReportPeerHealth(ctx context.Context, request *types.HeartBeatRequest) (*types.HeartBeatResponse, error) {
+	if mgr.cfg.StaticPeerMode {
+		mgr.Register(ctx, &types.TaskRegisterRequest{CID: request.CID, IP: request.IP, Port: request.Port,
+			Version: request.Version, HostName: request.HostName})
+	}
+	p2pInfo, err := mgr.getP2pInfo(ctx, request.CID)
 	if err != nil {
 		// tell peer to register again
 		return &types.HeartBeatResponse{NeedRegister: true, Version: mgr.timeStamp.String()}, nil
 	}
+	if mgr.cfg.StaticPeerMode {
+		p2pInfo.fixSeed = request.FixedSeed
+	}
 	p2pInfo.update()
+	preheatTasks := p2pInfo.ph.getAll()
 
 	// return all tasks peer owned
 	return &types.HeartBeatResponse{
 		SeedTaskIds: p2pInfo.taskIDs.list(),
 		Version:     mgr.timeStamp.String(),
+		Preheats:    preheatTasks,
 	}, nil
 }
 

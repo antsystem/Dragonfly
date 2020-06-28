@@ -113,6 +113,7 @@ func NewBaseProperties() *BaseProperties {
 		IntervalThreshold:       DefaultIntervalThreshold,
 		TaskExpireTime:          DefaultTaskExpireTime,
 		PeerExpireTime:          DefaultPeerExpireTime,
+		StaticPeerMode:          DefaultStaticPeerMode,
 		PeerGCDelay:             DefaultPeerGCDelay,
 		CleanRatio:              DefaultCleanRatio,
 		MaxSeedPerObject:        DefaultMaxSeedPerObj,
@@ -234,6 +235,9 @@ type BaseProperties struct {
 	// Don't receive heartbeat from a peer within the PeerExpireTime
 	// default: 120s
 	PeerExpireTime int64 `yaml:"peerExpireTime"`
+
+	// default: false
+	StaticPeerMode bool `yaml:"staticPeerMode"`
 
 	// PeerGCDelay is the delay time to execute the GC after the peer has reported the offline.
 	// default: 3min

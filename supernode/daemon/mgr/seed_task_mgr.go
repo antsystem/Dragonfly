@@ -37,7 +37,7 @@ type SeedTaskMgr interface {
 
 	HasTasks(ctx context.Context, taskID string) bool
 
-	ReportPeerHealth(ctx context.Context, peerID string) (*types.HeartBeatResponse, error)
+	ReportPeerHealth(ctx context.Context, request *types.HeartBeatRequest) (*types.HeartBeatResponse, error)
 
 	ScanDownPeers(ctx context.Context) []string
 

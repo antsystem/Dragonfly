@@ -141,4 +141,6 @@ const (
 	DefaultPeerExpireTime = 2 * 60
 
 	DefaultMaxSeedPerObj = 64
+
+	DefaultStaticPeerMode = false
 )

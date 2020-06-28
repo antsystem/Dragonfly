@@ -23,11 +23,57 @@ import (
 	"github.com/dragonflyoss/Dragonfly/apis/types"
 )
 
+type preheat struct {
+	lock  *sync.Mutex
+	tasks []*types.PreHeatInfo
+}
+
+func (ph *preheat) hasTask(id string) bool {
+	ph.lock.Lock()
+	defer ph.lock.Unlock()
+	for _, p := range ph.tasks {
+		if p.SeedTaskID == id {
+			return true
+		}
+	}
+
+	return false
+}
+
+func (ph *preheat) addTask(task *types.TaskInfo) {
+	ph.lock.Lock()
+	defer ph.lock.Unlock()
+	ph.tasks = append(ph.tasks, &types.PreHeatInfo{
+		Headers:    flattenHeader(task.Headers),
+		SeedTaskID: task.ID,
+		URL:        task.TaskURL,
+	})
+}
+
+func (ph *preheat) getAll() []*types.PreHeatInfo {
+	ph.lock.Lock()
+	defer ph.lock.Unlock()
+
+	res := ph.tasks
+	ph.tasks = make([]*types.PreHeatInfo, 0)
+
+	return res
+}
+
+func newPreheat() *preheat {
+	return &preheat{
+		lock:  new(sync.Mutex),
+		tasks: make([]*types.PreHeatInfo, 0),
+	}
+}
+
 type P2pInfo struct {
 	peerID   string
 	PeerInfo *types.PeerInfo
+	fixSeed  bool
 	hbTime   int64
 	taskIDs  *idSet // seed tasks
+	ph       *preheat
 }
 
 func (p2p *P2pInfo) Load() int { return p2p.taskIDs.size() }
@@ -71,7 +117,8 @@ func newSeedTaskMap(taskID string, maxTaskPeers int) *SeedMap {
 	}
 }
 
-func (taskMap *SeedMap) tryAddNewTask(p2pInfo *P2pInfo, taskRequest *types.TaskCreateRequest) bool {
+func (taskMap *SeedMap) tryAddNewTask(peers []*P2pInfo, this *P2pInfo,
+	taskRequest *types.TaskCreateRequest, staticPeerMode bool) bool {
 	taskMap.lock.Lock()
 	defer taskMap.lock.Unlock()
 
@@ -90,14 +137,20 @@ func (taskMap *SeedMap) tryAddNewTask(p2pInfo *P2pInfo, taskRequest *types.TaskC
 		TaskURL:        taskRequest.TaskURL,
 		AsSeed:         true,
 	}
-	return taskMap.scheduler.Schedule(
+	if taskMap.scheduler.Schedule(
 		taskMap.tasks,
 		&SeedInfo{
 			RequestPath:       taskRequest.Path,
 			TaskInfo:          newTaskInfo,
-			P2pInfo:           p2pInfo,
+			P2pInfo:           this,
 			AllowSeedDownload: false,
-		})
+		}) {
+		if staticPeerMode {
+			taskMap.scheduler.Preheat(newTaskInfo, peers)
+		}
+		return true
+	}
+	return false
 }
 
 func (taskMap *SeedMap) listTasks() []*SeedInfo {
