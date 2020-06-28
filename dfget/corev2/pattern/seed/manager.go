@@ -86,6 +86,9 @@ const (
 	defaultBlockOrder = 19
 
 	maxTry = 20
+
+	// unit: hour.
+	defaultSeedExpireDuration = 1
 )
 
 var (
@@ -175,6 +178,12 @@ func newManager(pCfg config.PatternConfig, commonCfg config.DFGetCommonConfig, c
 	if cfg.ConcurrentLimit <= 0 {
 		cfg.ConcurrentLimit = 4
 	}
+
+	if cfg.ExpireDuration <= 0 {
+		cfg.ExpireDuration = defaultSeedExpireDuration
+	}
+
+	cfg.expireDuration = time.Duration(cfg.ExpireDuration) * time.Hour
 
 	config.SuperNodes = algorithm.DedupStringArr(config.SuperNodes)
 	m.sm = newSupernodeManager(ctx, cfg, config.SuperNodes, m.supernodeAPI, intervalOpt{})
@@ -391,7 +400,7 @@ func (m *Manager) registerLocalSeed(url string, header map[string][]string, path
 		URL:           url,
 		Header:        header,
 		BlockOrder:    blockOrder,
-		ExpireTimeDur: time.Hour,
+		ExpireTimeDur: m.cfg.expireDuration,
 		TaskID:        taskID,
 	}
 	sd, err := m.seedManager.Register(path, info)

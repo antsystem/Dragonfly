@@ -281,6 +281,9 @@ func (sm *supernodeManager) handleSupernodeEvent(ev *supernodeEvent) {
 }
 
 func (sm *supernodeManager) heartbeatLoop(ctx context.Context) {
+	// trigger heartbeat firstly and then in period.
+	sm.heartbeat()
+
 	ticker := time.NewTicker(sm.heartBeatInterval)
 	defer ticker.Stop()
 
@@ -297,9 +300,12 @@ func (sm *supernodeManager) heartbeatLoop(ctx context.Context) {
 func (sm *supernodeManager) heartbeat() {
 	for node, sw := range sm.supernodeMap {
 		resp, err := sm.supernodeAPI.HeartBeat(node, &api_types.HeartBeatRequest{
-			IP:   strfmt.IPv4(sm.cfg.IP),
-			Port: int32(sm.cfg.Port),
-			CID:  sm.cfg.Cid,
+			IP:        strfmt.IPv4(sm.cfg.IP),
+			Port:      int32(sm.cfg.Port),
+			CID:       sm.cfg.Cid,
+			FixedSeed: sm.cfg.FixedSeedRole,
+			HostName:  sm.cfg.HostName,
+			Version:   sm.cfg.Version,
 		})
 
 		if resp != nil && logrus.GetLevel() == logrus.DebugLevel {

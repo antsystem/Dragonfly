@@ -19,6 +19,7 @@ package seed
 import (
 	"github.com/dragonflyoss/Dragonfly/dfdaemon/config"
 	"github.com/dragonflyoss/Dragonfly/pkg/rate"
+	"time"
 )
 
 type Config struct {
@@ -45,4 +46,11 @@ type Config struct {
 	ConcurrentLimit int
 
 	DisableOpenMemoryCache bool
+
+	// the expire duration of seed file. Unit: hour.
+	ExpireDuration int
+	expireDuration time.Duration
+
+	// FixedSeedRole shows if the node is fixed role as static seed node.
+	FixedSeedRole bool
 }
