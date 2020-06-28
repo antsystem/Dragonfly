@@ -17,13 +17,24 @@
 package seedtask
 
 import (
-	"github.com/sirupsen/logrus"
+	"sort"
 	"time"
+
+	"github.com/dragonflyoss/Dragonfly/apis/types"
+	"github.com/sirupsen/logrus"
+)
+
+const (
+	maxPreHeatNum = 10
 )
 
 type seedScheduler interface {
 	// try to schedule a new seed
 	Schedule(nowTasks []*SeedInfo, newTask *SeedInfo) bool
+
+
+	// preheat
+	Preheat(task *types.TaskInfo, allPeers []*P2pInfo)
 }
 
 type defaultScheduler struct{}
@@ -86,4 +97,23 @@ func (scheduler *defaultScheduler) Schedule(nowTasks []*SeedInfo, newTask *SeedI
 	}
 
 	return pos >= 0
+}
+
+func (scheduler *defaultScheduler) Preheat(task *types.TaskInfo, allPeers []*P2pInfo) {
+	n := int(maxPreHeatNum)
+	peers := make([]*P2pInfo, 0)
+	for _, p := range allPeers {
+		if p.hasTask(task.ID) || p.ph.hasTask(task.ID) {
+			n--;
+			continue
+		}
+		peers = append(peers, p)
+	}
+	if n <= 0 {
+		return
+	}
+	sort.Slice(peers, func(i, j int) bool { return peers[i].Load() < peers[j].Load() })
+	for _, p := range peers[:n] {
+		p.ph.addTask(task)
+	}
 }

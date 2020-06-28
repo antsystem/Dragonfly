@@ -182,6 +182,9 @@ func setupFlags(cmd *cobra.Command) {
 		"peer expire time is the time that a rt task peer node is treated expired "+
 			"if the peer doesn't send heartbeat or registry tasks anymore")
 
+	flagSet.Bool("static-peer-mode", defaultBaseProperties.StaticPeerMode,
+		"static peer mode")
+
 	flagSet.Int("max-seed-per-object", defaultBaseProperties.MaxSeedPerObject,
 		"max number of seed nodes per one object ")
 
@@ -289,8 +292,12 @@ func bindRootFlags(v *viper.Viper) error {
 			flag: "max-seed-per-object",
 		},
 		{
-			key:  "peerExpireTime",
+			key:  "base.peerExpireTime",
 			flag: "peer-expire-time",
+		},
+		{
+			key: "base.staticPeerMode",
+			flag: "static-peer-mode",
 		},
 	}
 

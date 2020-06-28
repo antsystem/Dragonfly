@@ -416,7 +416,7 @@ func (s *Server) reportPeerHealth(ctx context.Context, rw http.ResponseWriter, r
 	if err := json.NewDecoder(reader).Decode(hbRequest); err != nil {
 		return errors.Wrap(errortypes.ErrInvalidValue, err.Error())
 	}
-	resp, err := s.seedTaskMgr.ReportPeerHealth(ctx, hbRequest.CID)
+	resp, err := s.seedTaskMgr.ReportPeerHealth(ctx, hbRequest)
 	if err != nil {
 		return err
 	}

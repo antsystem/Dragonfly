@@ -17,6 +17,8 @@
 package seedtask
 
 import (
+	"fmt"
+	"strings"
 	"sync"
 )
 
@@ -116,4 +118,16 @@ func newSafeMap() *safeMap {
 		lock:    new(sync.RWMutex),
 		safeMap: make(map[string]string),
 	}
+}
+
+func flattenHeader(header map[string]string) []string {
+	var res []string
+	for key, value := range header {
+		// discard HTTP host header for backing to source successfully
+		if strings.EqualFold(key, "host") {
+			continue
+		}
+		res = append(res, fmt.Sprintf("%s:%s", key, value))
+	}
+	return res
 }
