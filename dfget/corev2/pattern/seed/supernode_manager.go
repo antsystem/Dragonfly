@@ -76,6 +76,10 @@ func (s *superNodeWrapper) connect() {
 	s.disconnectCount = 0
 }
 
+func (s *superNodeWrapper) preheat(info []*api_types.PreHeatInfo) {
+	s.evQueue.Put(&supernodeEvent{evType: preheatEv, node: s.superNode, data: info})
+}
+
 func (s *superNodeWrapper) handleEvent(evType string) {
 	s.evQueue.Put(&supernodeEvent{evType: evType, node: s.superNode})
 }
@@ -84,11 +88,14 @@ const (
 	reconnectedEv  = "reconnect"
 	connectedEv    = "connect"
 	disconnectedEv = "disconnect"
+
+	preheatEv = "preheat"
 )
 
 type supernodeEvent struct {
 	evType string
 	node   string
+	data   interface{}
 }
 
 type activeFetchSt struct {
@@ -274,6 +281,7 @@ func (sm *supernodeManager) handleSupernodeEvent(ev *supernodeEvent) {
 		sm.locatorEvQueue.Put(locator.NewDisableEvent(ev.node))
 	case connectedEv:
 		sm.locatorEvQueue.Put(locator.NewEnableEvent(ev.node))
+	default:
 	}
 
 	// send event to supernodeEvQueue to notify out system.
@@ -326,6 +334,10 @@ func (sm *supernodeManager) heartbeat() {
 
 		sw.setVersion(resp.Data.Version)
 		sw.connect()
+
+		if len(resp.Data.Preheats) > 0 {
+			sw.preheat(resp.Data.Preheats)
+		}
 	}
 }
 
