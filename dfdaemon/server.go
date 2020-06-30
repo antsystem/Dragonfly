@@ -21,6 +21,9 @@ import (
 	"crypto/tls"
 	"fmt"
 	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/dragonflyoss/Dragonfly/dfdaemon/config"
 	"github.com/dragonflyoss/Dragonfly/dfdaemon/handler"
@@ -133,6 +136,7 @@ func LaunchPeerServer(cfg config.Properties) error {
 // Start runs dfdaemon's http server.
 func (s *Server) Start() error {
 	var err error
+	go captureQuitSignal(s)
 	_ = proxy.WithDirectHandler(handler.New())(s.proxy)
 	s.server.Handler = s.proxy
 	if s.server.TLSConfig != nil {
@@ -148,4 +152,14 @@ func (s *Server) Start() error {
 // Stop gracefully stops the dfdaemon http server.
 func (s *Server) Stop(ctx context.Context) error {
 	return s.server.Shutdown(ctx)
+}
+
+func captureQuitSignal(sr *Server) {
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM)
+	s := <-c
+	logrus.Infof("capture stop signal: %s, will shutdown...", s)
+
+	sr.Stop(context.Background())
+	os.Exit(0)
 }
