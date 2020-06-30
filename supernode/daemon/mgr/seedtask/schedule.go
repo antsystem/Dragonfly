@@ -116,6 +116,9 @@ func (scheduler *defaultScheduler) Preheat(task *types.TaskInfo, allPeers []*P2p
 		return
 	}
 	sort.Slice(peers, func(i, j int) bool { return peers[i].Load() < peers[j].Load() })
+	if n > len(peers) {
+		n = len(peers)
+	}
 	for _, p := range peers[:n] {
 		p.ph.addTask(task)
 	}
