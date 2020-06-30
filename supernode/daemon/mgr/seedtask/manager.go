@@ -140,9 +140,9 @@ func ipPortToStr(ip strfmt.IPv4, port int32) string {
 */
 func (mgr *Manager) Register(ctx context.Context, request *types.TaskRegisterRequest) (*TaskRegistryResponce, error) {
 	logrus.Debugf("registry seed task %v", request)
-	onlyPeer := false
-	if request.TaskURL == "" {
-		onlyPeer = true
+	onlyPeer := true
+	if request.TaskURL != "" {
+		onlyPeer = false
 		request.TaskID = digest.Sha256(request.TaskURL)
 	}
 	resp := &TaskRegistryResponce{TaskID: request.TaskID}
