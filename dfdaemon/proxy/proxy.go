@@ -128,6 +128,13 @@ func WithPatternMatcher(matcher *PatternMatcher) Option {
 	}
 }
 
+func WithHealthCheck(c *config.HealthCheckConfig) Option {
+	return func(p *Proxy) error {
+		p.hc = c
+		return nil
+	}
+}
+
 // New returns a new transparent proxy with the given rules
 func New(opts ...Option) (*Proxy, error) {
 	proxy := &Proxy{
@@ -153,6 +160,7 @@ func NewFromConfig(c config.Properties) (*Proxy, error) {
 		}),
 		WithStreamMode(c.StreamMode),
 		WithPatternMatcher(NewPatternMatcher(c, c.DFGetCommonConfig(), nil)),
+		WithHealthCheck(&c.HealthCheck),
 	}
 
 	logrus.Infof("registry mirror: %s", c.RegistryMirror.Remote)
@@ -207,6 +215,7 @@ type Proxy struct {
 	streamMode            bool
 	protocolConf          []config.ProtocolConfig
 	matcher               *PatternMatcher
+	hc                    *config.HealthCheckConfig
 }
 
 func (proxy *Proxy) mirrorRegistry(w http.ResponseWriter, r *http.Request) {
@@ -260,6 +269,10 @@ func (proxy *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (proxy *Proxy) handleHTTP(w http.ResponseWriter, req *http.Request) {
+	if proxy.healthCheck(w, req) {
+		return
+	}
+
 	resp, err := proxy.roundTripper(nil, req).RoundTrip(req)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusServiceUnavailable)
@@ -415,6 +428,24 @@ func (proxy *Proxy) handleHTTPS(w http.ResponseWriter, r *http.Request) {
 		logrus.Errorf("failed to accept incoming HTTP connections: %v", err)
 	}
 	wg.Wait()
+}
+
+func (proxy *Proxy) healthCheck(w http.ResponseWriter, req *http.Request) (ret bool) {
+	if proxy.hc == nil || proxy.hc.Header == "" {
+		return false
+	}
+
+	if req.Header.Get(proxy.hc.Header) == "" {
+		return false
+	}
+
+	code := http.StatusOK
+	if proxy.hc.RespCode > 0 {
+		code = proxy.hc.RespCode
+	}
+
+	w.WriteHeader(code)
+	return true
 }
 
 func copyAndClose(dst io.WriteCloser, src io.ReadCloser) error {

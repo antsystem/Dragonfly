@@ -119,8 +119,9 @@ type Properties struct {
 
 	ProtocolConf []ProtocolConfig `yaml:"protocolConf" json:"protocolConf"`
 	// DefaultPattern is the default pattern.
-	DefaultPattern string          `yaml:"defaultPattern" json:"defaultPattern"`
-	PatternConf    []PatternConfig `yaml:"patternConf" json:"patternConf"`
+	DefaultPattern string            `yaml:"defaultPattern" json:"defaultPattern"`
+	PatternConf    []PatternConfig   `yaml:"patternConf" json:"patternConf"`
+	HealthCheck    HealthCheckConfig `yaml:"healthCheck" json:"healthCheck"`
 }
 
 // Validate validates the config
@@ -461,4 +462,13 @@ type ProtocolConfig struct {
 type PatternConfig struct {
 	Pattern string                 `yaml:"pattern" json:"pattern"`
 	Opts    map[string]interface{} `yaml:"opts" json:"opts"`
+}
+
+// HealthCheckConfig shows how to tell the health status to request.
+type HealthCheckConfig struct {
+	// if request with the header, which indicates the request is health check.
+	Header string
+
+	// if health check request, direct return the RespCode. Default 200.
+	RespCode int
 }
