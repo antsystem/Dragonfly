@@ -100,6 +100,9 @@ func (scheduler *defaultScheduler) Schedule(nowTasks []*SeedInfo, newTask *SeedI
 }
 
 func (scheduler *defaultScheduler) Preheat(task *types.TaskInfo, allPeers []*P2pInfo) {
+	if len(allPeers) == 0 {
+		return
+	}
 	n := int(maxPreHeatNum)
 	peers := make([]*P2pInfo, 0)
 	for _, p := range allPeers {
