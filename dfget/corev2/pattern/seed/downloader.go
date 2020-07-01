@@ -20,6 +20,8 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"io/ioutil"
+	"net/http"
 	"time"
 
 	"github.com/dragonflyoss/Dragonfly/dfget/corev2/basic"
@@ -49,11 +51,30 @@ func (dn *downloader) Download(ctx context.Context, off, size int64) (io.ReadClo
 		Range: fmt.Sprintf("%d-%d", off, off+size-1),
 	}
 
+	resCode := 0
+
 	res, err := dn.downloaderAPI.Download(dn.peer.IP.String(), int(dn.peer.Port), req, dn.timeout)
-	logrus.Debugf("download from %s:%d, path %s, err: %v", dn.peer.IP.String(), dn.peer.Port, dn.peer.Path, err)
+	if res != nil {
+		resCode = res.StatusCode
+	}
+	logrus.Debugf("download from %s:%d, path %s, resp code: %d, err: %v", dn.peer.IP.String(), dn.peer.Port, dn.peer.Path, resCode, err)
 
 	if err != nil {
 		return nil, err
+	}
+
+	if resCode != http.StatusOK && resCode != http.StatusPartialContent {
+		errMsg := ""
+		if res.Body != nil {
+			data, _ := ioutil.ReadAll(res.Body)
+			if len(data) > 0 {
+				errMsg = string(data)
+			}
+
+			res.Body.Close()
+		}
+
+		return nil, fmt.Errorf("res code is %d, errMsg: %s", resCode, errMsg)
 	}
 
 	return res.Body, nil
