@@ -199,6 +199,24 @@ func (api *supernodeAPI) get(url string, resp interface{}) error {
 	return json.Unmarshal(body, resp)
 }
 
+func (api *supernodeAPI) getWithHeader(url string, headers map[string]string, resp interface{}) error {
+	var (
+		code int
+		body []byte
+		e    error
+	)
+	if url == "" {
+		return fmt.Errorf("invalid url")
+	}
+	if code, body, e = api.HTTPClient.GetWithHeaders(url, headers, api.Timeout); e != nil {
+		return e
+	}
+	if !httputils.HTTPStatusOk(code) {
+		return fmt.Errorf("%d:%s", code, body)
+	}
+	return json.Unmarshal(body, resp)
+}
+
 // report resource
 func (api *supernodeAPI) ReportResource(node string, req *types.RegisterRequest) (resp *types.RegisterResponse, err error) {
 	var (
@@ -241,7 +259,7 @@ func (api *supernodeAPI) ReportResourceDeleted(node string, taskID string, cid s
 	resp = new(types.BaseResponse)
 	resp.Code = constants.Success
 
-	if err = api.get(url, resp); err != nil {
+	if err = api.getWithHeader(url, header, resp); err != nil {
 		logrus.Errorf("failed to send service down,err: %v", err)
 		return nil, err
 	}
