@@ -34,7 +34,7 @@ type seedScheduler interface {
 
 
 	// preheat
-	Preheat(task *types.TaskInfo, allPeers []*P2pInfo)
+	Preheat(task *types.TaskInfo, allPeers []*P2pInfo, max int)
 }
 
 type defaultScheduler struct{}
@@ -99,11 +99,14 @@ func (scheduler *defaultScheduler) Schedule(nowTasks []*SeedInfo, newTask *SeedI
 	return pos >= 0
 }
 
-func (scheduler *defaultScheduler) Preheat(task *types.TaskInfo, allPeers []*P2pInfo) {
+func (scheduler *defaultScheduler) Preheat(task *types.TaskInfo, allPeers []*P2pInfo, max int) {
 	if len(allPeers) == 0 {
 		return
 	}
 	n := int(maxPreHeatNum)
+	if n > max {
+		n = max
+	}
 	peers := make([]*P2pInfo, 0)
 	for _, p := range allPeers {
 		if p.hasTask(task.ID) || p.ph.hasTask(task.ID) {

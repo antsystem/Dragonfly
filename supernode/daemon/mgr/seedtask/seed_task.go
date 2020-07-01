@@ -146,7 +146,7 @@ func (taskMap *SeedMap) tryAddNewTask(peers []*P2pInfo, this *P2pInfo,
 			AllowSeedDownload: false,
 		}) {
 		if staticPeerMode {
-			taskMap.scheduler.Preheat(newTaskInfo, peers)
+			taskMap.scheduler.Preheat(newTaskInfo, peers, len(taskMap.tasks))
 		}
 		return true
 	}
