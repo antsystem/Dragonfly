@@ -44,6 +44,7 @@ import (
 /* http content types */
 const (
 	ApplicationJSONUtf8Value = "application/json;charset=utf-8"
+	strContentLength         = "Content-Length"
 )
 
 const (
@@ -61,6 +62,8 @@ var (
 
 	// DefaultBuiltInHTTPClient is the http client for HTTPWithHeaders.
 	DefaultBuiltInHTTPClient *http.Client
+
+	httpClients *httpClientSet
 )
 
 // DefaultHTTPClient is the default implementation of SimpleHTTPClient.
@@ -73,6 +76,58 @@ var protocols = sync.Map{}
 // validURLSchemas stores valid schemas
 // when call RegisterProtocol, validURLSchemas will be also updated.
 var validURLSchemas = "https?|HTTPS?"
+
+type httpClientSet struct {
+	sync.RWMutex
+	clients map[string]*http.Client
+}
+
+func (s *httpClientSet) get(name string) *http.Client {
+	if name == "" {
+		return DefaultBuiltInHTTPClient
+	}
+	s.RLock()
+	defer s.RUnlock()
+	if c, ok := s.clients[name]; ok {
+		return c
+	}
+	return DefaultBuiltInHTTPClient
+}
+
+func (s *httpClientSet) register(name string, client *http.Client) {
+	if name == "" {
+		return
+	}
+	s.Lock()
+	defer s.Unlock()
+
+	if _, ok := s.clients[name]; ok {
+		return
+	}
+	s.clients[name] = client
+}
+
+func RegisterClientWithTLSConfig(name string, config *tls.Config) {
+	transport := &http.Transport{
+		Proxy: http.ProxyFromEnvironment,
+		DialContext: (&net.Dialer{
+			Timeout:   30 * time.Second,
+			KeepAlive: 30 * time.Second,
+			DualStack: true,
+		}).DialContext,
+		MaxConnsPerHost:       16,
+		MaxIdleConns:          100,
+		IdleConnTimeout:       90 * time.Second,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
+		TLSClientConfig:       config,
+	}
+	RegisterProtocolOnTransport(transport)
+	c := &http.Client{
+		Transport: transport,
+	}
+	httpClients.register(name, c)
+}
 
 // SimpleHTTPClient defines some http functions used frequently.
 type SimpleHTTPClient interface {
@@ -90,6 +145,7 @@ func init() {
 			KeepAlive: 30 * time.Second,
 			DualStack: true,
 		}).DialContext,
+		MaxConnsPerHost:       16,
 		MaxIdleConns:          100,
 		IdleConnTimeout:       90 * time.Second,
 		TLSHandshakeTimeout:   10 * time.Second,
@@ -103,6 +159,7 @@ func init() {
 			KeepAlive: 30 * time.Second,
 			DualStack: true,
 		}).DialContext,
+		MaxConnsPerHost:       16,
 		MaxIdleConns:          100,
 		IdleConnTimeout:       90 * time.Second,
 		TLSHandshakeTimeout:   10 * time.Second,
@@ -112,6 +169,11 @@ func init() {
 	DefaultBuiltInHTTPClient = &http.Client{
 		Transport: DefaultBuiltInTransport,
 	}
+
+	httpClients = &httpClientSet{
+		clients: make(map[string]*http.Client),
+	}
+	httpClients.register("builtin", DefaultBuiltInHTTPClient)
 
 	RegisterProtocolOnTransport(DefaultBuiltInTransport)
 }
@@ -250,6 +312,40 @@ func Do(url string, headers map[string]string, timeout time.Duration) (string, e
 	result := string(body)
 
 	return result, nil
+}
+
+func HTTPClientDoRequest(clientName, method, url string, headers map[string]string, timeout time.Duration) (*http.Response, error) {
+	var (
+		cancel func()
+	)
+	req, err := http.NewRequest(method, url, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	for k, v := range headers {
+		req.Header.Add(k, v)
+	}
+
+	if timeout > 0 {
+		timeoutCtx, cancelFunc := context.WithTimeout(context.Background(), timeout)
+		req = req.WithContext(timeoutCtx)
+		cancel = cancelFunc
+	}
+
+	c := httpClients.get(clientName)
+	res, err := c.Do(req)
+	if err != nil {
+		return nil, err
+	}
+
+	if cancel == nil {
+		return res, nil
+	}
+
+	// do cancel() when close the body.
+	res.Body = NewWithFuncReadCloser(res.Body, cancel)
+	return res, nil
 }
 
 // HTTPGet sends an HTTP GET request with headers.
@@ -572,6 +668,13 @@ func (wrc *withFuncReadCloser) Close() error {
 	return wrc.ReadCloser.Close()
 }
 
+func (wrc *withFuncReadCloser) WriteTo(w io.Writer) (int64, error) {
+	if wt, ok := wrc.ReadCloser.(io.WriterTo); ok {
+		return wt.WriteTo(w)
+	}
+	return io.Copy(w, wrc.ReadCloser)
+}
+
 func GetRangeFromHeader(header map[string][]string) (*RangeStruct, error) {
 	hr := http.Header(header)
 	if headerStr := hr.Get("Range"); headerStr != "" {
@@ -598,4 +701,24 @@ func GetRangeFromHeader(header map[string][]string) (*RangeStruct, error) {
 		StartIndex: 0,
 		EndIndex:   -1,
 	}, nil
+}
+
+func URLStripQuery(url string) string {
+	if url == "" {
+		return ""
+	}
+	idx := strings.Index(url, "?")
+	if idx < 0 {
+		return url
+	}
+	return url[:idx]
+}
+
+func HTTPContentLength(resp *http.Response) int64 {
+	str := resp.Header.Get(strContentLength)
+	if str == "" {
+		return -1
+	}
+	dataLen, _ := strconv.ParseInt(str, 10, 64)
+	return dataLen
 }

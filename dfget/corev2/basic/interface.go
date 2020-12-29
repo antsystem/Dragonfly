@@ -24,6 +24,7 @@ type Response interface {
 
 // RangeRequest defines the range request.
 type RangeRequest interface {
+	OriURL() string
 	URL() string
 	Offset() int64
 	Size() int64

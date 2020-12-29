@@ -18,6 +18,7 @@ package uploader
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
@@ -35,6 +36,7 @@ import (
 	"github.com/dragonflyoss/Dragonfly/dfget/core/api"
 	"github.com/dragonflyoss/Dragonfly/dfget/core/helper"
 	"github.com/dragonflyoss/Dragonfly/dfget/corev2/uploader"
+	"github.com/dragonflyoss/Dragonfly/pkg/certutils"
 	"github.com/dragonflyoss/Dragonfly/pkg/errortypes"
 	"github.com/dragonflyoss/Dragonfly/pkg/limitreader"
 	"github.com/dragonflyoss/Dragonfly/pkg/ratelimiter"
@@ -43,6 +45,24 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/sirupsen/logrus"
 )
+
+func getTLSConfig(cfg *config.Config) *tls.Config {
+	if cfg.RV.CertPem == "" || cfg.RV.KeyPem == "" {
+		return nil
+	}
+	cert, err := tls.LoadX509KeyPair(cfg.RV.CertPem, cfg.RV.KeyPem)
+	if err != nil {
+		return nil
+	}
+	newCert, err := certutils.NewLeafCert(&cert, cfg.RV.LocalIP)
+	if err != nil {
+		return nil
+	}
+	return &tls.Config{
+		Certificates: []tls.Certificate{*newCert},
+	}
+
+}
 
 // newPeerServer returns a new P2PServer.
 func newPeerServer(cfg *config.Config, port int) *peerServer {
@@ -56,8 +76,14 @@ func newPeerServer(cfg *config.Config, port int) *peerServer {
 
 	r := s.initRouter()
 	s.Server = &http.Server{
-		Addr:    net.JoinHostPort(s.host, strconv.Itoa(port)),
-		Handler: r,
+		Addr:      net.JoinHostPort(s.host, strconv.Itoa(port)),
+		Handler:   r,
+		TLSConfig: getTLSConfig(cfg),
+	}
+	s.bufPool = &sync.Pool{
+		New: func() interface{} {
+			return make([]byte, 64*1024)
+		},
 	}
 
 	return s
@@ -80,6 +106,7 @@ type peerServer struct {
 
 	api         api.SupernodeAPI
 	rateLimiter *ratelimiter.RateLimiter
+	bufPool     *sync.Pool
 
 	// totalLimitRate is the total network bandwidth shared by tasks on the same host
 	totalLimitRate int
@@ -422,18 +449,18 @@ func (ps *peerServer) uploadPiece(f *os.File, w http.ResponseWriter, up *uploadP
 
 // uploadByPattern sends data to the remote peer.
 func (ps *peerServer) uploadByPattern(w http.ResponseWriter, path string, up *uploadParam, upper uploader.Uploader) (e error) {
-	rc, err := upper.UploadRange(path, up.start, up.length, nil)
+	dataLen, rc, err := upper.UploadRange(path, up.start, up.length, nil)
 	if err != nil {
 		sendHeader(w, http.StatusBadRequest)
 		fmt.Fprint(w, err.Error())
 		return err
 	}
 
-	w.Header().Set(config.StrContentLength, strconv.FormatInt(up.length, 10))
+	w.Header().Set(config.StrContentLength, strconv.FormatInt(dataLen, 10))
 	sendHeader(w, http.StatusPartialContent)
 
-	buf := make([]byte, 256*1024)
-
+	buf := ps.bufPool.Get().([]byte)
+	defer ps.bufPool.Put(buf)
 	defer rc.Close()
 
 	if ps.rateLimiter != nil {

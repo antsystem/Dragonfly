@@ -24,7 +24,7 @@ import (
 	"github.com/dragonflyoss/Dragonfly/dfget/corev2/pattern/seed/config"
 
 	"github.com/go-check/check"
-	strfmt "github.com/go-openapi/strfmt"
+	"github.com/go-openapi/strfmt"
 )
 
 type mockRangeRequest struct {
@@ -47,6 +47,9 @@ func (r mockRangeRequest) Header() map[string]string {
 }
 func (r mockRangeRequest) Extra() interface{} {
 	return nil
+}
+func (r mockRangeRequest) OriURL() string {
+	return r.url
 }
 
 func initTaskFetchInfoForTest(id string, asSeed bool, size int64, url string, path string) *config.TaskFetchInfo {

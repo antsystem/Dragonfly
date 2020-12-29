@@ -24,6 +24,7 @@ import (
 
 // BaseInfo describes the base info of seed.
 type BaseInfo struct {
+	RawURL string
 	// the url of seed file.
 	URL string
 

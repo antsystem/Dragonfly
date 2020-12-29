@@ -75,6 +75,8 @@ func NewHashCirclerLocator(groupName string, nodes []string, eventQueue queue.Qu
 
 	sort.Strings(nodes)
 
+	logrus.Infof("Init HashCirclerLocator: %v", nodes)
+
 	group := &SupernodeGroup{
 		Name:  groupName,
 		Nodes: []*Supernode{},
@@ -181,8 +183,10 @@ func (h *hashCirclerLocator) eventLoop(ctx context.Context) {
 func (h *hashCirclerLocator) handleEvent(ev *SuperNodeEvent) {
 	switch ev.evType {
 	case addEv:
+		logrus.Infof("Hash circle: add node %s", ev.node)
 		h.hc.Add(ev.node)
 	case deleteEv:
+		logrus.Infof("Hash circle: delete node %s", ev.node)
 		h.hc.Delete(ev.node)
 	default:
 	}

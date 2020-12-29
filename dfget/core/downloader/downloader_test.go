@@ -50,7 +50,7 @@ func (s *DownloaderTestSuite) TestDoDownloadTimeout(c *check.C) {
 	err = DoDownloadTimeout(md, 50*time.Millisecond)
 	c.Assert(err, check.NotNil)
 
-	err = DoDownloadTimeout(md, 110*time.Millisecond)
+	err = DoDownloadTimeout(md, 130*time.Millisecond)
 	c.Assert(err, check.IsNil)
 }
 

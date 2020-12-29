@@ -47,6 +47,9 @@ type Config struct {
 
 	DisableOpenMemoryCache bool
 
+	UseDownloadCache       bool
+	DownloadCacheWaterMark int64
+
 	// the expire duration of seed file. Unit: hour.
 	ExpireDuration int
 	expireDuration time.Duration

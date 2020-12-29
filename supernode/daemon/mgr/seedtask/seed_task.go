@@ -21,6 +21,8 @@ import (
 	"time"
 
 	"github.com/dragonflyoss/Dragonfly/apis/types"
+	"github.com/dragonflyoss/Dragonfly/pkg/httputils"
+	"github.com/sirupsen/logrus"
 )
 
 type preheat struct {
@@ -96,31 +98,69 @@ type SeedInfo struct {
 
 // point to a real-time task
 type SeedMap struct {
+	sync.RWMutex
+	expireTime time.Time
 	/* seed task id */
-	taskID string
-	lock   *sync.RWMutex
-	/* latest access time */
-	accessTime int64
+	taskID     string
+	url        string
+	fullLength int64
 	/* store all task-peer info */
 	tasks []*SeedInfo
 	/* seed schedule method */
 	scheduler seedScheduler
 }
 
-func newSeedTaskMap(taskID string, maxTaskPeers int) *SeedMap {
+func newSeedTaskMap(taskID, url string, maxTaskPeers int) *SeedMap {
 	return &SeedMap{
-		taskID:     taskID,
-		tasks:      make([]*SeedInfo, maxTaskPeers),
-		lock:       new(sync.RWMutex),
-		accessTime: -1,
-		scheduler:  &defaultScheduler{},
+		url:       url,
+		taskID:    taskID,
+		tasks:     make([]*SeedInfo, maxTaskPeers),
+		scheduler: &defaultScheduler{},
 	}
+}
+
+func headersWithoutRange(h map[string]string) map[string]string {
+	ret := make(map[string]string)
+	if h == nil {
+		return ret
+	}
+	for k, v := range h {
+		if k == "Range" {
+			continue
+		}
+		ret[k] = v
+	}
+	return ret
+}
+
+func getHTTPFileLength(req *types.TaskCreateRequest) (int64, error) {
+	resp, err := httputils.HTTPGetTimeout(req.RawURL, headersWithoutRange(req.Headers), time.Second)
+	if err != nil {
+		return -1, err
+	}
+	defer resp.Body.Close()
+
+	return httputils.HTTPContentLength(resp), nil
 }
 
 func (taskMap *SeedMap) tryAddNewTask(peers []*P2pInfo, this *P2pInfo,
 	taskRequest *types.TaskCreateRequest, staticPeerMode bool) bool {
-	taskMap.lock.Lock()
-	defer taskMap.lock.Unlock()
+	taskMap.Lock()
+	defer taskMap.Unlock()
+
+	if taskRequest.FileLength > 0 {
+		if taskMap.fullLength <= 0 {
+			taskMap.fullLength = taskRequest.FileLength
+		}
+		if taskMap.fullLength != taskRequest.FileLength {
+			logrus.Warnf("Task has different file length, old: %d, now: %d",
+				taskMap.fullLength, taskRequest.FileLength)
+		}
+	}
+	if taskMap.fullLength == 0 {
+		taskMap.fullLength, _ = getHTTPFileLength(taskRequest)
+		logrus.Infof("Get url %s file length %d", taskMap.url, taskMap.fullLength)
+	}
 
 	newTaskInfo := &types.TaskInfo{
 		ID:             taskRequest.TaskID,
@@ -154,8 +194,8 @@ func (taskMap *SeedMap) tryAddNewTask(peers []*P2pInfo, this *P2pInfo,
 }
 
 func (taskMap *SeedMap) listTasks() []*SeedInfo {
-	taskMap.lock.RLock()
-	defer taskMap.lock.RUnlock()
+	taskMap.RLock()
+	defer taskMap.RUnlock()
 
 	result := make([]*SeedInfo, 0)
 	for _, v := range taskMap.tasks {
@@ -168,16 +208,17 @@ func (taskMap *SeedMap) listTasks() []*SeedInfo {
 	return result
 }
 
-func (taskMap *SeedMap) update() {
-	unixNow := time.Now().Unix()
-	if unixNow > taskMap.accessTime {
-		taskMap.accessTime = unixNow
-	}
+func (taskMap *SeedMap) update(dur time.Duration) {
+	taskMap.expireTime = time.Now().Add(dur)
+}
+
+func (taskMap *SeedMap) isExpired() bool {
+	return time.Now().After(taskMap.expireTime)
 }
 
 func (taskMap *SeedMap) remove(id string) bool {
-	taskMap.lock.Lock()
-	defer taskMap.lock.Unlock()
+	taskMap.Lock()
+	defer taskMap.Unlock()
 
 	i := 0
 	left := len(taskMap.tasks)
@@ -196,8 +237,8 @@ func (taskMap *SeedMap) remove(id string) bool {
 }
 
 func (taskMap *SeedMap) removeAllPeers() {
-	taskMap.lock.Lock()
-	defer taskMap.lock.Unlock()
+	taskMap.Lock()
+	defer taskMap.Unlock()
 
 	for idx, task := range taskMap.tasks {
 		if task == nil {

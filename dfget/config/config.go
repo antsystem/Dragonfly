@@ -26,7 +26,6 @@ import (
 	"strings"
 	"syscall"
 	"time"
-
 	"github.com/dragonflyoss/Dragonfly/pkg/dflog"
 	"github.com/dragonflyoss/Dragonfly/pkg/errortypes"
 	"github.com/dragonflyoss/Dragonfly/pkg/fileutils"
@@ -363,6 +362,9 @@ type RuntimeVariable struct {
 
 	// FileLength the length of the file to download.
 	FileLength int64
+
+	CertPem string
+	KeyPem  string
 
 	// DataExpireTime specifies the caching duration for which
 	// cached files keep no accessed by any process.

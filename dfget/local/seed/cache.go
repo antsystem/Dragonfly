@@ -18,21 +18,19 @@ package seed
 
 import (
 	"bytes"
-	"fmt"
 	"io"
 	"net/http"
 	"os"
-	"sort"
 	"sync"
+	"syscall"
 
-	"github.com/dragonflyoss/Dragonfly/pkg/bitmap"
 	"github.com/dragonflyoss/Dragonfly/pkg/errortypes"
-
-	lbm "github.com/openacid/low/bitmap"
+	"github.com/sirupsen/logrus"
 )
 
 // cacheBuffer interface caches the seed file
 type cacheBuffer interface {
+	ReadAtFrom
 	io.WriterAt
 	// write close
 	io.Closer
@@ -48,7 +46,7 @@ type cacheBuffer interface {
 	FullSize() int64
 }
 
-func newFileCacheBuffer(path string, fullSize int64, trunc bool, memoryCache bool, blockOrder uint32) (cb cacheBuffer, err error) {
+func newFileCacheBuffer(path string, fullSize int64, trunc bool, memoryCache bool) (cb cacheBuffer, err error) {
 	var (
 		fw *os.File
 	)
@@ -61,11 +59,15 @@ func newFileCacheBuffer(path string, fullSize int64, trunc bool, memoryCache boo
 	}
 
 	if trunc {
-		fw, err = os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+		fw, err = os.OpenFile(path, os.O_CREATE|os.O_RDWR|os.O_TRUNC, 0644)
 	} else {
-		fw, err = os.OpenFile(path, os.O_CREATE|os.O_WRONLY, 0644)
+		fw, err = os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0644)
+	}
+	if err != nil {
+		return nil, err
 	}
 
+	err = fw.Truncate(fullSize)
 	if err != nil {
 		return nil, err
 	}
@@ -76,22 +78,14 @@ func newFileCacheBuffer(path string, fullSize int64, trunc bool, memoryCache boo
 		}
 	}()
 
-	fcb := &fileCacheBuffer{path: path, fw: fw, fullSize: fullSize, memoryCache: memoryCache}
+	fcb := &fileCacheBuffer{path: path, fw: fw, fullSize: fullSize, useMemoryCache: memoryCache}
 	if memoryCache {
-		fcb.blockOrder = blockOrder
-		fcb.blockSize = 1 << blockOrder
-		blocks := fullSize / int64(fcb.blockSize)
-		if (fullSize % int64(fcb.blockSize)) > 0 {
-			blocks++
-		}
-
-		fcb.blockMeta, err = bitmap.NewBitMapWithNumBits(uint32(blocks), false)
+		fcb.memCache, err = syscall.Mmap(int(fw.Fd()), 0, int(fullSize),
+			syscall.PROT_WRITE|syscall.PROT_READ, syscall.MAP_SHARED)
 		if err != nil {
-			return nil, err
+			logrus.Errorf("mmap resource %s err", path)
+			fcb.useMemoryCache = false
 		}
-
-		fcb.memCacheMap = make(map[int64]*bytes.Buffer)
-		fcb.maxBlockIndex = uint32(blocks - 1)
 	}
 
 	return fcb, nil
@@ -106,39 +100,48 @@ type fileCacheBuffer struct {
 	remove   bool
 	fullSize int64
 
-	// memory cache mode, in the mode, it will store cache in temperate memory.
-	// if sync is called, the temperate memory will sync to local fs.
-	// in memory cache mode, WriteAt should transfer a block buffer.
-	memoryCache   bool
-	blockMeta     *bitmap.BitMap
-	blockSize     int32
-	blockOrder    uint32
-	maxBlockIndex uint32
+	// memory cache mode, in the mode, it will store cache in page cache with syscall.Mmap
+	useMemoryCache bool
+	memCache       []byte
+}
 
-	// memCacheMap caches the buffer, and the buffer should not be changed if added to the map.
-	// the key is bytes start index of buffer cache in full cache.
-	memCacheMap map[int64]*bytes.Buffer
+type bytesReadCloser struct {
+	*bytes.Reader
+}
+
+func (r *bytesReadCloser) Close() error {
+	return nil
 }
 
 // if in memory mode, the write data buffer will be reused, so don't change the buffer.
 func (fcb *fileCacheBuffer) WriteAt(p []byte, off int64) (n int, err error) {
-	err = fcb.checkWriteAtValid(off, int64(len(p)))
-	if err != nil {
-		return
-	}
-
-	if fcb.memoryCache {
-		fcb.storeMemoryCache(p, off)
-		return len(p), nil
+	if fcb.useMemoryCache {
+		n = copy(fcb.memCache[off:], p)
+		return n, nil
 	}
 
 	return fcb.fw.WriteAt(p, off)
+}
+
+func (fcb *fileCacheBuffer) ReadAtFrom(r io.Reader, off, size int64) (n int, err error) {
+	if fcb.useMemoryCache && fcb.memCache != nil {
+		if off+size > fcb.fullSize {
+			size = fcb.fullSize - off
+		}
+		return io.ReadFull(r, fcb.memCache[off:off+size])
+	}
+	// fallback to writeAt
+	written, err := CopyBufferToWriterAt(off, fcb, r)
+	return int(written), err
 }
 
 // Close closes the file writer.
 func (fcb *fileCacheBuffer) Close() error {
 	if err := fcb.Sync(); err != nil {
 		return err
+	}
+	if fcb.memCache != nil {
+		syscall.Munmap(fcb.memCache)
 	}
 	return fcb.fw.Close()
 }
@@ -150,12 +153,6 @@ func (fcb *fileCacheBuffer) Sync() error {
 
 	if remove {
 		return io.ErrClosedPipe
-	}
-
-	if fcb.memoryCache {
-		if err := fcb.syncMemoryCache(); err != nil {
-			return err
-		}
 	}
 
 	return fcb.fw.Sync()
@@ -177,7 +174,6 @@ func (fcb *fileCacheBuffer) Remove() error {
 	if fcb.remove {
 		return nil
 	}
-
 	fcb.remove = true
 	return os.Remove(fcb.path)
 }
@@ -215,78 +211,11 @@ func (fcb *fileCacheBuffer) checkReadStreamParam(off int64, size int64) (int64, 
 	return off, size, nil
 }
 
-func (fcb *fileCacheBuffer) storeMemoryCache(p []byte, off int64) {
-	fcb.Lock()
-	defer fcb.Unlock()
-
-	if _, ok := fcb.memCacheMap[off]; ok {
-		return
-	}
-
-	buf := bytes.NewBuffer(p)
-	fcb.memCacheMap[off] = buf
-
-	startBlockIndex := uint32(off >> fcb.blockOrder)
-	// set bits in bit map
-	fcb.blockMeta.Set(startBlockIndex, startBlockIndex, true)
-}
-
-// syncMemoryCache flushes the memory cache to local file.
-func (fcb *fileCacheBuffer) syncMemoryCache() error {
-	var (
-		err error
-	)
-
-	var arr []*struct {
-		off int64
-		buf *bytes.Buffer
-	}
-
-	fcb.RLock()
-	for off, buf := range fcb.memCacheMap {
-		arr = append(arr, &struct {
-			off int64
-			buf *bytes.Buffer
-		}{off: off, buf: buf})
-	}
-	fcb.RUnlock()
-
-	sort.Slice(arr, func(i, j int) bool {
-		return arr[i].off < arr[j].off
-	})
-
-	for i := 0; i < len(arr); i++ {
-		err = fcb.syncBlockToFile(arr[i].buf.Bytes(), arr[i].off)
-		if err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-func (fcb *fileCacheBuffer) syncBlockToFile(p []byte, off int64) error {
-	n, err := fcb.fw.WriteAt(p, off)
-	if err != nil {
-		return err
-	}
-
-	if n < len(p) {
-		return io.ErrShortWrite
-	}
-
-	fcb.Lock()
-	defer fcb.Unlock()
-
-	blockIndex := uint32(off >> fcb.blockOrder)
-	delete(fcb.memCacheMap, off)
-	fcb.blockMeta.Set(blockIndex, blockIndex, false)
-	return nil
-}
-
 func (fcb *fileCacheBuffer) openReadCloser(off int64, size int64) (io.ReadCloser, error) {
-	if fcb.memoryCache {
-		return fcb.openReadCloserInMemoryCacheMode(off, size)
+	if fcb.useMemoryCache && fcb.memCache != nil {
+		return &bytesReadCloser{
+			Reader: bytes.NewReader(fcb.memCache[off:off+size]),
+		}, nil
 	}
 
 	fr, err := os.Open(fcb.path)
@@ -297,99 +226,6 @@ func (fcb *fileCacheBuffer) openReadCloser(off int64, size int64) (io.ReadCloser
 	return newLimitReadCloser(fr, off, size)
 }
 
-// if in memory cache mode, the reader is multi reader in which some data in memory and others in file.
-func (fcb *fileCacheBuffer) openReadCloserInMemoryCacheMode(off, size int64) (io.ReadCloser, error) {
-	var (
-		rds   []io.Reader
-		useFr bool
-	)
-
-	fr, err := os.Open(fcb.path)
-	if err != nil {
-		return nil, err
-	}
-
-	fcb.RLock()
-	defer fcb.RUnlock()
-
-	if len(fcb.memCacheMap) == 0 {
-		return newLimitReadCloser(fr, off, size)
-	}
-
-	currentOff := off
-	var currentBlock int32
-	var currentBlockStartBytes, currentBlockEndBytes, useBlockBytes, currentBlockOff, currentBlockOffEnd int64
-	for {
-		if size <= 0 {
-			break
-		}
-
-		currentBlock = int32(currentOff >> fcb.blockOrder)
-		currentBlockStartBytes = int64(currentBlock) << fcb.blockOrder
-		currentBlockEndBytes = currentBlockStartBytes + int64(fcb.blockSize) - 1
-		if currentBlockEndBytes >= fcb.fullSize {
-			currentBlockEndBytes = fcb.fullSize - 1
-		}
-
-		useBlockBytes = currentBlockEndBytes - currentOff + 1
-		if useBlockBytes > size {
-			useBlockBytes = size
-		}
-
-		currentBlockOff = currentOff - currentBlockStartBytes
-		currentBlockOffEnd = currentBlockOff + useBlockBytes - 1
-		buf, ok := fcb.memCacheMap[currentBlockStartBytes]
-		if ok {
-			// currentBlock in memory
-			b := buf.Bytes()
-			rd := bytes.NewReader(b[currentBlockOff : currentBlockOffEnd+1])
-			rds = append(rds, rd)
-		} else {
-			// else currentBlock in file
-			rd := io.NewSectionReader(fr, currentOff, useBlockBytes)
-			rds = append(rds, rd)
-			useFr = true
-		}
-
-		size -= useBlockBytes
-		currentOff += useBlockBytes
-	}
-
-	if !useFr {
-		fr.Close()
-		fr = nil
-	}
-
-	return newMultiReadCloser(rds, fr), nil
-}
-
-func (fcb *fileCacheBuffer) checkWriteAtValid(off, size int64) error {
-	if !fcb.memoryCache {
-		return nil
-	}
-
-	if uint64(off)&(lbm.Mask[fcb.blockOrder]) > 0 {
-		return fmt.Errorf("memory cache mode, off %d should be align with blockSize %d", off, fcb.blockSize)
-	}
-
-	maxIndex := off + size - 1
-
-	if maxIndex >= fcb.fullSize {
-		return fmt.Errorf("memory cache mode, max write index %d should be smaller than max block index %d", maxIndex, fcb.fullSize)
-	}
-
-	// if last block, the size may smaller than block size
-	if uint32(off>>fcb.blockOrder) == fcb.maxBlockIndex {
-		return nil
-	}
-
-	if size != int64(fcb.blockSize) {
-		return fmt.Errorf("memory cache mode, len of bytes %d should be equal to block size %d", size, fcb.blockSize)
-	}
-
-	return nil
-}
-
 // fileReadCloser provides a selection readCloser of file.
 type fileReadCloser struct {
 	sr *io.SectionReader
@@ -398,6 +234,7 @@ type fileReadCloser struct {
 
 func newLimitReadCloser(fr *os.File, off int64, size int64) (io.ReadCloser, error) {
 	sr := io.NewSectionReader(fr, off, size)
+	fr.Seek(off, io.SeekStart)
 	return &fileReadCloser{
 		sr: sr,
 		fr: fr,
@@ -412,29 +249,15 @@ func (lr *fileReadCloser) Close() error {
 	return lr.fr.Close()
 }
 
-// multiReadCloser provides multi ReadCloser.
-type multiReadCloser struct {
-	rds    []io.Reader
-	realRd io.Reader
-	fr     *os.File
+type writeOnly struct {
+	io.Writer
 }
 
-func newMultiReadCloser(rds []io.Reader, fr *os.File) *multiReadCloser {
-	return &multiReadCloser{
-		rds:    rds,
-		realRd: io.MultiReader(rds...),
-		fr:     fr,
+func (lr *fileReadCloser) WriteTo(w io.Writer) (int64, error) {
+	if rf, ok := w.(io.ReaderFrom); ok {
+		return rf.ReadFrom(io.LimitReader(lr.fr, lr.sr.Size()))
 	}
-}
-
-func (mr *multiReadCloser) Read(p []byte) (n int, err error) {
-	return mr.realRd.Read(p)
-}
-
-func (mr *multiReadCloser) Close() error {
-	if mr.fr != nil {
-		return mr.fr.Close()
-	}
-
-	return nil
+	// hardly run here
+	buf := make([]byte, 64*1024)
+	return io.CopyBuffer(writeOnly{w}, lr.sr, buf)
 }

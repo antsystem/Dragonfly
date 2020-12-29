@@ -52,10 +52,15 @@ func init() {
 }
 
 func (s *HTTPUtilTestSuite) SetUpSuite(c *check.C) {
-	s.port = rand.Intn(1000) + 63000
-	s.host = fmt.Sprintf("127.0.0.1:%d", s.port)
-
-	s.ln, _ = net.Listen("tcp", s.host)
+	var err error
+	for {
+		s.port = rand.Intn(1000) + 63000
+		s.host = fmt.Sprintf("127.0.0.1:%d", s.port)
+		s.ln, err = net.Listen("tcp", s.host)
+		if err == nil {
+			break
+		}
+	}
 	go fasthttp.Serve(s.ln, func(ctx *fasthttp.RequestCtx) {
 		ctx.SetContentType(ApplicationJSONUtf8Value)
 		ctx.SetStatusCode(fasthttp.StatusOK)
@@ -78,7 +83,7 @@ func (s *HTTPUtilTestSuite) TearDownSuite(c *check.C) {
 // unit tests
 
 func (s *HTTPUtilTestSuite) TestPostJson(c *check.C) {
-	code, body, e := PostJSON("http://"+s.host, req(1, 2), 60*time.Millisecond)
+	code, body, e := PostJSON("http://"+s.host, req(1, 2), 80*time.Millisecond)
 	checkOk(c, code, body, e, 3)
 
 	_, _, e = PostJSON("http://"+s.host, req(1, 2), 50*time.Millisecond)
@@ -96,7 +101,7 @@ func (s *HTTPUtilTestSuite) TestGet(c *check.C) {
 	code, body, e := Get("http://"+s.host, 0)
 	checkOk(c, code, body, e, 0)
 
-	_, _, e = Get("http://"+s.host, 50*time.Millisecond)
+	_, _, e = Get("http://"+s.host, 55*time.Millisecond)
 	c.Assert(e, check.NotNil)
 	c.Assert(e.Error(), check.Equals, "timeout")
 }
@@ -263,6 +268,19 @@ func (s *HTTPUtilTestSuite) TestConcurrencyPostJson(c *check.C) {
 
 func (s *HTTPUtilTestSuite) TestConstructRangeStr(c *check.C) {
 	c.Check(ConstructRangeStr("200-1000"), check.DeepEquals, "bytes=200-1000")
+}
+
+func (s *HTTPUtilTestSuite) TestUrlWithoutQuery(c *check.C) {
+	c.Check(URLStripQuery(""), check.Equals, "")
+	c.Check(URLStripQuery("http://abc.com"), check.Equals, "http://abc.com")
+	c.Check(URLStripQuery("http://abc.com?a=1&b=2"), check.Equals, "http://abc.com")
+}
+
+func (s *HTTPUtilTestSuite) TestContentLength(c *check.C) {
+	resp := &http.Response{Header: make(http.Header)}
+	c.Check(HTTPContentLength(resp), check.Equals, int64(-1))
+	resp.Header.Set("Content-Length", "10")
+	c.Check(HTTPContentLength(resp), check.Equals, int64(10))
 }
 
 // ----------------------------------------------------------------------------

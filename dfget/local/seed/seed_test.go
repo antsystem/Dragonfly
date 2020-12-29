@@ -20,7 +20,8 @@ import (
 	"fmt"
 	"io/ioutil"
 	"path/filepath"
-	"sync"
+
+	//"sync"
 	"time"
 
 	"github.com/dragonflyoss/Dragonfly/pkg/ratelimiter"
@@ -48,6 +49,8 @@ func (suite *SeedTestSuite) TestNormalSeed(c *check.C) {
 
 	sd, err := NewSeed(sOpt, RateOpt{DownloadRateLimiter: ratelimiter.NewRateLimiter(0, 0)}, false)
 	c.Assert(err, check.IsNil)
+	c.Assert(sd.GetTaskID(), check.Equals, sOpt.Info.TaskID)
+	c.Assert(sd.GetHeaders(), check.IsNil)
 
 	notifyCh, resultAcquirer, err := sd.Prefetch(32 * 1024)
 	c.Assert(err, check.IsNil)
@@ -140,84 +143,84 @@ func (suite *SeedTestSuite) TestSeedSyncRead(c *check.C) {
 	suite.checkFileWithSeed(c, "fileF", fileLength, sd)
 }
 
-func (suite *SeedTestSuite) TestSeedSyncReadPerformance(c *check.C) {
-	var (
-		rangeSize int64 = 99 * 1023
-	)
-
-	fileName := "fileH"
-	fileLength := int64(100 * 1024 * 1024)
-	urlF := fmt.Sprintf("http://%s/%s", suite.host, fileName)
-	metaDir := filepath.Join(suite.cacheDir, "TestSeedSyncReadPerformance")
-	// 128 KB
-	blockOrder := uint32(17)
-	sOpt := BaseOpt{
-		BaseDir: metaDir,
-		Info: BaseInfo{
-			URL:        urlF,
-			TaskID:     uuid.New(),
-			FullLength: fileLength,
-			BlockOrder: blockOrder,
-		},
-	}
-
-	now := time.Now()
-
-	sd, err := NewSeed(sOpt, RateOpt{DownloadRateLimiter: ratelimiter.NewRateLimiter(0, 0)}, true)
-	c.Assert(err, check.IsNil)
-
-	notifyCh, resultAcquirer, err := sd.Prefetch(128 * 1024)
-	c.Assert(err, check.IsNil)
-
-	wg := &sync.WaitGroup{}
-
-	// try to download in 5 goroutine
-	for i := 0; i < 20; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			start := int64(0)
-			end := int64(0)
-
-			for {
-				end = start + rangeSize - 1
-				if end >= fileLength {
-					end = fileLength - 1
-				}
-
-				if start > end {
-					break
-				}
-
-				startTime := time.Now()
-				rc, err := sd.Download(start, end-start+1)
-				logrus.Infof("in TestSeedSyncReadPerformance, Download 100KB costs time: %f second", time.Now().Sub(startTime).Seconds())
-				c.Assert(err, check.IsNil)
-				obtainedData, err := ioutil.ReadAll(rc)
-				rc.Close()
-				c.Assert(err, check.IsNil)
-
-				startTime = time.Now()
-				_, err = suite.readFromFileServer(fileName, start, end-start+1)
-				c.Assert(err, check.IsNil)
-				logrus.Infof("in TestSeedSyncReadPerformance, Download from source 100KB costs time: %f second", time.Now().Sub(startTime).Seconds())
-
-				suite.checkDataWithFileServer(c, fileName, start, end-start+1, obtainedData)
-				start = end + 1
-			}
-		}()
-	}
-
-	<-notifyCh
-	logrus.Infof("in TestSeedSyncRead, costs time: %f second", time.Now().Sub(now).Seconds())
-
-	wg.Wait()
-
-	rs, err := resultAcquirer.Result()
-	c.Assert(err, check.IsNil)
-	c.Assert(rs.Success, check.Equals, true)
-	c.Assert(rs.Err, check.IsNil)
-}
+//func (suite *SeedTestSuite) TestSeedSyncReadPerformance(c *check.C) {
+//	var (
+//		rangeSize int64 = 99 * 1023
+//	)
+//
+//	fileName := "fileH"
+//	fileLength := int64(100 * 1024 * 1024)
+//	urlF := fmt.Sprintf("http://%s/%s", suite.host, fileName)
+//	metaDir := filepath.Join(suite.cacheDir, "TestSeedSyncReadPerformance")
+//	// 128 KB
+//	blockOrder := uint32(17)
+//	sOpt := BaseOpt{
+//		BaseDir: metaDir,
+//		Info: BaseInfo{
+//			URL:        urlF,
+//			TaskID:     uuid.New(),
+//			FullLength: fileLength,
+//			BlockOrder: blockOrder,
+//		},
+//	}
+//
+//	now := time.Now()
+//
+//	sd, err := NewSeed(sOpt, RateOpt{DownloadRateLimiter: ratelimiter.NewRateLimiter(0, 0)}, true)
+//	c.Assert(err, check.IsNil)
+//
+//	notifyCh, resultAcquirer, err := sd.Prefetch(128 * 1024)
+//	c.Assert(err, check.IsNil)
+//
+//	wg := &sync.WaitGroup{}
+//
+//	// try to download in 5 goroutine
+//	for i := 0; i < 20; i++ {
+//		wg.Add(1)
+//		go func() {
+//			defer wg.Done()
+//			start := int64(0)
+//			end := int64(0)
+//
+//			for {
+//				end = start + rangeSize - 1
+//				if end >= fileLength {
+//					end = fileLength - 1
+//				}
+//
+//				if start > end {
+//					break
+//				}
+//
+//				startTime := time.Now()
+//				rc, err := sd.Download(start, end-start+1)
+//				logrus.Infof("in TestSeedSyncReadPerformance, Download 100KB costs time: %f second", time.Now().Sub(startTime).Seconds())
+//				c.Assert(err, check.IsNil)
+//				obtainedData, err := ioutil.ReadAll(rc)
+//				rc.Close()
+//				c.Assert(err, check.IsNil)
+//
+//				startTime = time.Now()
+//				_, err = suite.readFromFileServer(fileName, start, end-start+1)
+//				c.Assert(err, check.IsNil)
+//				logrus.Infof("in TestSeedSyncReadPerformance, Download from source 100KB costs time: %f second", time.Now().Sub(startTime).Seconds())
+//
+//				suite.checkDataWithFileServer(c, fileName, start, end-start+1, obtainedData)
+//				start = end + 1
+//			}
+//		}()
+//	}
+//
+//	<-notifyCh
+//	logrus.Infof("in TestSeedSyncRead, costs time: %f second", time.Now().Sub(now).Seconds())
+//
+//	wg.Wait()
+//
+//	rs, err := resultAcquirer.Result()
+//	c.Assert(err, check.IsNil)
+//	c.Assert(rs.Success, check.Equals, true)
+//	c.Assert(rs.Err, check.IsNil)
+//}
 
 func (suite *SeedTestSuite) TestSeedRestore(c *check.C) {
 	var (

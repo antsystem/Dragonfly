@@ -17,8 +17,6 @@
 package seed
 
 import (
-	"bytes"
-	"io"
 	"io/ioutil"
 	"net/http"
 	"path/filepath"
@@ -31,7 +29,7 @@ import (
 func (suite *SeedTestSuite) TestFileCacheBufferWithNoFile(c *check.C) {
 	testDir := suite.tmpDir
 
-	cb, err := newFileCacheBuffer(filepath.Join(testDir, "fileA"), 30, true, false, 0)
+	cb, err := newFileCacheBuffer(filepath.Join(testDir, "fileA"), 30, true, false)
 	c.Assert(err, check.IsNil)
 
 	data := []byte("0123456789")
@@ -129,7 +127,7 @@ func (suite *SeedTestSuite) TestFileCacheBufferWithExistFile(c *check.C) {
 	testDir := suite.tmpDir
 
 	// create cb
-	cb, err := newFileCacheBuffer(filepath.Join(testDir, "fileB"), 35, true, false, 0)
+	cb, err := newFileCacheBuffer(filepath.Join(testDir, "fileB"), 35, true, false)
 	c.Assert(err, check.IsNil)
 
 	inputData1 := []byte("0123456789")
@@ -152,7 +150,7 @@ func (suite *SeedTestSuite) TestFileCacheBufferWithExistFile(c *check.C) {
 	c.Assert(err, check.IsNil)
 
 	// reopen again
-	cb, err = newFileCacheBuffer(filepath.Join(testDir, "fileB"), 35, false, false, 0)
+	cb, err = newFileCacheBuffer(filepath.Join(testDir, "fileB"), 35, false, false)
 	c.Assert(err, check.IsNil)
 
 	rc, err := cb.ReadStream(0, 30)
@@ -224,7 +222,7 @@ func (suite *SeedTestSuite) TestFileCacheBufferWithExistFile(c *check.C) {
 
 func (suite *SeedTestSuite) TestCacheMemoryMode(c *check.C) {
 	testDir := suite.tmpDir
-	cb1, err := newFileCacheBuffer(filepath.Join(testDir, "TestCacheMemoryModeFileB"), 64, true, true, 4)
+	cb1, err := newFileCacheBuffer(filepath.Join(testDir, "TestCacheMemoryModeFileB"), 64, true, true)
 	c.Assert(err, check.IsNil)
 
 	inputData1 := []byte("0123456789abcdef")
@@ -284,36 +282,6 @@ func (suite *SeedTestSuite) TestCacheMemoryMode(c *check.C) {
 	rcData, err = ioutil.ReadAll(rc)
 	c.Assert(err, check.IsNil)
 	expectData = []byte("abcdeffedcba98765432")
-	c.Assert(string(rcData), check.Equals, string(expectData))
-	err = rc.Close()
-	c.Assert(err, check.IsNil)
-
-	rc, err = cb1.ReadStream(15, 20)
-	c.Assert(err, check.IsNil)
-	mrc, ok := rc.(*multiReadCloser)
-	c.Assert(ok, check.Equals, true)
-	c.Assert(len(mrc.rds), check.Equals, 3)
-	_, ok = mrc.rds[0].(*io.SectionReader)
-	c.Assert(ok, check.Equals, true)
-	_, ok = mrc.rds[1].(*bytes.Reader)
-	c.Assert(ok, check.Equals, true)
-	_, ok = mrc.rds[2].(*io.SectionReader)
-	c.Assert(ok, check.Equals, true)
-	rcData, err = ioutil.ReadAll(rc)
-	c.Assert(err, check.IsNil)
-	expectData = []byte("ffedcba9876543210fed")
-	c.Assert(string(rcData), check.Equals, string(expectData))
-	err = rc.Close()
-	c.Assert(err, check.IsNil)
-
-	// sync
-	err = cb1.Sync()
-	c.Assert(err, check.IsNil)
-	rc, err = cb1.ReadStream(15, 20)
-	c.Assert(err, check.IsNil)
-	_, ok = rc.(*fileReadCloser)
-	c.Assert(ok, check.Equals, true)
-	expectData = []byte("ffedcba9876543210fed")
 	c.Assert(string(rcData), check.Equals, string(expectData))
 	err = rc.Close()
 	c.Assert(err, check.IsNil)

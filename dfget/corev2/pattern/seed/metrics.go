@@ -24,7 +24,8 @@ import (
 )
 
 const (
-	subSystem = "download_from_seed"
+	subSystem      = "download_from_seed"
+	proxySubSystem = "proxy"
 
 	K = 1024
 	M = 1024 * 1024
@@ -43,6 +44,16 @@ var (
 
 	// downloadFlowCounter records all data flow of download from seed node.
 	downloadFlowCounter = metricsutils.NewCounter(subSystem, "data_flow", "records all data flow of download from seed node", []string{"peer_ip"}, nil)
+
+	hitCacheFlowCounter = metricsutils.NewCounter(subSystem, "cache_data_flow", "records all data flow hit cache", nil, nil)
+
+	blackListCounter = metricsutils.NewCounter(subSystem, "black_list_count", "records black list counter", []string{"msg"}, nil)
+
+	cacheCounter = metricsutils.NewGauge(proxySubSystem, "cache_count", "now count of cache", nil, nil)
+
+	cacheSize = metricsutils.NewGauge(proxySubSystem, "cache_size", "now size of cache", nil, nil)
+
+	errCounter = metricsutils.NewCounter(proxySubSystem, "err", "err counter", []string{"err"}, nil)
 )
 
 func recordDownloadCostTimer(size int64, peerIp string, duration time.Duration) {
@@ -54,4 +65,8 @@ func recordDownloadCostTimer(size int64, peerIp string, duration time.Duration) 
 
 func recordDownloadFlowCounter(size int64, peerIp string) {
 	downloadFlowCounter.WithLabelValues(peerIp).Add(float64(size))
+}
+
+func recordHitCacheFlowCounter(size int64) {
+	hitCacheFlowCounter.WithLabelValues().Add(float64(size))
 }

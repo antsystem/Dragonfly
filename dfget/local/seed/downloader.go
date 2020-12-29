@@ -17,7 +17,6 @@
 package seed
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -76,8 +75,8 @@ func (ld *localDownloader) download(ctx context.Context, rangeStruct httputils.R
 	var (
 		written int64
 		n       int
-		rd      io.Reader
-		start   = time.Now()
+		rd    io.Reader
+		start = time.Now()
 	)
 
 	header := map[string]string{}
@@ -86,7 +85,8 @@ func (ld *localDownloader) download(ctx context.Context, rangeStruct httputils.R
 	}
 
 	header[config.StrRange] = fmt.Sprintf("bytes=%d-%d", rangeStruct.StartIndex, rangeStruct.EndIndex)
-	resp, err := httputils.HTTPWithHeaders("GET", ld.url, header, timeout, nil)
+	logrus.Debugf("source download info url:%s, header:%v", ld.url, header)
+	resp, err := httputils.HTTPClientDoRequest("", "GET", ld.url, header, timeout)
 	if err != nil {
 		return 0, err
 	}
@@ -115,20 +115,8 @@ func (ld *localDownloader) download(ctx context.Context, rangeStruct httputils.R
 		rd = limitreader.NewLimitReaderWithLimiter(ld.rate, resp.Body, false)
 	}
 
-	// in copyCache pattern, the bytes buffer will be transferred to io.WriterAt, and will be held by io.WriterAt.
-	if ld.copyCache {
-		buf := bytes.NewBuffer(nil)
-		buf.Grow(int(expectedLen))
-		written, err = io.CopyN(buf, rd, expectedLen)
-		if err != nil && err != io.EOF {
-			logrus.Errorf("failed to read data [%d, %d] from resp.body: %v", rangeStruct.StartIndex, rangeStruct.EndIndex, err)
-		}
-
-		if written < expectedLen {
-			return 0, errors.Wrap(io.ErrShortWrite, fmt.Sprintf("download from [%d,%d], expecte read %d, but got %d", rangeStruct.StartIndex, rangeStruct.EndIndex, expectedLen, written))
-		}
-
-		n, err = writerAt.WriteAt(buf.Bytes(), writeOff)
+	if rf, ok := writerAt.(ReadAtFrom); ok {
+		n, err = rf.ReadAtFrom(rd, writeOff, expectedLen)
 		written = int64(n)
 	} else {
 		written, err = CopyBufferToWriterAt(writeOff, writerAt, rd)

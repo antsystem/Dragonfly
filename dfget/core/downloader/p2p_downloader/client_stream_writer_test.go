@@ -18,11 +18,13 @@ package downloader
 
 import (
 	"bytes"
+	"context"
 	"io"
 	"sort"
 
 	"github.com/dragonflyoss/Dragonfly/dfget/config"
-
+	"github.com/dragonflyoss/Dragonfly/dfget/core/helper"
+	"github.com/dragonflyoss/Dragonfly/pkg/queue"
 	"github.com/go-check/check"
 )
 
@@ -100,13 +102,16 @@ func (s *ClientStreamWriterTestSuite) TestWrite(c *check.C) {
 	copy(cases2, cases)
 
 	cfg := &config.Config{}
-	csw := NewClientStreamWriter(nil, nil, nil, cfg)
-	go func() {
-		for _, v := range cases2 {
-			err := csw.writePieceToPipe(v.piece)
-			c.Check(err, check.IsNil)
-		}
-	}()
+	cQueue := queue.NewQueue(100)
+	nQueue := queue.NewQueue(100)
+	csw := NewClientStreamWriter(cQueue, nQueue, &helper.MockSupernodeAPI{}, cfg)
+	ctx := context.Background()
+	csw.PreRun(ctx)
+	go csw.Run(ctx)
+	for _, v := range cases2 {
+		csw.clientQueue.Put(v.piece)
+	}
+	csw.clientQueue.Put("last")
 	sort.Slice(cases, func(i, j int) bool {
 		return cases[i].piece.PieceNum < cases[j].piece.PieceNum
 	})
@@ -114,6 +119,7 @@ func (s *ClientStreamWriterTestSuite) TestWrite(c *check.C) {
 		content := s.getString(csw, v.piece.RawContent(v.noWrapper).Len())
 		c.Check(content, check.Equals, v.expected)
 	}
+	<-csw.finish
 }
 
 func (s *ClientStreamWriterTestSuite) getString(reader io.Reader, length int) string {

@@ -26,6 +26,7 @@ import (
 	"github.com/dragonflyoss/Dragonfly/pkg/digest"
 	"github.com/dragonflyoss/Dragonfly/supernode/config"
 	"github.com/go-check/check"
+	"time"
 )
 
 func Test(t *testing.T) {
@@ -43,6 +44,7 @@ type SeedTaskMgrTestSuite struct {
 func (s *SeedTaskMgrTestSuite) SetUpSuite(c *check.C) {
 	baseConfig := config.NewBaseProperties()
 	baseConfig.MaxSeedPerObject = 2
+	baseConfig.TaskExpireTime = time.Second
 	s.seedTaskMgr, _ = NewManager(&config.Config{BaseProperties: baseConfig})
 }
 
@@ -60,6 +62,7 @@ func (s *SeedTaskMgrTestSuite) TestRegistryTask(c *check.C) {
 			SuperNodeIP: "10.10.10.10",
 			TaskURL:     url,
 			AsSeed:      true,
+			FileLength:  1,
 		})
 		c.Check(err, check.IsNil)
 		c.Check(resp.AsSeed, check.Equals, true)
@@ -72,6 +75,7 @@ func (s *SeedTaskMgrTestSuite) TestRegistryTask(c *check.C) {
 		SuperNodeIP: "10.10.10.10",
 		TaskURL:     "http://abc-2.com",
 		AsSeed:      true,
+		FileLength:  1,
 	})
 
 	resp, err := s.seedTaskMgr.Register(context.Background(), &types.TaskRegisterRequest{
@@ -81,6 +85,7 @@ func (s *SeedTaskMgrTestSuite) TestRegistryTask(c *check.C) {
 		SuperNodeIP: "10.10.10.10",
 		TaskURL:     "http://abc-2.com",
 		AsSeed:      true,
+		FileLength:  1,
 	})
 	c.Check(err, check.IsNil)
 	c.Check(resp.AsSeed, check.Equals, true)
@@ -115,6 +120,7 @@ func (s *SeedTaskMgrTestSuite) TestDownPeers(c *check.C) {
 		RawURL:      "http://abc.com",
 		SuperNodeIP: "10.10.10.10",
 		TaskURL:     "http://abc.com",
+		FileLength:  1,
 	}
 
 	_, err := s.seedTaskMgr.Register(context.Background(), request)
@@ -129,8 +135,40 @@ func (s *SeedTaskMgrTestSuite) TestDownPeers(c *check.C) {
 	s.seedTaskMgr.DeRegisterPeer(context.Background(), "c01")
 }
 
+func (s *SeedTaskMgrTestSuite) TestExpiredTasks(c *check.C) {
+	request := &types.TaskRegisterRequest{
+		CID:         "c01",
+		IP:          "192.168.1.1",
+		HostName:    "node01",
+		Path:        "abc",
+		Port:        16543,
+		RawURL:      "http://abc.com",
+		SuperNodeIP: "10.10.10.10",
+		TaskURL:     "http://abc.com",
+		FileLength:  1,
+	}
+
+	_, err := s.seedTaskMgr.Register(context.Background(), request)
+	c.Check(err, check.IsNil)
+	time.Sleep(2 * time.Second)
+	request.TaskURL = "http://abc2.com"
+	_, err = s.seedTaskMgr.Register(context.Background(), request)
+	c.Check(err, check.IsNil)
+	tasks := s.seedTaskMgr.ScanExpiredTasks(context.Background())
+	c.Check(tasks[0], check.Equals, digest.Sha256("http://abc.com"))
+	s.seedTaskMgr.DeRegisterPeer(context.Background(), "c01")
+}
+
 func (s *SeedTaskMgrTestSuite) TestHeartBeat(c *check.C) {
-	resp, err := s.seedTaskMgr.ReportPeerHealth(context.Background(), "c01")
+	req := &types.HeartBeatRequest{
+		IP:        "192.168.1.1",
+		CID:       "c01",
+		FixedSeed: false,
+		HostName:  "node01",
+		Port:      16543,
+		Version:   "",
+	}
+	resp, err := s.seedTaskMgr.ReportPeerHealth(context.Background(), req)
 	c.Check(err, check.IsNil)
 	c.Check(resp.NeedRegister, check.Equals, true)
 	request := &types.TaskRegisterRequest{
@@ -142,6 +180,7 @@ func (s *SeedTaskMgrTestSuite) TestHeartBeat(c *check.C) {
 		RawURL:      "http://abc.com",
 		SuperNodeIP: "10.10.10.10",
 		TaskURL:     "http://abc.com",
+		FileLength:  1,
 	}
 	_, err = s.seedTaskMgr.Register(context.Background(), request)
 	c.Check(err, check.IsNil)
@@ -149,7 +188,7 @@ func (s *SeedTaskMgrTestSuite) TestHeartBeat(c *check.C) {
 	p2pInfo, _ := s.seedTaskMgr.getP2pInfo(context.Background(), "c01")
 	p2pInfo.hbTime = 0
 
-	resp, err = s.seedTaskMgr.ReportPeerHealth(context.Background(), "c01")
+	resp, err = s.seedTaskMgr.ReportPeerHealth(context.Background(), req)
 	c.Check(err, check.IsNil)
 	c.Check(resp.NeedRegister, check.Equals, false)
 	c.Check(p2pInfo.hbTime > 0, check.Equals, true)

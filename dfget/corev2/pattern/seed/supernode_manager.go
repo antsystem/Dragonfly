@@ -35,6 +35,10 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+const (
+	minSyncPeriod = 5 * time.Millisecond // 5ms
+)
+
 type superNodeWrapper struct {
 	superNode string
 
@@ -101,6 +105,7 @@ type supernodeEvent struct {
 type activeFetchSt struct {
 	url    string
 	waitCh chan struct{}
+	force  bool
 }
 
 type intervalOpt struct {
@@ -157,7 +162,7 @@ func newSupernodeManager(ctx context.Context, cfg *Config, nodes []string, super
 	}
 
 	if opt.heartBeatInterval == 0 {
-		opt.heartBeatInterval = time.Second * 30
+		opt.heartBeatInterval = time.Second * 5
 	}
 
 	if opt.fetchNetworkInterval == 0 {
@@ -279,7 +284,7 @@ func (sm *supernodeManager) handleSupernodeEvent(ev *supernodeEvent) {
 	switch ev.evType {
 	case disconnectedEv:
 		sm.locatorEvQueue.Put(locator.NewDisableEvent(ev.node))
-	case connectedEv:
+	case connectedEv, reconnectedEv:
 		sm.locatorEvQueue.Put(locator.NewEnableEvent(ev.node))
 	default:
 	}
@@ -337,6 +342,11 @@ func (sm *supernodeManager) heartbeat() {
 
 		if len(resp.Data.Preheats) > 0 {
 			sw.preheat(resp.Data.Preheats)
+		}
+		if resp.Data.NeedRegister {
+			if m := getLocalManager(); m != nil {
+				m.reportLocalSeedsToSuperNode()
+			}
 		}
 	}
 }
@@ -401,6 +411,13 @@ func (sm *supernodeManager) syncP2PNetworkInfoFromSuperNode(supernode string, sw
 	sw.sm.SyncSchedulerInfo(nodes)
 }
 
+func (sm *supernodeManager) getLastSyncTime() time.Time {
+	sm.syncTimeLock.Lock()
+	defer sm.syncTimeLock.Unlock()
+
+	return sm.syncTime
+}
+
 func (sm *supernodeManager) fetchP2PNetworkInfoLoop(ctx context.Context) {
 	var (
 		lastTime time.Time
@@ -413,9 +430,7 @@ func (sm *supernodeManager) fetchP2PNetworkInfoLoop(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			sm.syncTimeLock.Lock()
-			lastTime = sm.syncTime
-			sm.syncTimeLock.Unlock()
+			lastTime = sm.getLastSyncTime()
 
 			if lastTime.Add(sm.fetchNetworkInterval).After(time.Now()) {
 				continue
@@ -423,13 +438,14 @@ func (sm *supernodeManager) fetchP2PNetworkInfoLoop(ctx context.Context) {
 
 			sm.syncP2PNetworkInfo(sm.rm.getRecentRequest(0))
 		case active := <-sm.syncP2PNetworkCh:
-			if sm.isRecentFetch(active.url) {
+			lastTime = sm.getLastSyncTime()
+			if !active.force && lastTime.Add(minSyncPeriod).After(time.Now()) {
 				if active.waitCh != nil {
 					close(active.waitCh)
 				}
-				// the url is fetch recently, directly ignore it
 				continue
 			}
+
 			urls := sm.rm.getRecentRequest(0)
 			urls = append(urls, active.url)
 			sm.syncP2PNetworkInfo(algorithm.DedupStringArr(urls))

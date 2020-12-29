@@ -38,8 +38,8 @@ func (c *Client) DownloadContext(ctx context.Context, url string, header map[str
 	return "", errors.New("Not Implementation")
 }
 
-func (c *Client) DownloadStreamContext(ctx context.Context, url string, header map[string][]string, name string) (io.ReadCloser, error) {
-	return nil, errors.New("Not Implementation")
+func (c *Client) DownloadStreamContext(ctx context.Context, url string, header map[string][]string, name string) (int64, io.ReadCloser, error) {
+	return -1, nil, errors.New("Not Implementation")
 }
 
 func NewClient(cfg config.DFGetConfig) *Client {

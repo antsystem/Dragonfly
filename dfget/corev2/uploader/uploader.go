@@ -44,5 +44,5 @@ func GetUploader(pattern string) (Uploader, bool) {
 // Uploader defines how to upload range by path.
 type Uploader interface {
 	// UploadRange defines how to upload range by path.
-	UploadRange(path string, off, size int64, opt interface{}) (io.ReadCloser, error)
+	UploadRange(path string, off, size int64, opt interface{}) (int64, io.ReadCloser, error)
 }

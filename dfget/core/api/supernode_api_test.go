@@ -20,12 +20,12 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"encoding/json"
 
 	api_types "github.com/dragonflyoss/Dragonfly/apis/types"
 	"github.com/dragonflyoss/Dragonfly/dfget/types"
 	"github.com/dragonflyoss/Dragonfly/pkg/constants"
 	"github.com/dragonflyoss/Dragonfly/pkg/httputils"
-
 	"github.com/go-check/check"
 )
 
@@ -177,6 +177,149 @@ func (s *SupernodeAPITestSuite) TestSupernodeAPI_get(c *check.C) {
 
 	e = api.get("", nil)
 	c.Assert(e.Error(), check.Equals, "invalid url")
+}
+
+func (s *SupernodeAPITestSuite) TestSupernodeAPI_ReportResource(c *check.C) {
+	s.mock.PostJSONWithHeadersFunc = s.mock.CreatePostJSONWithHeadersFunc(0, nil, nil)
+	r, e := s.api.ReportResource(localhost, createRegisterRequest())
+	c.Assert(r, check.IsNil)
+	c.Assert(e.Error(), check.Equals, "0:")
+
+	s.mock.PostJSONWithHeadersFunc = s.mock.CreatePostJSONWithHeadersFunc(0, nil,
+		fmt.Errorf("test"))
+	r, e = s.api.ReportResource(localhost, createRegisterRequest())
+	c.Assert(r, check.IsNil)
+	c.Assert(e.Error(), check.Equals, "test")
+
+	res := types.RegisterResponse{BaseResponse: &types.BaseResponse{}}
+	s.mock.PostJSONWithHeadersFunc = s.mock.CreatePostJSONWithHeadersFunc(200, []byte(res.String()), nil)
+	r, e = s.api.ReportResource(localhost, createRegisterRequest())
+	c.Assert(e, check.IsNil)
+	c.Assert(r, check.NotNil)
+	c.Assert(r.Code, check.Equals, 0)
+
+	res.Code = constants.Success
+	res.Data = &types.RegisterResponseData{FileLength: int64(32)}
+	s.mock.PostJSONWithHeadersFunc = s.mock.CreatePostJSONWithHeadersFunc(200, []byte(res.String()), nil)
+	r, e = s.api.ReportResource(localhost, createRegisterRequest())
+	c.Assert(e, check.IsNil)
+	c.Assert(r, check.NotNil)
+	c.Assert(r.Code, check.Equals, constants.Success)
+	c.Assert(r.Data.FileLength, check.Equals, res.Data.FileLength)
+}
+
+func (s *SupernodeAPITestSuite) TestSupernodeAPI_ReportResourceDeleted(c *check.C) {
+	s.mock.GetWithHeadersFunc = s.mock.CreateGetWithHeadersFunc(0, nil, nil)
+	r, e := s.api.ReportResourceDeleted(localhost, "1", "1")
+	c.Assert(r, check.IsNil)
+	c.Assert(e.Error(), check.Equals, "0:")
+
+	s.mock.GetWithHeadersFunc = s.mock.CreateGetWithHeadersFunc(0, nil, fmt.Errorf("test"))
+	r, e = s.api.ReportResourceDeleted(localhost, "1", "1")
+	c.Assert(r, check.IsNil)
+	c.Assert(e.Error(), check.Equals, "test")
+
+	res, _ := json.Marshal(types.NewBaseResponse(0, "test"))
+	s.mock.GetWithHeadersFunc = s.mock.CreateGetWithHeadersFunc(200, res, nil)
+	r, e = s.api.ReportResourceDeleted(localhost, "1", "1")
+	c.Assert(r.Code, check.Equals, 0)
+	c.Assert(e, check.IsNil)
+
+	res, _ = json.Marshal(types.NewBaseResponse(612, "ok"))
+	s.mock.GetWithHeadersFunc = s.mock.CreateGetWithHeadersFunc(200, res, nil)
+	r, e = s.api.ReportResourceDeleted(localhost, "1", "1")
+	c.Assert(e, check.IsNil)
+	c.Assert(r.Code, check.Equals, 612)
+	c.Assert(r.Msg, check.Equals, "ok")
+}
+
+func (s *SupernodeAPITestSuite) TestSupernodeAPI_ApplyForSeedNode(c *check.C) {
+	s.mock.PostJSONWithHeadersFunc = s.mock.CreatePostJSONWithHeadersFunc(0, nil, nil)
+	r, e := s.api.ApplyForSeedNode(localhost, createRegisterRequest())
+	c.Assert(r, check.IsNil)
+	c.Assert(e.Error(), check.Equals, "0:")
+
+	s.mock.PostJSONWithHeadersFunc = s.mock.CreatePostJSONWithHeadersFunc(0, nil,
+		fmt.Errorf("test"))
+	r, e = s.api.ApplyForSeedNode(localhost, createRegisterRequest())
+	c.Assert(r, check.IsNil)
+	c.Assert(e.Error(), check.Equals, "test")
+
+	res := types.RegisterResponse{BaseResponse: &types.BaseResponse{}}
+	s.mock.PostJSONWithHeadersFunc = s.mock.CreatePostJSONWithHeadersFunc(200, []byte(res.String()), nil)
+	r, e = s.api.ApplyForSeedNode(localhost, createRegisterRequest())
+	c.Assert(e, check.IsNil)
+	c.Assert(r, check.NotNil)
+	c.Assert(r.Code, check.Equals, 0)
+
+	res.Code = constants.Success
+	res.Data = &types.RegisterResponseData{FileLength: int64(32)}
+	s.mock.PostJSONWithHeadersFunc = s.mock.CreatePostJSONWithHeadersFunc(200, []byte(res.String()), nil)
+	r, e = s.api.ApplyForSeedNode(localhost, createRegisterRequest())
+	c.Assert(e, check.IsNil)
+	c.Assert(r, check.NotNil)
+	c.Assert(r.Code, check.Equals, constants.Success)
+	c.Assert(r.Data.FileLength, check.Equals, res.Data.FileLength)
+}
+
+func (s *SupernodeAPITestSuite) TestSupernodeAPI_FetchP2pNetwork(c *check.C) {
+	req := &api_types.NetworkInfoFetchRequest{
+		Urls: []string{"www.abc.com"},
+	}
+	s.mock.PostJSONFunc = s.mock.CreatePostJSONFunc(0, nil, nil)
+	r, e := s.api.FetchP2PNetworkInfo(localhost, 0, 0, req)
+	c.Assert(r, check.IsNil)
+	c.Assert(e.Error(), check.Equals, "0:")
+
+	s.mock.PostJSONFunc = s.mock.CreatePostJSONFunc(0, nil, fmt.Errorf("test"))
+	r, e = s.api.FetchP2PNetworkInfo(localhost, 0, 0, req)
+	c.Assert(r, check.IsNil)
+	c.Assert(e.Error(), check.Equals, "test")
+
+	res, _ := json.Marshal(&types.FetchP2PNetworkInfoResponse{
+		BaseResponse: types.NewBaseResponse(0, "failed"),
+		Data:         &api_types.NetworkInfoFetchResponse{},
+	})
+	s.mock.PostJSONFunc = s.mock.CreatePostJSONFunc(200, res, nil)
+	r, e = s.api.FetchP2PNetworkInfo(localhost, 0, 0, req)
+	c.Assert(r, check.IsNil)
+	c.Assert(e.Error(), check.Equals, "0:failed")
+
+	res, _ = json.Marshal(&types.FetchP2PNetworkInfoResponse{
+		BaseResponse: types.NewBaseResponse(200, "ok"),
+		Data:         &api_types.NetworkInfoFetchResponse{},
+	})
+	s.mock.PostJSONFunc = s.mock.CreatePostJSONFunc(200, res, nil)
+	r, e = s.api.FetchP2PNetworkInfo(localhost, 0, 0, req)
+	c.Assert(e, check.IsNil)
+}
+
+func (s *SupernodeAPITestSuite) TestSupernodeAPI_HeartBeat(c *check.C) {
+	hReq := &api_types.HeartBeatRequest{}
+	s.mock.PostJSONFunc = s.mock.CreatePostJSONFunc(0, nil, nil)
+	r, e := s.api.HeartBeat(localhost, hReq)
+	c.Assert(r, check.IsNil)
+	c.Assert(e.Error(), check.Equals, "0:")
+
+	s.mock.PostJSONFunc = s.mock.CreatePostJSONFunc(0, nil, fmt.Errorf("test"))
+	r, e = s.api.HeartBeat(localhost, hReq)
+	c.Assert(r, check.IsNil)
+	c.Assert(e.Error(), check.Equals, "test")
+
+	res, _ := json.Marshal(&types.HeartBeatResponse{
+		BaseResponse: types.NewBaseResponse(200, "ok"),
+		Data:         &api_types.HeartBeatResponse{
+			NeedRegister: true,
+			Preheats:     nil,
+			SeedTaskIds:  nil,
+			Version:      "123",
+		},
+	})
+	s.mock.PostJSONFunc = s.mock.CreatePostJSONFunc(200, res, nil)
+	r, e = s.api.HeartBeat(localhost, hReq)
+	c.Assert(e, check.IsNil)
+	c.Assert(r.Data.NeedRegister, check.Equals, true)
+	c.Assert(r.Data.Version, check.Equals, "123")
 }
 
 // ----------------------------------------------------------------------------

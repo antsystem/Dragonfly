@@ -22,6 +22,7 @@ import (
 	"sync"
 
 	"github.com/HuKeping/rbtree"
+	"github.com/dragonflyoss/Dragonfly/pkg/digest"
 	"github.com/pkg/errors"
 )
 
@@ -120,8 +121,9 @@ func (h *consistentHashCircler) Delete(key string) {
 }
 
 func fnvHashFunc(input string) uint64 {
+	cs := digest.Sha256(input)
 	h := fnv.New64a()
-	h.Write([]byte(input))
+	h.Write([]byte(cs))
 	return h.Sum64()
 }
 

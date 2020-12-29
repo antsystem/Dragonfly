@@ -20,16 +20,19 @@ import (
 	"crypto"
 	cryptorand "crypto/rand"
 	"crypto/rsa"
+	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
 	"io/ioutil"
 	"math/big"
+	"net"
 	"os"
 	"path/filepath"
 	"time"
 
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 )
 
 const (
@@ -156,4 +159,61 @@ func encodeCertPEM(cert *x509.Certificate) []byte {
 		Bytes: cert.Raw,
 	}
 	return pem.EncodeToMemory(&block)
+}
+
+func LoadRootCAs(ca string) *x509.CertPool {
+	certPool := x509.NewCertPool()
+	cert, err := ioutil.ReadFile(ca)
+	if err != nil {
+		return nil
+	}
+	certPool.AppendCertsFromPEM(cert)
+
+	return certPool
+}
+
+func NewLeafCert(parent *tls.Certificate, host string) (*tls.Certificate, error) {
+	x509Cert, err := x509.ParseCertificate(parent.Certificate[0])
+	if err != nil {
+		logrus.Errorf("Parse Certificate err %v", err)
+		return nil, err
+	}
+	pk, err := rsa.GenerateKey(cryptorand.Reader, 2048)
+	if err != nil {
+		logrus.Errorf("Generate key err %v", err)
+		return nil, err
+	}
+	serialNumberLimit := new(big.Int).Lsh(big.NewInt(1), 128)
+	serialNumber, err := cryptorand.Int(cryptorand.Reader, serialNumberLimit)
+	if err != nil {
+		logrus.Errorf("Generate serial number err %v", err)
+		return nil, err
+	}
+	now := time.Now().Add(-1 * time.Hour).UTC()
+	tmpl := &x509.Certificate{
+		SerialNumber:          serialNumber,
+		Subject:               pkix.Name{CommonName: host},
+		NotBefore:             now,
+		NotAfter:              now.Add(5 * 365 * 24 * time.Hour), // 5 years
+		KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment | x509.KeyUsageDataEncipherment | x509.KeyUsageKeyAgreement,
+		BasicConstraintsValid: true,
+		SignatureAlgorithm:    x509Cert.SignatureAlgorithm,
+	}
+	ip := net.ParseIP(host)
+	if ip == nil {
+		tmpl.DNSNames = []string{host}
+	} else {
+		tmpl.IPAddresses = []net.IP{ip}
+	}
+	newCert, err := x509.CreateCertificate(cryptorand.Reader, tmpl, x509Cert, &pk.PublicKey, parent.PrivateKey)
+	if err != nil {
+		logrus.Errorf("failed to generate leaf cert %s", err)
+		return nil, err
+	}
+	cert := new(tls.Certificate)
+	cert.Certificate = append(cert.Certificate, newCert)
+	cert.PrivateKey = pk
+	cert.Leaf, _ = x509.ParseCertificate(newCert)
+
+	return cert, nil
 }

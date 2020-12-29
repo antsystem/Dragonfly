@@ -42,6 +42,7 @@ const (
 	FinishedStatus = "finished"
 	FetchingStatus = "fetching"
 	InitialStatus  = "initial"
+	ErrStatus      = "err"
 	DeadStatus     = "dead"
 )
 
@@ -92,6 +93,7 @@ type Seed interface {
 	// Delete will delete the local cache and release the resource.
 	Delete() error
 
+	CheckRange(off int64, size int64) (int64, int64, error)
 	// Download providers the range download, if local cache of seed do not include the range,
 	// it will download the range data from rss and reply to request.
 	Download(off int64, size int64) (io.ReadCloser, error)
@@ -188,6 +190,9 @@ func NewSeed(base BaseOpt, rate RateOpt, openMemoryCache bool) (Seed, error) {
 		return nil, err
 	}
 
+	if base.Info.RawURL == "" {
+		base.Info.RawURL = base.Info.URL
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 
 	sd := &seed{
@@ -198,7 +203,7 @@ func NewSeed(base BaseOpt, rate RateOpt, openMemoryCache bool) (Seed, error) {
 		TaskID:     base.Info.TaskID,
 		BlockOrder: base.Info.BlockOrder,
 		baseDir:    base.BaseDir,
-		down:       newLocalDownloader(base.Info.URL, base.Info.Header, rate.DownloadRateLimiter, openMemoryCache, recordPrefetchFlowCounter, recordPrefetchCostTimer),
+		down:       newLocalDownloader(base.Info.RawURL, base.Info.Header, rate.DownloadRateLimiter, openMemoryCache, recordPrefetchFlowCounter, recordPrefetchCostTimer),
 		//UploadRate: sm.UploadRate,
 		downRate:        rate.DownloadRateLimiter,
 		prefetchCh:      make(chan struct{}),
@@ -216,7 +221,7 @@ func NewSeed(base BaseOpt, rate RateOpt, openMemoryCache bool) (Seed, error) {
 		return nil, err
 	}
 
-	cache, err := newFileCacheBuffer(sd.ContentPath, base.Info.FullLength, true, openMemoryCache, base.Info.BlockOrder)
+	cache, err := newFileCacheBuffer(sd.ContentPath, base.Info.FullLength, true, openMemoryCache)
 	if err != nil {
 		return nil, err
 	}
@@ -229,7 +234,9 @@ func NewSeed(base BaseOpt, rate RateOpt, openMemoryCache bool) (Seed, error) {
 	}
 
 	sd.updateDownloader()
-	go sd.syncCacheLoop(sd.doneCtx)
+	if sd.OpenMemoryCache {
+		go sd.syncCacheLoop(sd.doneCtx)
+	}
 
 	return sd, nil
 }
@@ -261,7 +268,7 @@ func RestoreSeed(seedDir string, rate RateOpt, downPreFunc func(sd Seed), factor
 
 	// init downloader and cachebuffer
 	sd.down = newLocalDownloader(sd.URL, sd.Header, rate.DownloadRateLimiter, false, recordPrefetchFlowCounter, recordPrefetchCostTimer)
-	cache, err := newFileCacheBuffer(sd.ContentPath, sd.FullSize, false, false, sd.BlockOrder)
+	cache, err := newFileCacheBuffer(sd.ContentPath, sd.FullSize, false, false)
 	if err != nil {
 		return nil, false, err
 	}
@@ -280,7 +287,9 @@ func RestoreSeed(seedDir string, rate RateOpt, downPreFunc func(sd Seed), factor
 	sd.downFactory = factory
 	sd.updateDownloader()
 
-	go sd.syncCacheLoop(sd.doneCtx)
+	if sd.OpenMemoryCache {
+		go sd.syncCacheLoop(sd.doneCtx)
+	}
 
 	return sd, false, nil
 }
@@ -333,14 +342,14 @@ func (sd *seed) Prefetch(perDownloadSize int64) (<-chan struct{}, PreFetchResult
 				Success: false,
 				Err:     err,
 			})
-			sd.Status = InitialStatus
+			sd.Status = ErrStatus
 		} else {
 			sd.prefetchAq.SetResult(PreFetchResult{
 				Success: true,
 				Err:     nil,
 			})
 			sd.Status = FinishedStatus
-			sd.cache.Close()
+			sd.cache.Sync()
 		}
 
 		close(sd.prefetchCh)
@@ -379,6 +388,10 @@ func (sd *seed) Delete() error {
 	sd.clearResource()
 
 	return nil
+}
+
+func (sd *seed) CheckRange(off, size int64) (int64, int64, error) {
+	return sd.checkReadStreamParam(off, size)
 }
 
 // TODO: It's better to return immediately, the caller can read the data when seed downloading.
@@ -479,8 +492,8 @@ func (sd *seed) checkReadStreamParam(off int64, size int64) (int64, int64, error
 	sd.RLock()
 	defer sd.RUnlock()
 
-	if sd.Status == DeadStatus {
-		return 0, 0, fmt.Errorf("dead seed")
+	if sd.Status == DeadStatus || sd.Status == ErrStatus {
+		return 0, 0, fmt.Errorf("seed dead or err")
 	}
 
 	if off < 0 {
@@ -492,8 +505,12 @@ func (sd *seed) checkReadStreamParam(off int64, size int64) (int64, int64, error
 		size = sd.FullSize - off
 	}
 
-	if off+size > sd.FullSize {
+	if off > sd.FullSize {
 		return 0, 0, errortypes.NewHTTPError(http.StatusRequestedRangeNotSatisfiable, "out of range")
+	}
+
+	if off+size > sd.FullSize {
+		size = sd.FullSize - off
 	}
 
 	return off, size, nil
@@ -506,40 +523,41 @@ func (sd *seed) alignWithBlock(start int64, end int64) (uint32, uint32) {
 
 // tryDownloadAndWaitReady downloads blocks which include range [start, end] and wait for ready.
 func (sd *seed) tryDownloadAndWaitReady(start, end int64, rateLimit bool) error {
-	var (
-		allCosts  time.Duration
-		metaCosts time.Duration
-		waitCount int
-	)
-
-	allStartTime := time.Now()
 	startBlock, endBlock := sd.alignWithBlock(start, end)
 	logrus.Debugf("start to download, start-end: [%d-%d], block[%d-%d]\n", start, end, startBlock, endBlock)
 
-	defer func() {
-		allCosts = time.Now().Sub(allStartTime)
-		logrus.Debugf("download finished, start-end: [%d-%d], block[%d-%d], wait count: %d, all cost time: %f seconds, "+
-			"metaCosts costs time: %f seconds.\n", start, end, startBlock, endBlock, waitCount, allCosts.Seconds(), metaCosts.Seconds())
-	}()
+	secs := time.Duration(2 * (endBlock - startBlock + 1))
+	timeout := time.NewTimer(secs * time.Second)
+	defer timeout.Stop()
 
-	for {
+	try := 0
+	for try < 3 {
+		// try download
 		waitChs := sd.tryDownload(startBlock, endBlock, rateLimit)
 		if len(waitChs) == 0 {
 			return nil
 		}
 
-		metaCosts = time.Now().Sub(allStartTime)
-		waitCount++
-
 		// wait for the chan
 		for _, ch := range waitChs {
-			// todo: set the timeout, if timeout, try to direct download again.
+			// set the timeout, if timeout, try to direct download again.
 			select {
+			case <-timeout.C:
+				errCounter.WithLabelValues("tryDownloadAndWaitReady failed").Inc()
+				return fmt.Errorf("download timeout")
 			case <-ch:
 				break
 			}
 		}
+		// check download finished
+		rs, _ := sd.blockMeta.Get(startBlock, endBlock, false)
+		if len(rs) == 0 {
+			return nil
+		}
+		try++
 	}
+	errCounter.WithLabelValues("tryDownloadAndWaitReady failed").Inc()
+	return fmt.Errorf("download failed more than 3 times")
 }
 
 func (sd *seed) tryDownload(startBlock, endBlock uint32, rateLimit bool) (waitChs []chan struct{}) {
@@ -564,7 +582,8 @@ func (sd *seed) downloadToFile(start, end int64, rateLimit bool) (err error) {
 	defer func() {
 		// if download failed, try to update downloader.
 		if err != nil {
-			sd.updateDownloader()
+			logrus.Warnf("fallback to source")
+			sd.fallbackToSource()
 		}
 	}()
 
@@ -587,29 +606,30 @@ func (sd *seed) clearResource() {
 // downloadBlocks downloads the blocks, it should be sync called.
 func (sd *seed) downloadBlocks(blocks []uint32, rateLimit bool) {
 	for i := 0; i < len(blocks); i++ {
-		go sd.downloadBlock(blocks[i], blocks[i], rateLimit)
+		go sd.downloadBlock(blocks[i], rateLimit)
 	}
 }
 
-func (sd *seed) downloadBlock(blockStartIndex, blockEndIndex uint32, rateLimit bool) {
-	startBytes := int64(blockStartIndex) << sd.BlockOrder
-	endBytes := int64(blockEndIndex+1)<<sd.BlockOrder - 1
+func (sd *seed) downloadBlock(blockIndex uint32, rateLimit bool) {
+	startBytes := int64(blockIndex) << sd.BlockOrder
+	endBytes := int64(blockIndex+1)<<sd.BlockOrder - 1
 	if endBytes >= sd.FullSize {
 		endBytes = sd.FullSize - 1
 	}
 
 	defer func() {
-		sd.unlockBlocks(blockStartIndex, blockEndIndex)
+		sd.unlockBlocks(blockIndex, blockIndex)
 	}()
 
-	fmt.Printf("start to download file range [%d, %d]\n", startBytes, endBytes)
+	logrus.Debugf("start to download resource %s range [%d, %d]\n", sd.GetURL(), startBytes, endBytes)
 	err := sd.downloadToFile(startBytes, endBytes, rateLimit)
 	if err != nil {
+		errCounter.WithLabelValues("download to file failed").Inc()
 		logrus.Errorf("failed to download to file: %v", err)
 		return
 	}
 
-	sd.blockMeta.Set(blockStartIndex, blockEndIndex, true)
+	sd.blockMeta.Set(blockIndex, blockIndex, true)
 }
 
 // lockBlocksForPrepareDownload  lock the range, will return next downloading blocks.
@@ -736,9 +756,12 @@ func (sd *seed) prefetch(ctx context.Context, perDownloadSize int64) error {
 		blocks = 1
 	}
 
+	logrus.Infof("prefetch start, seed url: %s, full size: %d, blocks: %d, block size: %d, perDownloadSize: %d ",
+		sd.URL, sd.FullSize, sd.blocks, sd.blockSize, perDownloadSize)
+
 	var err error
 	var try int
-	var maxTry = 10
+	var maxTry = 5
 
 	for {
 		if try > maxTry {
@@ -858,5 +881,12 @@ func (sd *seed) updateDownloader() {
 	}
 
 	//set source down to currentDown.
+	sd.currentDown = sd.down
+}
+
+func (sd *seed) fallbackToSource() {
+	sd.Lock()
+	defer sd.Unlock()
+
 	sd.currentDown = sd.down
 }

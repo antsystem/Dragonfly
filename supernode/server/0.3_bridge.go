@@ -112,7 +112,7 @@ func (s *Server) registry(ctx context.Context, rw http.ResponseWriter, req *http
 			Code: constants.Success,
 			Data: &RegisterResponseData{
 				TaskID:     resp.TaskID,
-				FileLength: request.FileLength,
+				FileLength: resp.FileLength,
 				PieceSize:  int32(request.FileLength),
 				AsSeed:     resp.AsSeed,
 				SeedTaskID: resp.TaskID,

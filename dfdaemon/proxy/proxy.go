@@ -24,6 +24,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httputil"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -35,6 +36,10 @@ import (
 	"github.com/golang/groupcache/lru"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+)
+
+const (
+	strContentLength = "Content-Length"
 )
 
 // Option is a functional option for configuring the proxy
@@ -88,6 +93,7 @@ func WithDirectHandler(h *http.ServeMux) Option {
 	return func(p *Proxy) error {
 		// Make sure the root handler of the given server mux is the
 		// registry mirror reverse proxy
+		h.HandleFunc("/download", p.handleDownload)
 		h.HandleFunc("/", p.mirrorRegistry)
 		p.directHandler = h
 		return nil
@@ -265,6 +271,27 @@ func (proxy *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	} else {
 		// handle http proxy requests
 		proxy.handleHTTP(w, r)
+	}
+}
+
+func (proxy *Proxy) handleDownload(w http.ResponseWriter, req *http.Request) {
+	isRange := (req.Header.Get("Range") != "")
+	q := req.URL.Query()
+	stream := proxy.matcher.Match(req)
+	code, rc, err := stream.DownloadStreamContext(req.Context(), req.URL.String(), req.Header, q.Get("source_type"))
+	if err != nil {
+		http.Error(w, err.Error(), int(code))
+		return
+	}
+	defer rc.Close()
+	w.Header().Set(strContentLength, strconv.FormatInt(code, 10))
+	if isRange {
+		w.WriteHeader(http.StatusPartialContent)
+	} else {
+		w.WriteHeader(http.StatusOK)
+	}
+	if _, err := io.Copy(w, rc); err != nil {
+		logrus.Errorf("failed to write http body: %v", err)
 	}
 }
 

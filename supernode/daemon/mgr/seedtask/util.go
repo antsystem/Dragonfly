@@ -23,19 +23,19 @@ import (
 )
 
 type idSet struct {
-	lock *sync.RWMutex
+	sync.RWMutex
 	set  map[string]bool
 }
 
 func (s *idSet) add(id string) {
-	s.lock.Lock()
-	defer s.lock.Unlock()
+	s.Lock()
+	defer s.Unlock()
 	s.set[id] = true
 }
 
 func (s *idSet) has(id string) bool {
-	s.lock.RLock()
-	defer s.lock.RUnlock()
+	s.RLock()
+	defer s.RUnlock()
 	_, ok := s.set[id]
 	return ok
 }
@@ -44,8 +44,8 @@ func (s *idSet) delete(id string) {
 	if !s.has(id) {
 		return
 	}
-	s.lock.Lock()
-	defer s.lock.Unlock()
+	s.Lock()
+	defer s.Unlock()
 	delete(s.set, id)
 }
 
@@ -70,8 +70,8 @@ func (s *idSet) listWithLimit(maxNumber int) []string {
 		result = append(result, id)
 		i++
 	}
-	s.lock.RLock()
-	defer s.lock.RUnlock()
+	s.RLock()
+	defer s.RUnlock()
 	s.doRange(rangeFn)
 	return result
 }
@@ -83,30 +83,29 @@ func (s *idSet) list() []string {
 func newIDSet() *idSet {
 	return &idSet{
 		set:  make(map[string]bool),
-		lock: new(sync.RWMutex),
 	}
 }
 
 type safeMap struct {
-	lock    *sync.RWMutex
+	sync.RWMutex
 	safeMap map[string]string
 }
 
 func (m *safeMap) add(key, value string) {
-	m.lock.Lock()
-	defer m.lock.Unlock()
+	m.Lock()
+	defer m.Unlock()
 	m.safeMap[key] = value
 }
 
 func (m *safeMap) remove(key string) {
-	m.lock.Lock()
-	defer m.lock.Unlock()
+	m.Lock()
+	defer m.Unlock()
 	delete(m.safeMap, key)
 }
 
 func (m *safeMap) get(key string) string {
-	m.lock.RLock()
-	defer m.lock.RUnlock()
+	m.RLock()
+	defer m.RUnlock()
 	if v, ok := m.safeMap[key]; ok {
 		return v
 	}
@@ -115,7 +114,6 @@ func (m *safeMap) get(key string) string {
 
 func newSafeMap() *safeMap {
 	return &safeMap{
-		lock:    new(sync.RWMutex),
 		safeMap: make(map[string]string),
 	}
 }

@@ -57,8 +57,16 @@ type RouterTestSuite struct {
 }
 
 func (rs *RouterTestSuite) SetUpSuite(c *check.C) {
-	port := rand.Intn(1000) + 63000
-	rs.addr = "127.0.0.1:" + strconv.Itoa(port)
+	var err error
+	var port int
+	for {
+		port := rand.Intn(5000) + 60000
+		rs.addr = "127.0.0.1:" + strconv.Itoa(port)
+		rs.listener, err = net.Listen("tcp", rs.addr)
+		if err == nil {
+			break
+		}
+	}
 	tmpDir, err := ioutil.TempDir("/tmp", "supernode-routerTestSuite-")
 	c.Check(err, check.IsNil)
 
@@ -83,8 +91,6 @@ func (rs *RouterTestSuite) SetUpSuite(c *check.C) {
 	}
 
 	rs.router = initRoute(s)
-	rs.listener, err = net.Listen("tcp", rs.addr)
-	c.Check(err, check.IsNil)
 	go http.Serve(rs.listener, rs.router)
 }
 

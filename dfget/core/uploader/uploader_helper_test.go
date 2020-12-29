@@ -27,6 +27,8 @@ import (
 	"strings"
 	"time"
 
+	"net"
+
 	"github.com/dragonflyoss/Dragonfly/dfget/config"
 	"github.com/dragonflyoss/Dragonfly/dfget/core/helper"
 	"github.com/dragonflyoss/Dragonfly/pkg/ratelimiter"
@@ -74,10 +76,18 @@ func initHelper(srv *peerServer, fileName, dataDir, content string) {
 
 func startTestServer(handler http.Handler) (ip string, port int, server *http.Server) {
 	// run a server
-	ip = "127.0.0.1"
-	port = rand.Intn(1000) + 63000
-	server = &http.Server{Addr: fmt.Sprintf("%s:%d", ip, port), Handler: handler}
-	go server.ListenAndServe()
+	for {
+		ip = "127.0.0.1"
+		port = rand.Intn(1000) + 63000
+		ln, err := net.Listen("tcp", fmt.Sprintf("%s:%d", ip, port))
+		if err != nil {
+			continue
+		}
+		ln.Close()
+		server = &http.Server{Addr: fmt.Sprintf("%s:%d", ip, port), Handler: handler}
+		go server.ListenAndServe()
+		break
+	}
 	return
 }
 

@@ -107,14 +107,20 @@ type seedWrapObj struct {
 	prefetch    bool
 	metaPath    string
 	metaBakPath string
+	dirty       bool
 }
 
 func (sw *seedWrapObj) isExpired() bool {
 	sw.RLock()
 	defer sw.RUnlock()
 
+	status := sw.sd.GetStatus()
+
+	if status == ErrStatus {
+		return true
+	}
 	// if not finished, do not gc.
-	if sw.sd.GetStatus() != FinishedStatus {
+	if status != FinishedStatus {
 		return false
 	}
 
@@ -137,9 +143,11 @@ func (sw *seedWrapObj) refreshExpireTime(expireTimeDur time.Duration) error {
 	if expireTimeDur != 0 {
 		sw.ExpireTimeDur = expireTimeDur
 	}
+	// update access time
+	sw.dirty = true
 
 	sw.ExpireTime = time.Now().Add(sw.ExpireTimeDur)
-	return sw.storeMetaDataWithoutLock()
+	return nil
 }
 
 func (sw *seedWrapObj) notifyPrepareExpired() {
@@ -181,6 +189,7 @@ func (sw *seedWrapObj) storeMetaData() error {
 	sw.RLock()
 	defer sw.RUnlock()
 
+	sw.dirty = false
 	return sw.storeMetaDataWithoutLock()
 }
 
@@ -210,7 +219,7 @@ func (sw *seedWrapObj) getPrefetchResult() (PreFetchResult, error) {
 }
 
 type seedManager struct {
-	sync.Mutex
+	sync.RWMutex
 
 	// the context which is monitor by all loop
 	ctx context.Context
@@ -230,6 +239,7 @@ type seedManager struct {
 	startWeedOutCh chan struct{}
 
 	seedContainer map[string]*seedWrapObj
+	seedCreating  map[string]chan struct{}
 	// lru queue which wide out the seed file, it is thread safe
 	lru *queue.LRUQueue
 	// the queue wait for prefetch, it is thread safe
@@ -347,6 +357,7 @@ func newSeedManager(opt NewSeedManagerOpt) (Manager, error) {
 		concurrentLimit:   opt.ConcurrentLimit,
 		totalLimit:        opt.TotalLimit,
 		seedContainer:     make(map[string]*seedWrapObj),
+		seedCreating:      make(map[string]chan struct{}),
 		lru:               queue.NewLRUQueue(opt.TotalLimit),
 		waitQueue:         queue.NewQueue(0),
 		downloadCh:        downloadCh,
@@ -366,37 +377,72 @@ func newSeedManager(opt NewSeedManagerOpt) (Manager, error) {
 	go sm.prefetchLoop(ctx)
 	go sm.gcLoop(ctx)
 	go sm.weedOutLoop(ctx)
+	go sm.flushMetaFileLoop(ctx)
 
 	return sm, nil
 }
 
 func (sm *seedManager) Register(key string, info BaseInfo) (Seed, error) {
-	sm.Lock()
-	defer sm.Unlock()
-
-	obj, ok := sm.seedContainer[key]
-	if ok {
-		return obj.sd, errortypes.ErrTaskIDDuplicate
+	start := time.Now()
+	for {
+		sm.Lock()
+		if info.RawURL == "" {
+			info.RawURL = info.URL
+		}
+		for path, sd := range sm.seedContainer {
+			if path == key || info.URL == sd.sd.GetURL() {
+				if sd.isExpired() {
+					break
+				}
+				sm.Unlock()
+				return sd.sd, errortypes.ErrTaskIDDuplicate
+			}
+		}
+		if ch, ok := sm.seedCreating[info.URL]; ok {
+			sm.Unlock()
+			<-ch
+			continue
+		}
+		sm.seedCreating[info.URL] = make(chan struct{})
+		sm.Unlock()
+		break
 	}
 
+	defer func() {
+		sm.Lock()
+		defer sm.Unlock()
+
+		if ch, ok := sm.seedCreating[info.URL]; ok {
+			close(ch)
+			delete(sm.seedCreating, info.URL)
+		}
+	}()
+
+	// out of lock
 	if info.BlockOrder == 0 {
 		info.BlockOrder = sm.defaultBlockOrder
 	}
 
-	if info.FullLength == 0 {
+	if info.FullLength <= 0 {
 		// get seed file length
 		hd := map[string]string{}
 		for k, v := range info.Header {
 			hd[k] = v[0]
 		}
 
-		fullSize, err := sm.getHTTPFileLength(key, info.URL, hd)
+		fullSize, err := sm.getHTTPFileLength(key, info.RawURL, hd)
 		if err != nil {
 			return nil, err
 		}
 
+		if fullSize <= 0 {
+			return nil, fmt.Errorf("get file length %d, not expected", fullSize)
+		}
+
 		info.FullLength = fullSize
 	}
+
+	logrus.Debugf("register seed, info: %v", info)
 
 	opt := BaseOpt{
 		BaseDir: filepath.Join(sm.storeDir, "seed", key),
@@ -412,6 +458,8 @@ func (sm *seedManager) Register(key string, info BaseInfo) (Seed, error) {
 		return nil, err
 	}
 
+	// add into seed Container
+	sm.Lock()
 	sm.seedContainer[key] = &seedWrapObj{
 		sd:               sd,
 		prefetchCh:       make(chan struct{}),
@@ -421,6 +469,8 @@ func (sm *seedManager) Register(key string, info BaseInfo) (Seed, error) {
 		metaBakPath:      sm.seedWrapMetaBakPath(key),
 		ExpireTimeDur:    info.ExpireTimeDur,
 	}
+	sm.Unlock()
+	logrus.Infof("register seed task %f s", time.Since(start).Seconds())
 
 	return sd, nil
 }
@@ -467,8 +517,8 @@ func (sm *seedManager) NotifyPrepareExpired(key string) (<-chan struct{}, error)
 }
 
 func (sm *seedManager) List() ([]string, []Seed, error) {
-	sm.Lock()
-	defer sm.Unlock()
+	sm.RLock()
+	defer sm.RUnlock()
 
 	ret := make([]Seed, len(sm.seedContainer))
 	keys := make([]string, len(sm.seedContainer))
@@ -543,6 +593,7 @@ func (sm *seedManager) restore(ctx context.Context) {
 	// check if seed is expired
 	for _, sw := range sws {
 		if sw.isExpired() {
+			logrus.Warnf("restore: delete resource %s", sw.sd.GetURL())
 			// if expired, release the seed file.
 			delete(sm.seedContainer, sw.Key)
 			sw.release()
@@ -697,8 +748,8 @@ func (sm *seedManager) listSeedWrapObj() []*seedWrapObj {
 }
 
 func (sm *seedManager) getSeedWrapObj(key string) (*seedWrapObj, error) {
-	sm.Lock()
-	defer sm.Unlock()
+	sm.RLock()
+	defer sm.RUnlock()
 
 	obj, ok := sm.seedContainer[key]
 	if !ok {
@@ -718,9 +769,7 @@ func (sm *seedManager) prepareGcSeed(key string, sd Seed) {
 	}
 
 	// delete the seed from lru queue.
-	sm.Lock()
 	sm.lru.Delete(key)
-	sm.Unlock()
 
 	sw.notifyPrepareExpired()
 }
@@ -733,10 +782,11 @@ func (sm *seedManager) gcSeed(key string, sd Seed) {
 		return
 	}
 
+	gcCounter.WithLabelValues().Inc()
 	// delete from map
+	sm.lru.Delete(key)
 	sm.Lock()
 	delete(sm.seedContainer, key)
-	sm.lru.Delete(key)
 	sm.Unlock()
 
 	sw.release()
@@ -758,7 +808,7 @@ func (sm *seedManager) prefetchLoop(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
-		// 	downloadCh will control the limit of concurrent prefetch.
+			// downloadCh will control the limit of concurrent prefetch.
 		case <-sm.downloadCh:
 			break
 		}
@@ -911,6 +961,26 @@ func (sm *seedManager) runWeedOut(ctx context.Context) {
 		}
 
 		sm.prepareGcSeed(key, sd.(Seed))
+	}
+}
+
+func (sm *seedManager) flushMetaFileLoop(ctx context.Context) {
+	tickC := time.NewTicker(time.Second * 5)
+	defer tickC.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-tickC.C:
+			sws := sm.listSeedWrapObj()
+			for _, sw := range sws {
+				if sw.dirty {
+					sw.storeMetaData()
+				}
+			}
+		default:
+			time.Sleep(time.Second)
+		}
 	}
 }
 

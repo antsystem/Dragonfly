@@ -90,6 +90,6 @@ func (eh *preheatEventHandler) Handle(ev *supernodeEvent) {
 
 	infos := ev.data.([]*api_types.PreHeatInfo)
 	for _, info := range infos {
-		eh.sm.tryToApplyForSeedNode(context.Background(), info.URL, UnFlattenHeader(info.Headers))
+		eh.sm.tryToApplyForSeedNode(context.Background(), newSeedURL(info.URL), UnFlattenHeader(info.Headers))
 	}
 }

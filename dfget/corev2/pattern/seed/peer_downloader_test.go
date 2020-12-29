@@ -313,7 +313,7 @@ func (suite *seedSuite) TestPeerDownloader(c *check.C) {
 		Port: int32(nodes[0].Port),
 	}
 
-	df := newDownloaderFactory(manager, localPeer, api.NewDownloadAPI())
+	df := newDownloaderFactory(manager, localPeer, api.NewDownloadAPI(false))
 
 	// download tasks[0] from remote1
 	opt1 := seed.DownloaderFactoryCreateOpt{

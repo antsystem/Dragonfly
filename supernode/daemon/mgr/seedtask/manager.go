@@ -24,16 +24,29 @@ import (
 
 	"github.com/dragonflyoss/Dragonfly/apis/types"
 	"github.com/dragonflyoss/Dragonfly/pkg/digest"
+	"github.com/dragonflyoss/Dragonfly/pkg/metricsutils"
 	"github.com/dragonflyoss/Dragonfly/pkg/netutils"
 	"github.com/dragonflyoss/Dragonfly/supernode/config"
 	dutil "github.com/dragonflyoss/Dragonfly/supernode/daemon/util"
 	"github.com/go-openapi/strfmt"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 )
 
+const (
+	subSystem = "supernode_seed"
+)
+
 type TaskRegistryResponce struct {
-	TaskID string
-	AsSeed bool
+	FileLength int64
+	TaskID     string
+	AsSeed     bool
+}
+
+type seedMetric struct {
+	urlCounter  *prometheus.CounterVec
+	taskCounter *prometheus.GaugeVec
+	peerCounter *prometheus.GaugeVec
 }
 
 type Manager struct {
@@ -44,6 +57,8 @@ type Manager struct {
 	/* store all seed peer info */
 	p2pInfoStore *dutil.Store
 	ipPortMap    *safeMap
+	/* metrics */
+	metrics *seedMetric
 	/* create time of seed manager */
 	timeStamp time.Time
 }
@@ -54,7 +69,12 @@ func NewManager(cfg *config.Config) (*Manager, error) {
 		taskStore:    dutil.NewStore(),
 		p2pInfoStore: dutil.NewStore(),
 		ipPortMap:    newSafeMap(),
-		timeStamp:    time.Now(),
+		metrics: &seedMetric{
+			urlCounter:  metricsutils.NewCounter(subSystem, "url", "urls in p2p network", []string{"url"}, nil),
+			taskCounter: metricsutils.NewGauge(subSystem, "task", "tasks in p2p network", nil, nil),
+			peerCounter: metricsutils.NewGauge(subSystem, "peer", "peers in p2p network", nil, nil),
+		},
+		timeStamp: time.Now(),
 	}, nil
 }
 
@@ -67,11 +87,12 @@ func (mgr *Manager) getTaskMap(ctx context.Context, taskID string) (*SeedMap, er
 	return taskMap, nil
 }
 
-func (mgr *Manager) getOrCreateTaskMap(ctx context.Context, taskID string) *SeedMap {
+func (mgr *Manager) getOrCreateTaskMap(ctx context.Context, taskID, url string) *SeedMap {
 	ret, err := mgr.getTaskMap(ctx, taskID)
 	if err != nil {
 		item, _ := mgr.taskStore.LoadOrStore(taskID,
-			newSeedTaskMap(taskID, mgr.cfg.MaxSeedPerObject))
+			newSeedTaskMap(taskID, url, mgr.cfg.MaxSeedPerObject))
+		mgr.metrics.taskCounter.WithLabelValues().Inc()
 		ret, _ = item.(*SeedMap)
 	}
 	return ret
@@ -107,6 +128,7 @@ func (mgr *Manager) getOrCreateP2pInfo(ctx context.Context, peerID string, peerR
 				hbTime:   time.Now().Unix(),
 				ph:       newPreheat()})
 		peerInfo, _ = item.(*P2pInfo)
+		mgr.metrics.peerCounter.WithLabelValues().Inc()
 	}
 	return peerInfo
 }
@@ -131,6 +153,16 @@ func convertToCreateRequest(request *types.TaskRegisterRequest, peerID string) *
 
 func ipPortToStr(ip strfmt.IPv4, port int32) string {
 	return fmt.Sprintf("%s-%d", ip.String(), port)
+}
+
+func (mgr *Manager) handlePeerRestart(ctx context.Context, nowID string, ip strfmt.IPv4, port int32) {
+	// check if peer was restarted
+	ipPortStr := ipPortToStr(ip, port)
+	oldPeerID := mgr.ipPortMap.get(ipPortStr)
+	if oldPeerID != nowID {
+		mgr.DeRegisterPeer(ctx, oldPeerID)
+		mgr.ipPortMap.add(ipPortStr, nowID)
+	}
 }
 
 /*
@@ -159,24 +191,17 @@ func (mgr *Manager) Register(ctx context.Context, request *types.TaskRegisterReq
 	// update peer hb time
 	p2pInfo.update()
 	// check if peer was restarted
-	ipPortStr := ipPortToStr(request.IP, request.Port)
-	oldPeerID := mgr.ipPortMap.get(ipPortStr)
-	if oldPeerID != peerID {
-		mgr.DeRegisterPeer(ctx, oldPeerID)
-		mgr.ipPortMap.add(ipPortStr, peerID)
-	}
+	mgr.handlePeerRestart(ctx, peerID, request.IP, request.Port)
 	if onlyPeer {
 		return resp, nil
 	}
-	if p2pInfo.hasTask(request.TaskID) {
-		return resp, nil
-	}
-	taskMap := mgr.getOrCreateTaskMap(ctx, request.TaskID)
-	taskMap.update()
+	taskMap := mgr.getOrCreateTaskMap(ctx, request.TaskID, request.TaskURL)
+	taskMap.update(mgr.cfg.TaskExpireTime)
+	mgr.metrics.urlCounter.WithLabelValues(request.TaskURL).Inc()
 	if taskMap.tryAddNewTask(mgr.listAllFixedPeers(ctx), p2pInfo,
 		convertToCreateRequest(request, peerID), mgr.cfg.StaticPeerMode) {
+		resp.FileLength = taskMap.fullLength
 		resp.AsSeed = true
-		logrus.Infof("peer %s becomes seed of %s", p2pInfo.peerID, request.TaskURL)
 	}
 
 	return resp, nil
@@ -202,8 +227,8 @@ func (mgr *Manager) DeRegisterTask(ctx context.Context, peerID, taskID string) e
 	if err != nil {
 		return err
 	}
+	logrus.Infof("peer %s remove task %s", peerID, taskID)
 	if taskMap.remove(peerID) {
-		mgr.taskStore.Delete(taskID)
 		logrus.Debugf("Task %s has no peers", taskID)
 	}
 
@@ -215,6 +240,8 @@ func (mgr *Manager) EvictTask(ctx context.Context, taskID string) error {
 	if err != nil {
 		return err
 	}
+	mgr.metrics.urlCounter.DeleteLabelValues(taskMap.url)
+	mgr.metrics.taskCounter.WithLabelValues().Dec()
 	taskMap.removeAllPeers()
 	mgr.taskStore.Delete(taskID)
 
@@ -237,6 +264,7 @@ func (mgr *Manager) DeRegisterPeer(ctx context.Context, peerID string) error {
 	// remove from hash table
 	mgr.p2pInfoStore.Delete(peerID)
 	mgr.ipPortMap.remove(ipPortToStr(p2pInfo.PeerInfo.IP, p2pInfo.PeerInfo.Port))
+	mgr.metrics.peerCounter.WithLabelValues().Dec()
 	return nil
 }
 
@@ -265,6 +293,7 @@ func (mgr *Manager) ReportPeerHealth(ctx context.Context, request *types.HeartBe
 		mgr.Register(ctx, &types.TaskRegisterRequest{CID: request.CID, IP: request.IP, Port: request.Port,
 			Version: request.Version, HostName: request.HostName})
 	}
+	mgr.handlePeerRestart(ctx, request.CID, request.IP, request.Port)
 	p2pInfo, err := mgr.getP2pInfo(ctx, request.CID)
 	if err != nil {
 		// tell peer to register again
@@ -297,6 +326,21 @@ func (mgr *Manager) ScanDownPeers(ctx context.Context) []string {
 			continue
 		}
 		result = append(result, p2pInfo.peerID)
+	}
+
+	return result
+}
+
+func (mgr *Manager) ScanExpiredTasks(ctx context.Context) []string {
+	result := make([]string, 0)
+	for _, it := range mgr.taskStore.List() {
+		taskMap, ok := it.(*SeedMap)
+		if !ok {
+			continue
+		}
+		if taskMap.isExpired() {
+			result = append(result, taskMap.taskID)
+		}
 	}
 
 	return result

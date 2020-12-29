@@ -18,7 +18,6 @@ package seedtask
 
 import (
 	"sort"
-	"time"
 
 	"github.com/dragonflyoss/Dragonfly/apis/types"
 	"github.com/sirupsen/logrus"
@@ -32,18 +31,11 @@ type seedScheduler interface {
 	// try to schedule a new seed
 	Schedule(nowTasks []*SeedInfo, newTask *SeedInfo) bool
 
-
 	// preheat
 	Preheat(task *types.TaskInfo, allPeers []*P2pInfo, max int)
 }
 
 type defaultScheduler struct{}
-
-func setAllowSeedDownload(newTask *SeedInfo) {
-	// 100MB/s * 30s = 3GB
-	time.Sleep(time.Duration(30*time.Second))
-	newTask.AllowSeedDownload = true
-}
 
 func (scheduler *defaultScheduler) Schedule(nowTasks []*SeedInfo, newTask *SeedInfo) bool {
 	busyPeer := newTask.P2pInfo
@@ -62,8 +54,22 @@ func (scheduler *defaultScheduler) Schedule(nowTasks []*SeedInfo, newTask *SeedI
 			continue
 		}
 		p2pInfo := nowTasks[idx].P2pInfo
+		taskInfo := nowTasks[idx].TaskInfo
 		nowAvail++
 		if p2pInfo != nil && p2pInfo.peerID == newTask.P2pInfo.peerID {
+			if newTaskInfo.FileLength > 0 && taskInfo.FileLength == 0 {
+				// total file has been downloaded
+				nowTasks[idx].RequestPath = newTask.RequestPath
+				nowTasks[idx].TaskInfo = newTaskInfo
+				nowTasks[idx].AllowSeedDownload = true
+				logrus.Infof("peer %s has already downloaded %s", p2pInfo.peerID, taskInfo.TaskURL)
+				return true
+			} else if taskInfo.FileLength > 0 {
+				// just update timestamp
+				nowTasks[idx].RequestPath = newTask.RequestPath
+				nowTasks[idx].AllowSeedDownload = true
+				return true
+			}
 			// Hardly run here
 			// This peer already have this task
 			logrus.Warnf("peer %s registry same taskid %s twice", p2pInfo.peerID, newTaskInfo.ID)
@@ -82,10 +88,8 @@ func (scheduler *defaultScheduler) Schedule(nowTasks []*SeedInfo, newTask *SeedI
 	if pos >= 0 {
 		nowTasks[pos] = newTask
 		newTask.P2pInfo.addTask(newTaskInfo.ID)
-		if nowAvail < 3 {
+		if nowAvail == 0 {
 			newTask.AllowSeedDownload = true
-		} else {
-			go setAllowSeedDownload(newTask)
 		}
 	}
 	if busyPeer != nil && busyPeer != newTask.P2pInfo {
@@ -95,6 +99,7 @@ func (scheduler *defaultScheduler) Schedule(nowTasks []*SeedInfo, newTask *SeedI
 			busyPeer.peerID)
 		busyPeer.deleteTask(newTaskInfo.ID)
 	}
+	logrus.Infof("peer %s becomes seed of url %s", newTask.P2pInfo.peerID, newTask.TaskInfo.TaskURL)
 
 	return pos >= 0
 }

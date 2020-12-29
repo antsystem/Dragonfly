@@ -17,7 +17,6 @@
 package seed
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -118,8 +117,9 @@ func (ld *peerDownloader) DownloadToWriterAt(ctx context.Context, rangeStruct ht
 	)
 
 	size := rangeStruct.EndIndex - rangeStruct.StartIndex + 1
-	rc, err := down.Download(ctx, rangeStruct.StartIndex, size)
+	_, rc, err := down.Download(ctx, rangeStruct.StartIndex, size)
 	if err != nil {
+		logrus.Errorf("downloaded from %s failed", ld.peer.IP)
 		return 0, err
 	}
 
@@ -143,25 +143,12 @@ func (ld *peerDownloader) DownloadToWriterAt(ctx context.Context, rangeStruct ht
 		rd = limitreader.NewLimitReaderWithLimiter(ld.rl, rc, false)
 	}
 
-	// in copyCache pattern, the bytes buffer will be transferred to io.WriterAt, and will be held by io.WriterAt.
-	if ld.openMemoryCache {
-		buf := bytes.NewBuffer(nil)
-		buf.Grow(int(expectedLen))
-		written, err = io.CopyN(buf, rd, expectedLen)
-		if err != nil && err != io.EOF {
-			logrus.Errorf("failed to read data [%d, %d] from resp.body: %v", rangeStruct.StartIndex, rangeStruct.EndIndex, err)
-		}
-
-		if written < expectedLen {
-			return 0, errors.Wrap(io.ErrShortWrite, fmt.Sprintf("download from [%d,%d], expecte read %d, but got %d", rangeStruct.StartIndex, rangeStruct.EndIndex, expectedLen, written))
-		}
-
-		n, err = writerAt.WriteAt(buf.Bytes(), writeOff)
+	if rf, ok := writerAt.(seed.ReadAtFrom); ok {
+		n, err = rf.ReadAtFrom(rd, writeOff, expectedLen)
 		written = int64(n)
 	} else {
 		written, err = seed.CopyBufferToWriterAt(writeOff, writerAt, rd)
 	}
-
 	if err == io.EOF {
 		err = nil
 	}

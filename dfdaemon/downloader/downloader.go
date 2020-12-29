@@ -34,7 +34,8 @@ type Interface interface {
 type Stream interface {
 	// DownloadContext downloads the resource as specified in url, and it accepts
 	// a context parameter so that it can handle timeouts correctly.
-	DownloadStreamContext(ctx context.Context, url string, header map[string][]string, name string) (io.ReadCloser, error)
+	// if success, first return value is length of data, otherwise is err code
+	DownloadStreamContext(ctx context.Context, url string, header map[string][]string, name string) (int64, io.ReadCloser, error)
 }
 
 // Factory is a function that returns a new downloader.

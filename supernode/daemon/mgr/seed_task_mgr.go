@@ -41,5 +41,7 @@ type SeedTaskMgr interface {
 
 	ScanDownPeers(ctx context.Context) []string
 
+	ScanExpiredTasks(ctx context.Context) []string
+
 	IsSeedTask(ctx context.Context, request *http.Request) bool
 }

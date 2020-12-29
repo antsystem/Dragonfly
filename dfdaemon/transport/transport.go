@@ -24,6 +24,7 @@ import (
 	"net/http"
 	"os"
 	"regexp"
+	"strconv"
 	"time"
 
 	"github.com/pborman/uuid"
@@ -33,6 +34,7 @@ import (
 	"github.com/dragonflyoss/Dragonfly/dfdaemon/downloader"
 	"github.com/dragonflyoss/Dragonfly/dfdaemon/exception"
 	"github.com/dragonflyoss/Dragonfly/dfdaemon/metrics"
+	"github.com/dragonflyoss/Dragonfly/dfget/config"
 	"github.com/dragonflyoss/Dragonfly/pkg/httputils"
 )
 
@@ -87,7 +89,7 @@ func WithTLS(cfg *tls.Config) Option {
 
 func defaultHTTPTransport(cfg *tls.Config) *http.Transport {
 	if cfg == nil {
-		cfg = &tls.Config{InsecureSkipVerify: true}
+		return httputils.DefaultBuiltInTransport
 	}
 	return &http.Transport{
 		DialContext: (&net.Dialer{
@@ -207,8 +209,8 @@ func (roundTripper *DFRoundTripper) downloadByStream(ctx context.Context, url st
 		}
 	}()
 
-	logrus.Infof("start download url:%s to %s in repo", url, name)
-	reader, err := roundTripper.StreamDownloader.DownloadStreamContext(ctx, url, header, name)
+	logrus.Debugf("start download url:%s to %s in repo", url, name)
+	dataLen, reader, err := roundTripper.StreamDownloader.DownloadStreamContext(ctx, url, header, name)
 	if err != nil {
 		logrus.Errorf("download fail: %v", err)
 		return nil, err
@@ -221,9 +223,18 @@ func (roundTripper *DFRoundTripper) downloadByStream(ctx context.Context, url st
 		metrics.RequestAllFlowCounter.WithLabelValues().Add(float64(rangeSize))
 	})
 
+	retCode := http.StatusOK
+	if rangeSt.EndIndex >= 0 {
+		retCode = http.StatusPartialContent
+	}
+
 	resp = &http.Response{
-		StatusCode: 200,
+		StatusCode: retCode,
 		Body:       rc,
+		Header:     make(http.Header),
+	}
+	if dataLen > 0 {
+		resp.Header.Set(config.StrContentLength, strconv.FormatInt(dataLen, 10))
 	}
 
 	return resp, nil

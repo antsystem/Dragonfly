@@ -131,6 +131,7 @@ func (gcm *Manager) StartGC(ctx context.Context) {
 		ticker := time.NewTicker(gcm.cfg.GCMetaInterval)
 		for range ticker.C {
 			gcm.gcSeedTaskPeers(ctx)
+			gcm.gcSeedTasks(ctx)
 		}
 	}()
 }

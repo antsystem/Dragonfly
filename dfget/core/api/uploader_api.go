@@ -75,10 +75,10 @@ func (u *uploaderAPI) CheckServer(ip string, port int, req *CheckServerRequest) 
 
 func (u *uploaderAPI) FinishTask(ip string, port int, req *FinishTaskRequest) error {
 	url := fmt.Sprintf("http://%s:%d%sfinish?"+
-		config.StrTaskFileName+"=%s&"+
-		config.StrTaskID+"=%s&"+
-		config.StrClientID+"=%s&"+
-		config.StrSuperNode+"=%s",
+		config.StrTaskFileName+ "=%s&"+
+		config.StrTaskID+ "=%s&"+
+		config.StrClientID+ "=%s&"+
+		config.StrSuperNode+ "=%s",
 		ip, port, config.LocalHTTPPathClient,
 		req.TaskFileName, req.TaskID, req.ClientID, req.Node)
 
@@ -96,4 +96,34 @@ func (u *uploaderAPI) PingServer(ip string, port int) bool {
 	url := fmt.Sprintf("http://%s:%d%s", ip, port, config.LocalHTTPPing)
 	code, _, _ := httputils.Get(url, u.timeout)
 	return code == http.StatusOK
+}
+
+type uploaderAPIWithTLS struct {
+	timeout time.Duration
+}
+
+func NewUploaderAPIWithTLS(timeout time.Duration) UploaderAPI {
+	return &uploaderAPIWithTLS{timeout}
+}
+
+func (u *uploaderAPIWithTLS) ParseRate(ip string, port int, req *ParseRateRequest) (string, error) {
+	return "", nil
+}
+
+func (u *uploaderAPIWithTLS) CheckServer(ip string, port int, req *CheckServerRequest) (string, error) {
+	return "", nil
+}
+
+func (u *uploaderAPIWithTLS) FinishTask(ip string, port int, req *FinishTaskRequest) error {
+	return nil
+}
+
+func (u *uploaderAPIWithTLS) PingServer(ip string, port int) bool {
+	url := fmt.Sprintf("https://%s:%d%s", ip, port, config.LocalHTTPPing)
+	resp, err := httputils.HTTPClientDoRequest("p2p", http.MethodGet, url, nil, u.timeout)
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+	return resp.StatusCode == http.StatusOK
 }

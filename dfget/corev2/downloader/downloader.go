@@ -24,5 +24,5 @@ import (
 // Downloader defines how to download file range from peer/cdn, an instance binds to <task, target address>.
 type Downloader interface {
 	// Download downloads range data.
-	Download(ctx context.Context, off, size int64) (io.ReadCloser, error)
+	Download(ctx context.Context, off, size int64) (int64, io.ReadCloser, error)
 }

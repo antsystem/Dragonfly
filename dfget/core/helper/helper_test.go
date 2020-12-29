@@ -191,3 +191,10 @@ func (s *HelperTestSuite) TestMockFileServer(c *check.C) {
 	expectStr = s.getRepeatStr([]byte("abcde"), 10000)
 	c.Assert(string(data), check.Equals, string(expectStr))
 }
+
+func (s *HelperTestSuite) TestFileHelper(c *check.C) {
+	c.Assert(GetTaskFile("1", "abc"), check.Equals, "abc/1")
+	c.Assert(GetServiceFile("1", "abc"), check.Equals, "abc/1.service")
+	c.Assert(GetTaskName("1.service"), check.Equals, "1")
+	c.Assert(GetTaskName("1"), check.Equals, "1")
+}

@@ -28,4 +28,14 @@ func (gcm *Manager) gcSeedTaskPeers(ctx context.Context) {
 	for _, peerID := range peerIDs {
 		gcm.seedTaskMgr.DeRegisterPeer(ctx, peerID)
 	}
+	gcm.metrics.gcPeersCount.WithLabelValues().Add(float64(len(peerIDs)))
+}
+
+func (gcm *Manager) gcSeedTasks(ctx context.Context) {
+	taskIDs := gcm.seedTaskMgr.ScanExpiredTasks(ctx)
+	logrus.Infof("gc tasks %v", taskIDs)
+	for _, taskID := range taskIDs {
+		gcm.seedTaskMgr.EvictTask(ctx, taskID)
+	}
+	gcm.metrics.gcTasksCount.WithLabelValues().Add(float64(len(taskIDs)))
 }

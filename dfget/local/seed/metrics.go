@@ -43,6 +43,10 @@ var (
 
 	// records the net flow of all prefetch action.
 	prefetchFlowCounter = metricsutils.NewCounter(subsystem, "prefetch_flow_total", "records the net flow of all prefetch action", []string{"peer_ip"}, nil)
+
+	gcCounter = metricsutils.NewCounter(subsystem, "gc_seeds_total", "record the count of gc seed", []string{}, nil)
+
+	errCounter = metricsutils.NewCounter(subsystem, "err", "err count", []string{"err"}, nil)
 )
 
 func recordPrefetchCostTimer(size int64, peerIp string, duration time.Duration) {

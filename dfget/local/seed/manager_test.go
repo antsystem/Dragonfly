@@ -23,6 +23,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/dragonflyoss/Dragonfly/pkg/errortypes"
 	"github.com/go-check/check"
 	"github.com/pborman/uuid"
 )
@@ -48,15 +49,19 @@ func (suite *SeedTestSuite) TestOneSeed(c *check.C) {
 	fileName := "fileA"
 	fileLength := int64(500 * 1024)
 
+	u := fmt.Sprintf("http://%s/%s", suite.host, fileName)
 	preInfo := BaseInfo{
+		RawURL: u,
 		// fileA: 500KB
-		URL:           fmt.Sprintf("http://%s/%s", suite.host, fileName),
+		URL:           u,
 		ExpireTimeDur: time.Second * 10,
 	}
 
 	taskID := uuid.New()
 	sd, err := sm.Register(taskID, preInfo)
 	c.Assert(err, check.IsNil)
+	_, err = sm.Register(uuid.New(), preInfo)
+	c.Assert(err, check.Equals, errortypes.ErrTaskIDDuplicate)
 
 	c.Assert(sd.GetFullSize(), check.Equals, fileLength)
 
@@ -163,7 +168,8 @@ func (suite *SeedTestSuite) TestManySeed(c *check.C) {
 	for i := 0; i < 4; i++ {
 		wg.Add(1)
 		taskIDArr[i] = uuid.New()
-		sd, err := sm.Register(taskIDArr[i], BaseInfo{URL: fmt.Sprintf("http://%s/%s", suite.host, filePaths[i]),
+		u := fmt.Sprintf("http://%s/%s", suite.host, filePaths[i])
+		sd, err := sm.Register(taskIDArr[i], BaseInfo{RawURL: u, URL: u,
 			TaskID: taskIDArr[i], ExpireTimeDur: 30 * time.Second})
 		c.Assert(err, check.IsNil)
 		seedArr[i] = sd
@@ -185,7 +191,8 @@ func (suite *SeedTestSuite) TestManySeed(c *check.C) {
 
 	// new one seed, it may wide out the oldest one
 	taskIDArr[4] = uuid.New()
-	seedArr[4], err = sm.Register(taskIDArr[4], BaseInfo{URL: fmt.Sprintf("http://%s/%s", suite.host, filePaths[4]),
+	u := fmt.Sprintf("http://%s/%s", suite.host, filePaths[4])
+	seedArr[4], err = sm.Register(taskIDArr[4], BaseInfo{RawURL: u, URL: u,
 		TaskID: taskIDArr[4], ExpireTimeDur: 30 * time.Second})
 	c.Assert(err, check.IsNil)
 	expireChs[4], err = sm.NotifyPrepareExpired(taskIDArr[4])
@@ -256,7 +263,8 @@ func (suite *SeedTestSuite) TestSeedRestoreInManager(c *check.C) {
 	for i := 0; i < 4; i++ {
 		wg.Add(1)
 		taskIDArr[i] = uuid.New()
-		sd, err := sm.Register(taskIDArr[i], BaseInfo{URL: fmt.Sprintf("http://%s/%s", suite.host, filePaths[i]),
+		u := fmt.Sprintf("http://%s/%s", suite.host, filePaths[i])
+		sd, err := sm.Register(taskIDArr[i], BaseInfo{RawURL: u, URL: u,
 			TaskID: taskIDArr[i], ExpireTimeDur: time.Second * 30})
 		c.Assert(err, check.IsNil)
 		seedArr[i] = sd
@@ -277,6 +285,7 @@ func (suite *SeedTestSuite) TestSeedRestoreInManager(c *check.C) {
 	for i := 2; i < 4; i++ {
 		sm.RefreshExpireTime(taskIDArr[i], 180*time.Second)
 	}
+	time.Sleep(10 * time.Second)
 
 	// stop sm
 	sm.Stop()
@@ -326,7 +335,8 @@ func (suite *SeedTestSuite) TestSeedSyncWriteAndRead(c *check.C) {
 	taskIDArr := make([]string, 1)
 	taskIDArr[0] = uuid.New()
 
-	sd, err := sm.Register(taskIDArr[0], BaseInfo{URL: fmt.Sprintf("http://%s/%s", suite.host, filePaths[0]),
+	u := fmt.Sprintf("http://%s/%s", suite.host, filePaths[0])
+	sd, err := sm.Register(taskIDArr[0], BaseInfo{RawURL: u, URL: u,
 		TaskID: taskIDArr[0], ExpireTimeDur: time.Second * 30})
 	c.Assert(err, check.IsNil)
 

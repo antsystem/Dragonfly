@@ -21,9 +21,6 @@ import (
 	"crypto/tls"
 	"fmt"
 	"net/http"
-	"os"
-	"os/signal"
-	"syscall"
 
 	"github.com/dragonflyoss/Dragonfly/dfdaemon/config"
 	"github.com/dragonflyoss/Dragonfly/dfdaemon/handler"
@@ -32,6 +29,9 @@ import (
 	"github.com/dragonflyoss/Dragonfly/dfget/core/uploader"
 	"github.com/dragonflyoss/Dragonfly/version"
 
+	"github.com/dragonflyoss/Dragonfly/dfget/corev2/shutdown"
+	"github.com/dragonflyoss/Dragonfly/pkg/certutils"
+	"github.com/dragonflyoss/Dragonfly/pkg/httputils"
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
@@ -39,7 +39,7 @@ import (
 
 // Server represents the dfdaemon server.
 type Server struct {
-	server *http.Server
+	server *http.Server // HTTP server
 	proxy  *proxy.Proxy
 }
 
@@ -57,6 +57,9 @@ func WithTLSFromFile(certFile, keyFile string) Option {
 			return errors.Wrap(err, "load key pair")
 		}
 		s.server.TLSConfig.Certificates = []tls.Certificate{cert}
+		httputils.RegisterClientWithTLSConfig("p2p", &tls.Config{
+			RootCAs: certutils.LoadRootCAs(certFile),
+		})
 		return nil
 	}
 }
@@ -125,6 +128,8 @@ func LaunchPeerServer(cfg config.Properties) error {
 	peerServerConfig.RV.LocalIP = cfg.LocalIP
 	peerServerConfig.RV.PeerPort = cfg.PeerPort
 	peerServerConfig.RV.ServerAliveTime = 0
+	peerServerConfig.RV.KeyPem = cfg.KeyPem
+	peerServerConfig.RV.CertPem = cfg.CertPem
 	port, err := uploader.LaunchPeerServer(peerServerConfig)
 	if err != nil {
 		return err
@@ -136,7 +141,7 @@ func LaunchPeerServer(cfg config.Properties) error {
 // Start runs dfdaemon's http server.
 func (s *Server) Start() error {
 	var err error
-	go captureQuitSignal(s)
+	shutdown.RegisterShutdown(func() { s.Stop(context.Background()) })
 	_ = proxy.WithDirectHandler(handler.New())(s.proxy)
 	s.server.Handler = s.proxy
 	if s.server.TLSConfig != nil {
@@ -146,20 +151,13 @@ func (s *Server) Start() error {
 		logrus.Infof("start dfdaemon http server on %s", s.server.Addr)
 		err = s.server.ListenAndServe()
 	}
+	if err == http.ErrServerClosed { // interrupted by os signal
+		err = nil
+	}
 	return err
 }
 
 // Stop gracefully stops the dfdaemon http server.
 func (s *Server) Stop(ctx context.Context) error {
 	return s.server.Shutdown(ctx)
-}
-
-func captureQuitSignal(sr *Server) {
-	c := make(chan os.Signal, 1)
-	signal.Notify(c, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM)
-	s := <-c
-	logrus.Infof("capture stop signal: %s, will shutdown...", s)
-
-	sr.Stop(context.Background())
-	os.Exit(0)
 }

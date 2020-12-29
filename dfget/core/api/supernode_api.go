@@ -232,7 +232,7 @@ func (api *supernodeAPI) ReportResource(node string, req *types.RegisterRequest)
 		return nil, err
 	}
 
-	logrus.Infof("ReportResource, url: %s, header: %v, req: %v, "+
+	logrus.Debugf("ReportResource, url: %s, header: %v, req: %v, "+
 		"code: %d, body: %s", url, header, req, code, string(body))
 
 	if !httputils.HTTPStatusOk(code) {
@@ -339,7 +339,7 @@ func (api *supernodeAPI) FetchP2PNetworkInfo(node string, start int, limit int, 
 	}
 
 	if rr.Code != constants.Success {
-		return nil, fmt.Errorf("%d:%s", code, rr.Msg)
+		return nil, fmt.Errorf("%d:%s", rr.Code, rr.Msg)
 	}
 
 	return rr.Data, nil

@@ -45,16 +45,24 @@ type DownloadAPI interface {
 
 // downloadAPI is an implementation of interface DownloadAPI.
 type downloadAPI struct {
+	useTLS bool
 }
 
 var _ DownloadAPI = &downloadAPI{}
 
 // NewDownloadAPI returns a new DownloadAPI.
-func NewDownloadAPI() DownloadAPI {
-	return &downloadAPI{}
+func NewDownloadAPI(useTLS bool) DownloadAPI {
+	return &downloadAPI{useTLS}
 }
 
 func (d *downloadAPI) Download(ip string, port int, req *DownloadRequest, timeout time.Duration) (*http.Response, error) {
+	if d.useTLS {
+		return download("https", ip, port, req, timeout)
+	}
+	return download("http", ip, port, req, timeout)
+}
+
+func download(scheme, ip string, port int, req *DownloadRequest, timeout time.Duration) (*http.Response, error) {
 	if req == nil {
 		return nil, fmt.Errorf("nil dwonload request")
 	}
@@ -78,11 +86,11 @@ func (d *downloadAPI) Download(ip string, port int, req *DownloadRequest, timeou
 		url = req.Path
 	} else {
 		rangeStr = req.Range
-		url = fmt.Sprintf("http://%s:%d%s", ip, port, filepath.Join(config.PeerHTTPPathPrefix, req.Path))
+		url = fmt.Sprintf("%s://%s:%d%s", scheme, ip, port, filepath.Join(config.PeerHTTPPathPrefix, req.Path))
 	}
 	headers[config.StrRange] = httputils.ConstructRangeStr(rangeStr)
 
-	return httputils.HTTPGetTimeout(url, headers, timeout)
+	return httputils.HTTPClientDoRequest("p2p", http.MethodGet, url, headers, timeout)
 }
 
 func isFromSource(req *DownloadRequest) bool {

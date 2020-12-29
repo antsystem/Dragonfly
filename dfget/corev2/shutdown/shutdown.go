@@ -14,33 +14,41 @@
  * limitations under the License.
  */
 
-package seed
+package shutdown
 
 import (
-	"io"
-
-	"github.com/dragonflyoss/Dragonfly/dfget/local/seed"
+	"os"
+	"os/signal"
+	"sync"
+	"syscall"
 )
 
-type uploader struct {
-	seedManager seed.Manager
+var (
+	lock       sync.Mutex
+	shutdownFn []func()
+)
+
+func init() {
+	go captureQuitSignal()
 }
 
-func newUploader(seedManager seed.Manager) *uploader {
-	return &uploader{
-		seedManager: seedManager,
+func RegisterShutdown(s func()) {
+	lock.Lock()
+	defer lock.Unlock()
+
+	shutdownFn = append(shutdownFn, s)
+}
+
+func Shutdown() {
+	for _, shutdown := range shutdownFn {
+		shutdown()
 	}
 }
 
-func (up *uploader) UploadRange(path string, off, size int64, opt interface{}) (int64, io.ReadCloser, error) {
-	sd, err := up.seedManager.Get(path)
-	if err != nil {
-		return 0, nil, err
-	}
-	off, size, err = sd.CheckRange(off, size)
-	if err != nil {
-		return 0, nil, err
-	}
-	rc, err := sd.Download(off, size)
-	return size, rc, err
+func captureQuitSignal() {
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM)
+	<-c
+
+	Shutdown()
 }

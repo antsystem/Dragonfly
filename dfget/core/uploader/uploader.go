@@ -22,11 +22,9 @@ package uploader
 import (
 	"fmt"
 	"os"
-	"os/signal"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
-	"syscall"
 	"time"
 	"unsafe"
 
@@ -35,6 +33,7 @@ import (
 	"github.com/dragonflyoss/Dragonfly/pkg/httputils"
 	"github.com/dragonflyoss/Dragonfly/pkg/queue"
 
+	shutdown2 "github.com/dragonflyoss/Dragonfly/dfget/corev2/shutdown"
 	"github.com/sirupsen/logrus"
 )
 
@@ -70,6 +69,10 @@ func LaunchPeerServer(cfg *config.Config) (int, error) {
 	logrus.Infof("********************")
 	logrus.Infof("start peer server...")
 
+	if cfg.RV.KeyPem != "" && cfg.RV.CertPem != "" {
+		// update upload api with tls
+		uploaderAPI = api.NewUploaderAPIWithTLS(5 * time.Second)
+	}
 	res := make(chan error)
 	go func() {
 		res <- launch(cfg, &p2pPtr)
@@ -84,6 +87,7 @@ func LaunchPeerServer(cfg *config.Config) (int, error) {
 	updateServicePortInMeta(cfg.RV.MetaPath, p2p.port)
 	logrus.Infof("start peer server success, host:%s, port:%d",
 		p2p.host, p2p.port)
+	shutdown2.RegisterShutdown(shutdown)
 	go monitorAlive(cfg, 15*time.Second)
 	return p2p.port, nil
 }
@@ -93,6 +97,7 @@ func launch(cfg *config.Config, p2pPtr *unsafe.Pointer) error {
 		retryCount         = 10
 		port               = 0
 		shouldGeneratePort = true
+		err                error
 	)
 	if cfg.RV.PeerPort > 0 {
 		retryCount = 1
@@ -105,7 +110,12 @@ func launch(cfg *config.Config, p2pPtr *unsafe.Pointer) error {
 		}
 		tmp := newPeerServer(cfg, port)
 		storeSrvPtr(p2pPtr, tmp)
-		if err := tmp.ListenAndServe(); err != nil {
+		if tmp.Server.TLSConfig != nil {
+			err = tmp.ListenAndServeTLS("", "")
+		} else {
+			err = tmp.ListenAndServe()
+		}
+		if err != nil {
 			if !strings.Contains(err.Error(), "address already in use") {
 				// start failed or shutdown
 				return err
@@ -136,7 +146,7 @@ func launch(cfg *config.Config, p2pPtr *unsafe.Pointer) error {
 func waitForStartup(result chan error, p2pPtr *unsafe.Pointer) (err error) {
 	ticker := time.NewTicker(5 * time.Millisecond)
 	defer ticker.Stop()
-	timeout := time.After(233 * time.Millisecond)
+	timeout := time.After(2 * time.Second)
 
 	for {
 		select {
@@ -196,13 +206,9 @@ func serverGC(cfg *config.Config, interval time.Duration) {
 	}
 }
 
-func captureQuitSignal() {
-	c := make(chan os.Signal, 1)
-	signal.Notify(c, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM)
-	s := <-c
-	logrus.Infof("capture stop signal: %s, will shutdown...", s)
-
+func shutdown() {
 	if p2p != nil {
+		logrus.Infof("uploader will shutdown...")
 		p2p.shutdown()
 	}
 }
@@ -215,7 +221,6 @@ func monitorAlive(cfg *config.Config, interval time.Duration) {
 	logrus.Info("monitor peer server whether is alive, aliveTime:",
 		cfg.RV.ServerAliveTime)
 	go serverGC(cfg, interval)
-	go captureQuitSignal()
 
 	if cfg.RV.ServerAliveTime <= 0 {
 		return

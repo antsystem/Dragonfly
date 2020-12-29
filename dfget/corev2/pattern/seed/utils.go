@@ -50,6 +50,14 @@ func CopyHeader(src map[string][]string) map[string][]string {
 	return ret
 }
 
+func HeaderToMap(src map[string][]string) map[string]string {
+	hd := make(map[string]string)
+	for k, v := range src {
+		hd[k] = v[0]
+	}
+	return hd
+}
+
 func FilterMatch(filter map[string]map[string]bool, firstKey string, secondKey string, match string) bool {
 	v, ok := filter[firstKey]
 	if !ok {

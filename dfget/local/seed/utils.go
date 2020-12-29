@@ -21,6 +21,10 @@ import (
 	"io"
 )
 
+type ReadAtFrom interface {
+	ReadAtFrom(r io.Reader, off, size int64) (int, error)
+}
+
 // CopyBufferToWriterAt copy data from rd and write to io.WriterAt.
 func CopyBufferToWriterAt(off int64, writerAt io.WriterAt, rd io.Reader) (n int64, err error) {
 	buffer := bytes.NewBuffer(nil)
